@@ -24,14 +24,24 @@ import java.io.FileNotFoundException
  */
 class ImageLoader(private val context: Context) {
 
-    /** Copy [uri]'s bytes to a private session file and return it. */
+    /**
+     * Copy [uri]'s bytes to a private session file and return it. The copy
+     * is written to a temp name and renamed on success, so a mid-copy
+     * failure can never leave a truncated file that looks like a session.
+     */
     suspend fun importImage(uri: Uri): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "sessions").apply { mkdirs() }
         val file = File(dir, "session-${System.currentTimeMillis()}.img")
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            file.outputStream().use { output -> input.copyTo(output) }
-        } ?: throw FileNotFoundException("cannot open $uri")
-        file
+        val tmp = File(dir, "${file.name}.tmp")
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                tmp.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw FileNotFoundException("cannot open $uri")
+            check(tmp.renameTo(file)) { "could not finalize session file" }
+            file
+        } finally {
+            tmp.delete()
+        }
     }
 
     /**

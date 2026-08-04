@@ -156,6 +156,12 @@ private fun WarpEditor(viewModel: EditorViewModel, onBack: () -> Unit) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) {
+                                // Deliberate: gesture CANCEL commits like
+                                // an ordinary lift. The stroke's stamps
+                                // are already visible on the field, so
+                                // committing keeps screen ≡ document;
+                                // discarding would snap pixels back and
+                                // need a rebuild. Undo covers regrets.
                                 viewModel.endStroke()?.let { stroke ->
                                     // Feed the committed stroke to the
                                     // renderer's recovery snapshot (its

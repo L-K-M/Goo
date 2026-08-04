@@ -22,6 +22,16 @@ class StrokeResampler(
     private val aspect: Float,
     private val spacingFraction: Float = SPACING_FRACTION,
 ) {
+    init {
+        // A non-positive radius would make the spacing walk in extend()
+        // loop forever. The editor clamps its radii, but this class is the
+        // contract for every future caller (project-file loading included).
+        require(radius > 0f && spacingFraction > 0f) {
+            "radius and spacing must be positive: r=$radius sf=$spacingFraction"
+        }
+        require(aspect > 0f) { "aspect must be positive: $aspect" }
+    }
+
     private var lastU = 0f
     private var lastV = 0f
     private var started = false

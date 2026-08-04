@@ -20,6 +20,21 @@ class StrokeResamplerTest {
     }
 
     @Test
+    fun `non-positive radius or aspect is rejected at construction`() {
+        // A zero radius would otherwise spin extend()'s spacing walk
+        // forever on the main thread.
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            StrokeResampler(radius = 0f, aspect = 1f)
+        }
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            StrokeResampler(radius = -0.1f, aspect = 1f)
+        }
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            StrokeResampler(radius = 0.1f, aspect = 0f)
+        }
+    }
+
+    @Test
     fun `stationary finger produces no stamps`() {
         assertEquals(0, stampsFor(1f, listOf(0.5f to 0.5f, 0.5f to 0.5f)).size)
     }

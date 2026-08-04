@@ -19,6 +19,11 @@ class GlProgram(vertexSource: String, fragmentSource: String) {
             GLES30.glAttachShader(program, vs)
             GLES30.glAttachShader(program, fs)
             GLES30.glLinkProgram(program)
+            // Delete before the status check so a link failure can't leak
+            // the shader objects; linked (or failed) programs keep their
+            // own copies and GL defers actual deletion while attached.
+            GLES30.glDeleteShader(vs)
+            GLES30.glDeleteShader(fs)
             val status = IntArray(1)
             GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, status, 0)
             check(status[0] == GLES30.GL_TRUE) {
@@ -27,10 +32,6 @@ class GlProgram(vertexSource: String, fragmentSource: String) {
                 "program link failed: $log"
             }
         }
-        // Linked programs keep their own copies; the shader objects are
-        // no longer needed.
-        GLES30.glDeleteShader(vs)
-        GLES30.glDeleteShader(fs)
     }
 
     fun use() = GLES30.glUseProgram(id)
