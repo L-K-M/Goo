@@ -1,5 +1,9 @@
 package ch.lkmc.goo.ui.home
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -20,12 +24,16 @@ import ch.lkmc.goo.ui.components.CandyButton
 import ch.lkmc.goo.ui.theme.CandyPink
 
 /**
- * The In room. For now: branding plus the one door that matters. Photo
- * picking arrives with the warp engine (PLAN.md roadmap #2) — until then the
- * door opens the editor's empty table.
+ * The In room: one giant candy door into the goo. The system Photo Picker
+ * needs no permission and no gallery UI of our own — Goo is an editor,
+ * not a browser (PLAN.md §1).
  */
 @Composable
-fun HomeScreen(onEnterEditor: () -> Unit) {
+fun HomeScreen(onOpenImage: (Uri) -> Unit) {
+    val pickImage = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> uri?.let(onOpenImage) }
+
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
             modifier = Modifier
@@ -49,7 +57,11 @@ fun HomeScreen(onEnterEditor: () -> Unit) {
             CandyButton(
                 label = stringResource(R.string.home_enter_goo),
                 color = CandyPink,
-                onClick = onEnterEditor,
+                onClick = {
+                    pickImage.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
                 size = 128.dp,
             )
         }

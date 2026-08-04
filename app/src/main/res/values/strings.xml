@@ -7,7 +7,14 @@
     <string name="home_tagline">Squish, smear and stretch your photos\nlike wet paint.</string>
     <string name="home_enter_goo">GOO!</string>
 
-    <string name="editor_placeholder_title">The goo table is empty</string>
-    <string name="editor_placeholder_body">The liquid warp engine arrives in the next step. For now, enjoy the felt.</string>
     <string name="editor_back">Back</string>
+    <string name="editor_undo">Undo</string>
+    <string name="editor_redo">Redo</string>
+    <string name="editor_reset">Reset the goo</string>
+    <string name="editor_reset_title">Ungoo everything?</string>
+    <string name="editor_reset_body">The picture goes back to how it started. (Unlike 1996, you can undo this.)</string>
+    <string name="editor_reset_confirm">Reset</string>
+    <string name="editor_reset_cancel">Keep gooing</string>
+    <string name="editor_brush_size">Size</string>
+    <string name="editor_error_title">That didn\'t goo</string>
 </resources>
