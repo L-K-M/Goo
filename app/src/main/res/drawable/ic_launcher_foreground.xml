@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A pink goo blob mid-squish, with a gloss highlight. Hand-authored
+     vector; the blob outline is deliberately lopsided — perfect circles are
+     for serious apps. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Blob shadow on the table -->
+    <path
+        android:fillColor="#0A1412"
+        android:fillAlpha="0.55"
+        android:pathData="M54,82 C70,82 80,78 80,74 C80,70 70,67 54,67 C38,67 28,70 28,74 C28,78 38,82 54,82 Z" />
+
+    <!-- Blob body -->
+    <path
+        android:fillColor="#FF5DA2"
+        android:pathData="M55,26 C67,25 78,33 79,44 C80,53 74,57 76,64 C77,70 70,75 61,75 C52,75 49,72 42,73 C34,74 28,68 29,60 C30,53 26,49 28,41 C30,31 43,27 55,26 Z" />
+
+    <!-- Darker underside for volume -->
+    <path
+        android:fillColor="#D13B7F"
+        android:pathData="M74,58 C74,66 68,72 60,73 C52,74 48,71 42,72 C36,73 31,69 30,64 C34,69 40,70 47,68 C58,65 68,64 74,58 Z" />
+
+    <!-- Gloss highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.65"
+        android:pathData="M44,34 C50,31 58,31 62,34 C65,36 63,40 58,40 C52,40 48,42 45,41 C41,40 41,36 44,34 Z" />
+</vector>

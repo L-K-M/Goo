@@ -1,0 +1,17 @@
+build/
+dist/
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.vscode/
+*.iml
+captures/
+.DS_Store
+
+# Real signing keys must never be committed. The checked-in app/debug.keystore
+# is a deliberate exception (zero-secret CI signing, docs/decisions/0002).
+*.jks
+*.keystore
+*.p12
+!app/debug.keystore

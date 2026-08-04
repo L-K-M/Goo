@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # gradle/actions v6 relicensed its caching component to a proprietary,
+      # commercial ToU (see L-K-M/Blipbird#7). We stay on the fully-open v5;
+      # keep v5.x minor/patch bumps flowing, but don't re-propose the v6 major.
+      - dependency-name: "gradle/actions"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    # Toolchain-coupled artifacts move together; grouped PRs avoid the
+    # piecemeal-bump deadlocks documented in sibling repos.
+    groups:
+      androidx:
+        patterns: ["androidx.*"]
+      kotlin:
+        patterns: ["org.jetbrains.kotlin*", "com.google.devtools.ksp*"]
