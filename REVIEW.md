@@ -20,6 +20,12 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   resolution. Fine at ≤1024 fields (~5 Mpx per dozen stamps); a scissored
   sub-quad is the known optimization if device profiling ever disagrees.
 
+- **G-4** ✨ ⏸️ Pool the per-batch stamp lists in the touch path (GLM 5.2
+  round 1, PR #2, info-level). Each batch crosses the UI→GL thread
+  boundary, so per-batch ownership is inherent; eliminating allocation for
+  real means a pooled ring buffer of primitive arrays. Revisit if frame
+  traces on a low-end device show GC pressure during fast drags.
+
 ## Won't do (for now)
 
 - **G-W1** ⏸️ Packed-RGBA8 displacement-field fallback for GLES3 devices
