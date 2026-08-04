@@ -51,6 +51,9 @@ class GlWarpRenderer(
     private var strokesToReplay: List<Stroke> = emptyList()
     private var contextReady = false
 
+    /** Extension list of the current context; set once per onSurfaceCreated. */
+    private var extensions = ""
+
     /** Aspect (w/h) of the current image; 1 until an image is set. */
     private var aspect = 1f
 
@@ -124,7 +127,7 @@ class GlWarpRenderer(
     // ---- GLSurfaceView.Renderer ----------------------------------------
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        val extensions = GLES30.glGetString(GLES30.GL_EXTENSIONS).orEmpty()
+        extensions = GLES30.glGetString(GLES30.GL_EXTENSIONS).orEmpty()
         if (!PingPongField.supported(extensions)) {
             contextReady = false
             onUnsupported("This device's GPU can't render goo (no float render targets).")
@@ -232,7 +235,6 @@ class GlWarpRenderer(
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
         field?.delete()
-        val extensions = GLES30.glGetString(GLES30.GL_EXTENSIONS).orEmpty()
         val long = maxOf(bitmap.width, bitmap.height).toFloat()
         val scale = (FIELD_MAX_DIM / long).coerceAtMost(1f)
         field = PingPongField(

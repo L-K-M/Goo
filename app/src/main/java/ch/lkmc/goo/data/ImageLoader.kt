@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
+import java.util.UUID
 
 /**
  * Brings a picked photo into an editing session.
@@ -31,7 +32,7 @@ class ImageLoader(private val context: Context) {
      */
     suspend fun importImage(uri: Uri): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "sessions").apply { mkdirs() }
-        val file = File(dir, "session-${System.currentTimeMillis()}.img")
+        val file = File(dir, "session-${UUID.randomUUID()}.img")
         val tmp = File(dir, "${file.name}.tmp")
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->

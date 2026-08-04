@@ -72,14 +72,19 @@ fun EditorScreen(
 
             state.error != null -> ErrorPane(message = state.error!!, onBack = onBack)
 
-            state.bitmap != null -> WarpEditor(viewModel = viewModel, onBack = onBack)
+            state.bitmap != null -> WarpEditor(viewModel = viewModel, state = state, onBack = onBack)
         }
     }
 }
 
 @Composable
-private fun WarpEditor(viewModel: EditorViewModel, onBack: () -> Unit) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
+private fun WarpEditor(
+    viewModel: EditorViewModel,
+    // Collected once in EditorScreen and passed down — a second
+    // collectAsStateWithLifecycle here would spin up a redundant collector.
+    state: EditorViewModel.UiState,
+    onBack: () -> Unit,
+) {
     val bitmap = state.bitmap ?: return
     var surface by remember { mutableStateOf<WarpSurfaceView?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -324,6 +329,7 @@ private fun ErrorPane(message: String, onBack: () -> Unit) {
             text = message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         TextButton(onClick = onBack) {
             Text(stringResource(R.string.editor_back), color = CandyCyan)
