@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup (API 26-30 path). Settings are tiny and harmless to back
+     up; nothing sensitive exists in this app (no accounts, no keys). -->
+<full-backup-content>
+    <include domain="file" path="datastore" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

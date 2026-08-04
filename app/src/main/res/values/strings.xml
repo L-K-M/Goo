@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The single user-visible source of the app name (PLAN.md "Renaming"):
+         change it here and the launcher, home screen, and window all follow. -->
+    <string name="app_name">Goo</string>
+
+    <string name="home_tagline">Squish, smear and stretch your photos\nlike wet paint.</string>
+    <string name="home_enter_goo">GOO!</string>
+
+    <string name="editor_placeholder_title">The goo table is empty</string>
+    <string name="editor_placeholder_body">The liquid warp engine arrives in the next step. For now, enjoy the felt.</string>
+    <string name="editor_back">Back</string>
+</resources>

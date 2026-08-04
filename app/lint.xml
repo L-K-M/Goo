@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- Adaptive icons must live in -v26 even with minSdk 26: AAPT2 only
+         resolves <adaptive-icon> resources from a versioned anydpi folder
+         (moving them to plain mipmap-anydpi breaks resource linking). The
+         "unnecessary folder version" advice is wrong in this one case. -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="**/mipmap-anydpi-v26" />
+    </issue>
+</lint>
