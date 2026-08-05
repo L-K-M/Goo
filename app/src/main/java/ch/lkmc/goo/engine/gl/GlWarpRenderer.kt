@@ -16,6 +16,8 @@ import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
+import ch.lkmc.goo.engine.core.StrokeRevision
+import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.media.MovieEncoder
@@ -110,12 +112,12 @@ class GlWarpRenderer(
     private var sourceTextureB = 0
 
     // ---- GOOvie tween state --------------------------------------------
-    // Two endpoint fields materialized by replaying stroke-log prefixes;
+    // Two endpoint fields materialized by replaying immutable revisions;
     // the warp pass mixes them (PLAN.md §4.1). tweenT < 0 means live mode.
     private var endpointA: PingPongField? = null
     private var endpointB: PingPongField? = null
-    private var loadedCountA = -1
-    private var loadedCountB = -1
+    private var loadedRevisionA: StrokeRevisionId? = null
+    private var loadedRevisionB: StrokeRevisionId? = null
     private var tweenT = -1f
     private var tweenGlobals = GlobalParams()
 
@@ -223,13 +225,10 @@ class GlWarpRenderer(
     /** Clear the field and replay [strokes] — undo/redo/reset path. */
     fun rebuild(strokes: List<Stroke>) {
         strokesToReplay = strokes
-        // The endpoint cache is keyed by stroke COUNT, which is only valid
-        // while the log is append-only. Every non-append change (undo/redo/
-        // reset, and push-after-undo truncation) funnels through here — a
-        // stale prefix under an unchanged count would show deleted strokes
-        // on the next scrub.
-        loadedCountA = -1
-        loadedCountB = -1
+        // A rebuild may recreate field storage or switch document state;
+        // force endpoint cache validation on the next scrub.
+        loadedRevisionA = null
+        loadedRevisionB = null
         val f = field ?: return
         f.clear()
         for (stroke in strokes) stampBatch(stroke, stroke.stamps)
@@ -237,33 +236,38 @@ class GlWarpRenderer(
 
     /**
      * Enter/refresh a GOOvie tween: materialize the segment's endpoint
-     * fields (log prefixes of [countA]/[countB] strokes) and mix them at
-     * [t] with [lerpedGlobals] on the levers. Endpoint replays are cached
-     * by count — scrubbing within a segment is uniform-only, and stepping
+     * fields for [revisionA]/[revisionB] and mix them at [t] with
+     * [lerpedGlobals] on the levers. Endpoint replays are cached by stable
+     * revision ID — scrubbing within a segment is uniform-only, and stepping
      * to a neighboring segment reuses the shared endpoint by swapping
      * slots instead of replaying it.
      */
-    fun tweenTo(strokes: List<Stroke>, countA: Int, countB: Int, t: Float, lerpedGlobals: GlobalParams) {
+    fun tweenTo(
+        revisionA: StrokeRevision,
+        revisionB: StrokeRevision,
+        t: Float,
+        lerpedGlobals: GlobalParams,
+    ) {
         val f = field ?: return
         // Adjacent-segment moves: the endpoint we need may already be
         // loaded in the other slot.
-        if (countA != loadedCountA && countA == loadedCountB ||
-            countB != loadedCountB && countB == loadedCountA
+        if (revisionA.id != loadedRevisionA && revisionA.id == loadedRevisionB ||
+            revisionB.id != loadedRevisionB && revisionB.id == loadedRevisionA
         ) {
             val tmpField = endpointA
             endpointA = endpointB
             endpointB = tmpField
-            val tmpCount = loadedCountA
-            loadedCountA = loadedCountB
-            loadedCountB = tmpCount
+            val tmpRevision = loadedRevisionA
+            loadedRevisionA = loadedRevisionB
+            loadedRevisionB = tmpRevision
         }
-        if (loadedCountA != countA) {
-            loadedCountA = countA
-            materializeInto(ensureEndpointA(f), strokes, countA)
+        if (loadedRevisionA != revisionA.id) {
+            loadedRevisionA = revisionA.id
+            materializeInto(ensureEndpointA(f), revisionA)
         }
-        if (loadedCountB != countB) {
-            loadedCountB = countB
-            materializeInto(ensureEndpointB(f), strokes, countB)
+        if (loadedRevisionB != revisionB.id) {
+            loadedRevisionB = revisionB.id
+            materializeInto(ensureEndpointB(f), revisionB)
         }
         tweenT = t.coerceIn(0f, 1f)
         tweenGlobals = lerpedGlobals
@@ -286,7 +290,6 @@ class GlWarpRenderer(
      * or EGL failure lands in onResult(false), never a crash.
      */
     fun renderMovie(
-        strokes: List<Stroke>,
         keyframes: List<Keyframe>,
         outputFile: File,
         onProgress: (Float) -> Unit,
@@ -330,9 +333,8 @@ class GlWarpRenderer(
                 // no-op when already current) so this loop never depends
                 // on a non-local "nothing changed the surface" invariant.
                 tweenTo(
-                    strokes,
-                    GoovieTimeline.clampCount(a, strokes.size),
-                    GoovieTimeline.clampCount(b, strokes.size),
+                    a.revision,
+                    b.revision,
                     t,
                     a.globals.lerp(b.globals, t),
                 )
@@ -472,11 +474,10 @@ class GlWarpRenderer(
             ?: PingPongField(like.width, like.height, PingPongField.hasHalfFloat(extensions))
                 .also { endpointB?.delete(); endpointB = it }
 
-    private fun materializeInto(target: PingPongField, strokes: List<Stroke>, count: Int) {
+    private fun materializeInto(target: PingPongField, revision: StrokeRevision) {
         target.clear()
-        val upTo = count.coerceIn(0, strokes.size)
-        for (i in 0 until upTo) {
-            stampInto(target, aspect, strokes[i], strokes[i].stamps)
+        for (stroke in revision.materialize()) {
+            stampInto(target, aspect, stroke, stroke.stamps)
         }
     }
 
@@ -536,8 +537,8 @@ class GlWarpRenderer(
         field = null
         endpointA = null
         endpointB = null
-        loadedCountA = -1
-        loadedCountB = -1
+        loadedRevisionA = null
+        loadedRevisionB = null
         rebuildImageState()
     }
 
@@ -685,8 +686,8 @@ class GlWarpRenderer(
         endpointB?.delete()
         endpointA = null
         endpointB = null
-        loadedCountA = -1
-        loadedCountB = -1
+        loadedRevisionA = null
+        loadedRevisionB = null
         uploadImageB()
         rebuild(strokesToReplay)
     }

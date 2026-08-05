@@ -76,13 +76,13 @@ Liquify works internally, and it buys us everything at once:
   stamping, milliseconds). Periodic field snapshots bound worst-case replay.
 - **Animation ≈ free**: a keyframe is a saved field state; tweening two
   fields is `mix(D₁, D₂, t)` in the shader. Refined at build time (#7):
-  keyframes are stored as document pins `(strokeCount, globals)` —
-  kilobytes for 64 of them — and only the active segment's two endpoint
-  fields are materialized (by replay, cached by count, slot-swapped for
-  adjacent segments). Naive per-keyframe field snapshots would cost
-  hundreds of MB. Levers lerp on the CPU into the same warp uniforms.
-  Edits and history are paused while the strip is open so pins can't
-  shift under a scrub; keyframes live in session memory like the log.
+  keyframes pin immutable, structurally shared stroke revisions plus globals,
+  so later undo branches cannot change a captured frame. Only the active
+  segment's two endpoint fields are materialized (by replay, cached by stable
+  revision ID, slot-swapped for adjacent segments). Naive per-keyframe field
+  snapshots would cost hundreds of MB. Levers lerp on the CPU into the same
+  warp uniforms. Edits and history are paused while the strip is open;
+  keyframes live in session memory like the log.
 - **Crash/context-loss safety**: GPU state is a cache. The stroke log is the
   document; after EGL context loss the field is rebuilt by replay.
 

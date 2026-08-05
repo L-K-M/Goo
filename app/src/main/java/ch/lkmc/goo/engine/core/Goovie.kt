@@ -1,19 +1,18 @@
 package ch.lkmc.goo.engine.core
 
-import kotlinx.serialization.Serializable
-
 /**
- * One GOOvie keyframe (PLAN.md §4.1): a pin into the document, not a
- * bitmap — the stroke-log position plus the lever values at capture.
- * Kilobytes for a whole movie; the GPU materializes fields on demand by
- * replay. Reordering keyframes reorders playback, the pins stay put.
+ * One GOOvie keyframe (PLAN.md §4.1): a stable revision pin plus the lever
+ * values at capture, not a bitmap. The GPU materializes fields on demand by
+ * replay. Reordering keyframes reorders playback; history branching cannot
+ * change the immutable revision each frame points to.
  */
-@Serializable
 data class Keyframe(
-    /** Number of committed strokes included (log prefix length). */
-    val strokeCount: Int,
+    val revision: StrokeRevision,
     val globals: GlobalParams,
-)
+) {
+    val revisionId: StrokeRevisionId
+        get() = revision.id
+}
 
 /**
  * Pure timeline math for scrubbing and playback over a keyframe list.
@@ -55,13 +54,6 @@ object GoovieTimeline {
         return if (next >= span) next.mod(span) else next
     }
 
-    /**
-     * A keyframe's stroke pin, clamped to what the log still holds —
-     * undo followed by a new stroke truncates the redo branch, and any
-     * keyframe pointing past the cut simply shows the truncated state.
-     */
-    fun clampCount(keyframe: Keyframe, logSize: Int): Int =
-        keyframe.strokeCount.coerceIn(0, logSize)
 }
 
 /** Linear lever interpolation for tween scrubbing. */

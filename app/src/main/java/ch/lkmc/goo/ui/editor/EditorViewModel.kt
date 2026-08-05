@@ -23,6 +23,7 @@ import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
 import ch.lkmc.goo.engine.core.StrokeResampler
+import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.ui.navigation.EditorRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -105,9 +106,8 @@ class EditorViewModel @Inject constructor(
 
     /** Everything the GL thread needs to show one scrub position. */
     data class TweenRequest(
-        val strokes: List<Stroke>,
-        val countA: Int,
-        val countB: Int,
+        val revisionA: StrokeRevision,
+        val revisionB: StrokeRevision,
         val t: Float,
         val lerpedGlobals: GlobalParams,
     )
@@ -451,11 +451,10 @@ class EditorViewModel @Inject constructor(
     }
 
     // ---- GOOvies -------------------------------------------------------
-    // A keyframe pins (strokeCount, globals) — the document stays the
-    // single source of truth and endpoints materialize by replay
-    // (PLAN.md §4.1). Canvas edits and history buttons are disabled while
-    // the strip is open, so pins can't go stale mid-scrub. Keyframes live
-    // in session memory only, like the stroke log they point into.
+    // A keyframe pins an immutable stroke revision plus globals — the
+    // document stays the single source of truth and endpoints materialize by
+    // replay (PLAN.md §4.1). Pins survive later undo branches because their
+    // revision identity and ancestry never change.
 
     fun toggleGoovie() {
         // A second finger can tap the Movie bead mid-gesture. Commit (not
@@ -482,7 +481,7 @@ class EditorViewModel @Inject constructor(
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
         _uiState.update { s ->
             if (s.keyframes.size >= MAX_KEYFRAMES) return@update s
-            val kf = Keyframe(strokeCount = log.strokes.size, globals = s.globals)
+            val kf = Keyframe(revision = log.currentRevision, globals = s.globals)
             val list = s.keyframes + kf
             s.copy(
                 keyframes = list,
@@ -569,7 +568,6 @@ class EditorViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(exportingMovie = true, movieProgress = 0f, playing = false) }
-        val strokes = log.strokes
         val keyframes = s.keyframes
         // The work file's mkdirs/cleanup is disk I/O — off the main thread.
         viewModelScope.launch {
@@ -586,7 +584,6 @@ class EditorViewModel @Inject constructor(
             }
             bridge.invoke {
                 renderMovie(
-                    strokes = strokes,
                     keyframes = keyframes,
                     outputFile = workFile,
                     // MutableStateFlow.update is thread-safe; GL thread is fine.
@@ -627,7 +624,7 @@ class EditorViewModel @Inject constructor(
                 // invalidation), so this is at most two replays.
                 tweenRequest()?.let { r ->
                     engineBridge?.invoke {
-                        tweenTo(r.strokes, r.countA, r.countB, r.t, r.lerpedGlobals)
+                        tweenTo(r.revisionA, r.revisionB, r.t, r.lerpedGlobals)
                     }
                 }
             }
@@ -638,16 +635,14 @@ class EditorViewModel @Inject constructor(
     fun tweenRequest(): TweenRequest? {
         val s = _uiState.value
         if (!s.goovieMode || s.keyframes.size < 2) return null
-        val strokes = log.strokes
         val size = s.keyframes.size
         val k = GoovieTimeline.segment(s.scrubPos, size)
         val t = GoovieTimeline.fraction(s.scrubPos, size)
         val a = s.keyframes[k]
         val b = s.keyframes[k + 1]
         return TweenRequest(
-            strokes = strokes,
-            countA = GoovieTimeline.clampCount(a, strokes.size),
-            countB = GoovieTimeline.clampCount(b, strokes.size),
+            revisionA = a.revision,
+            revisionB = b.revision,
             t = t,
             lerpedGlobals = a.globals.lerp(b.globals, t),
         )

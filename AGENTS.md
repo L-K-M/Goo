@@ -62,6 +62,8 @@ lives in `engine/core` as pure JVM classes.
   pin the semantics.
 - Brush geometry is computed in normalized source coordinates, never screen
   pixels — preview/export parity depends on it (PLAN.md §5.4).
+- Keyframes and replay caches pin immutable `StrokeRevision` identity, never a
+  stroke count or history cursor; counts are reused after undo branching.
 - The app has **no INTERNET permission**. Keep it that way; adding any
   network dependency is a product decision requiring an ADR.
 - App display name lives ONLY in `strings.xml` `app_name` (rename
