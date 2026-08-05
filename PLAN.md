@@ -286,6 +286,8 @@ User-feedback PRs after the v1.0.0 tag, same one-PR-one-feature policy:
 | 11 | Brush preview overlay  | transparent size/strength circle while a slider is in hand, plus a live cursor ring during strokes |
 | 12 | View navigation        | two-finger pan/zoom/rotate of the preview (paint stays 1-finger), spring-back Reset View button |
 | 13 | Crop                   | freeform reframe from the editor rail. Document-space change, not an edit: strokes/keyframes record UVs of the frame they were painted on, so applying a crop restarts the goo (confirmed when there's goo to lose) and clears history hard ([StrokeLog.clearHistory]). The rect lives in normalized upright ORIGINAL-image space — session bytes stay original, decode applies the rect (preview and export alike), so quality never pays for a re-encode and "back to the full picture" always exists. Re-crops compose inward; the decode target scales up to a 4096 cap so cropped previews stay sharp. |
+| 14 | Meltorama 2000         | rename (short form "Meltorama" for the launcher; claim "Goo Your Photos"; appId unchanged) plus the retro-future console re-skin: gunmetal panels with milled bevels, neon domes in swept-chrome rims, horizon-grid In room, chrome wordmark that measures itself to fit. |
+| 15 | Unsaved-work exit guard | Back (rail bead and system gesture alike) asks before ending a session that holds work — strokes, levers, keyframes, a Fusion photo or a crop ([UiState.hasUnsavedWork]). Back also leaves crop mode instead of the room. Interim: the real fix is project persistence (ANALYSIS SOL-34), and the dialog says so rather than pretending a save exists. |
 
 ### Renaming
 
