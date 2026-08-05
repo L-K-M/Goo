@@ -50,10 +50,11 @@ class ImageSaver(private val context: Context) {
      */
     suspend fun writeShareCache(bitmap: Bitmap, format: ExportFormat, quality: Int): Uri =
         withContext(Dispatchers.IO) {
-            val dir = File(context.cacheDir, "share").apply { mkdirs() }
-            // One share at a time; clear predecessors so the cache can't grow.
-            dir.listFiles()?.forEach { it.delete() }
-            val file = File(dir, format.fileName(System.currentTimeMillis()))
+            val dir = File(context.cacheDir, "share")
+            val file = ShareCache.destination(
+                dir,
+                format.fileName(System.currentTimeMillis()),
+            )
             file.outputStream().use { out ->
                 check(bitmap.compress(format.compressFormat, quality, out)) { "compress failed" }
             }

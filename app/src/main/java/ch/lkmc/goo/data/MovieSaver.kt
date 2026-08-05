@@ -46,10 +46,9 @@ class MovieSaver(private val context: Context) {
 
     /** Share-ready copy in the FileProvider cache; content:// uri. */
     suspend fun writeShareCache(movie: File): Uri = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "share").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
-        val file = File(dir, movie.name)
-        movie.copyTo(file, overwrite = true)
+        val dir = File(context.cacheDir, "share")
+        val file = ShareCache.destination(dir, movie.name)
+        movie.copyTo(file)
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
