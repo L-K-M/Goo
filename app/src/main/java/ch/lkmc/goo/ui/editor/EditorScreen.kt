@@ -522,12 +522,19 @@ private fun WarpEditor(
             // image height) → canvas px → scaled by the view zoom.
             val cursor = strokePos
             if (cursor != null && canvasSize.width > 0) {
-                val fit = FitTransform(
-                    viewWidth = canvasSize.width.toFloat(),
-                    viewHeight = canvasSize.height.toFloat(),
-                    imageWidth = bitmap.width.toFloat(),
-                    imageHeight = bitmap.height.toFloat(),
-                )
+                // Remembered across the per-frame recompositions a drag
+                // drives; recomputed only when the canvas or image changes.
+                // (The radius read below needs no State: it is frozen at
+                // beginStroke by design, and strokePos — a State — is what
+                // moves the ring.)
+                val fit = remember(canvasSize, bitmap.width, bitmap.height) {
+                    FitTransform(
+                        viewWidth = canvasSize.width.toFloat(),
+                        viewHeight = canvasSize.height.toFloat(),
+                        imageWidth = bitmap.width.toFloat(),
+                        imageHeight = bitmap.height.toFloat(),
+                    )
+                }
                 val ringRadius =
                     viewModel.liveStrokeParams().radius * fit.fittedHeight * view.scale
                 Canvas(modifier = Modifier.fillMaxSize()) {
