@@ -14,17 +14,22 @@ import kotlinx.serialization.Serializable
 object HomeRoute
 
 @Serializable
-object EditorRoute
+data class EditorRoute(val imageUri: String)
 
 @Composable
 fun GooNavHost() {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = HomeRoute) {
         composable<HomeRoute> {
-            HomeScreen(onEnterEditor = { navController.navigate(EditorRoute) })
+            HomeScreen(
+                onOpenImage = { uri -> navController.navigate(EditorRoute(uri.toString())) },
+            )
         }
         composable<EditorRoute> {
-            EditorScreen(onBack = { navController.popBackStack() })
+            // navigateUp, not popBackStack: a second tap during the pop
+            // transition would otherwise pop the start destination too and
+            // leave an empty NavHost; navigateUp no-ops at the root.
+            EditorScreen(onBack = { navController.navigateUp() })
         }
     }
 }
