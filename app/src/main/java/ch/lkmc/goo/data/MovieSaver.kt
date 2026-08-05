@@ -95,7 +95,7 @@ class MovieSaver(private val context: Context) {
     }
 
     private fun fileName(timestamp: Long): String {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(timestamp)
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(timestamp)
         return "goovie_$stamp.mp4"
     }
 

@@ -13,7 +13,7 @@ enum class ExportFormat(
     PNG("image/png", "png", Bitmap.CompressFormat.PNG, supportsQuality = false),
     ;
 
-    /** Millisecond precision also avoids legacy app-storage overwrites. */
+    /** goo-20260805-153012-123.jpg; legacy storage adds a UUID suffix. */
     fun fileName(timestampMillis: Long): String {
         val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss-SSS", java.util.Locale.US)
             .format(java.util.Date(timestampMillis))
