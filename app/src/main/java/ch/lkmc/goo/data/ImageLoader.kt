@@ -80,20 +80,30 @@ class ImageLoader(private val context: Context) {
     suspend fun decodeCover(file: File, targetWidth: Int, targetHeight: Int): Bitmap =
         withContext(Dispatchers.IO) {
             val upright = decodePreview(file, maxDimension = maxOf(targetWidth, targetHeight))
-            val crop = CoverCrop.rect(
-                upright.width, upright.height,
-                targetWidth.toFloat() / targetHeight,
-            )
-            val cropped = Bitmap.createBitmap(upright, crop[0], crop[1], crop[2], crop[3])
-            val scaled = cropped.scale(targetWidth, targetHeight)
-            // createBitmap/scale may return their input; never recycle a
-            // bitmap that is also the result. When the crop is full-frame
-            // (cropped === upright) but the scale still resizes, upright is
-            // NOT the result and must be recycled — checking it against
-            // cropped here would skip exactly that case and leak it.
-            if (cropped !== upright && cropped !== scaled) cropped.recycle()
-            if (upright !== scaled) upright.recycle()
-            scaled
+            var cropped: Bitmap? = null
+            try {
+                val crop = CoverCrop.rect(
+                    upright.width, upright.height,
+                    targetWidth.toFloat() / targetHeight,
+                )
+                val c = Bitmap.createBitmap(upright, crop[0], crop[1], crop[2], crop[3])
+                cropped = c
+                val scaled = c.scale(targetWidth, targetHeight)
+                // createBitmap/scale may return their input; never recycle a
+                // bitmap that is also the result. When the crop is full-frame
+                // (c === upright) but the scale still resizes, upright is
+                // NOT the result and must be recycled — checking it against
+                // c here would skip exactly that case and leak it.
+                if (c !== upright && c !== scaled) c.recycle()
+                if (upright !== scaled) upright.recycle()
+                scaled
+            } catch (e: Exception) {
+                // Eager-free on the failure path too (an OOM mid-scale is
+                // exactly when a stranded multi-megapixel bitmap hurts).
+                cropped?.takeIf { it !== upright }?.recycle()
+                upright.recycle()
+                throw e
+            }
         }
 
     /**
