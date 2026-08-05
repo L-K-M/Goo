@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import ch.lkmc.goo.data.ExportFormat
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.data.MovieSaver
 import ch.lkmc.goo.data.OnboardingPrefs
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
@@ -62,6 +63,7 @@ class EditorViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val imageLoader: ImageLoader,
     private val imageSaver: ImageSaver,
+    private val movieSaver: MovieSaver,
     private val onboardingPrefs: OnboardingPrefs,
 ) : ViewModel() {
 
@@ -94,6 +96,9 @@ class EditorViewModel @Inject constructor(
         val playing: Boolean = false,
         /** Strip selection for delete/reorder; -1 = none. */
         val selectedKeyframe: Int = -1,
+        /** MP4 export in flight; [movieProgress] in [0,1] feeds the bar. */
+        val exportingMovie: Boolean = false,
+        val movieProgress: Float = 0f,
     )
 
     /** Everything the GL thread needs to show one scrub position. */
@@ -449,6 +454,73 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Export the GOOvie as MP4: the GL thread renders every tweened frame
+     * into the encoder surface (renderMovie), then the result lands in the
+     * Movies collection [share] false, or the share sheet [share] true —
+     * through the same ExportEvent flow the image path uses.
+     */
+    fun exportGoovie(share: Boolean) {
+        val s = _uiState.value
+        if (s.exportingMovie || s.keyframes.size < 2) return
+        val bridge = engineBridge
+        if (bridge == null) {
+            _exportEvents.trySend(ExportEvent.Failed("editor is not ready"))
+            return
+        }
+        _uiState.update { it.copy(exportingMovie = true, movieProgress = 0f, playing = false) }
+        val workFile = movieSaver.createWorkFile()
+        val strokes = log.strokes
+        val keyframes = s.keyframes
+        bridge.invoke {
+            renderMovie(
+                strokes = strokes,
+                keyframes = keyframes,
+                outputFile = workFile,
+                // MutableStateFlow.update is thread-safe; GL thread is fine.
+                onProgress = { p -> _uiState.update { it.copy(movieProgress = p) } },
+                onResult = { ok -> onMovieRendered(ok, workFile, share) },
+            )
+        }
+    }
+
+    /** GL-thread completion → IO save → main-thread events. */
+    private fun onMovieRendered(ok: Boolean, workFile: File, share: Boolean) {
+        viewModelScope.launch {
+            try {
+                if (!ok) {
+                    _exportEvents.send(ExportEvent.Failed("movie export failed"))
+                    return@launch
+                }
+                if (share) {
+                    val uri = movieSaver.writeShareCache(workFile)
+                    _exportEvents.send(ExportEvent.ShareReady(uri, MovieSaver.MIME_MP4))
+                } else {
+                    val result = movieSaver.save(workFile)
+                    _exportEvents.send(
+                        ExportEvent.Saved(toGallery = result is MovieSaver.SaveResult.Gallery),
+                    )
+                }
+            } catch (e: Exception) {
+                _exportEvents.send(ExportEvent.Failed(e.message ?: "movie save failed"))
+            } finally {
+                workFile.delete()
+                _uiState.update { it.copy(exportingMovie = false, movieProgress = 0f) }
+                // The movie loop left the endpoint cache at ITS last
+                // segment; the screen's tween effect won't refire (nothing
+                // it keys on changed), so re-sync the preview's scrub
+                // position explicitly. Cache contents stay valid (the log
+                // can't have changed under a queued rebuild without
+                // invalidation), so this is at most two replays.
+                tweenRequest()?.let { r ->
+                    engineBridge?.invoke {
+                        tweenTo(r.strokes, r.countA, r.countB, r.t, r.lerpedGlobals)
+                    }
+                }
+            }
+        }
+    }
+
     /** The engine payload for the current scrub position; null = live. */
     fun tweenRequest(): TweenRequest? {
         val s = _uiState.value
@@ -556,8 +628,11 @@ class EditorViewModel @Inject constructor(
         exportJob = null
         // The job's finally lands a dispatcher tick later; restore idle
         // state synchronously so callers see it immediately (idempotent
-        // with the finally's own reset).
-        _uiState.update { it.copy(exporting = false) }
+        // with the finally's own reset). exportingMovie too: a queued
+        // renderMovie is DROPPED when the GL thread exits (surface
+        // teardown/rotation) — its onResult never fires, and the VM
+        // outlives the surface, so the flag would wedge forever.
+        _uiState.update { it.copy(exporting = false, exportingMovie = false, movieProgress = 0f) }
     }
 
     private fun refreshHistoryFlags() {

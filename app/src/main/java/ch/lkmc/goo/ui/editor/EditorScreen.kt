@@ -399,12 +399,15 @@ private fun WarpEditor(
                     playing = state.playing,
                     selected = state.selectedKeyframe,
                     canCapture = state.keyframes.size < EditorViewModel.MAX_KEYFRAMES,
+                    exporting = state.exportingMovie,
+                    exportProgress = state.movieProgress,
                     onCapture = viewModel::captureKeyframe,
                     onSelect = viewModel::selectKeyframe,
                     onDelete = viewModel::deleteSelectedKeyframe,
                     onMove = viewModel::moveSelectedKeyframe,
                     onScrub = viewModel::scrubTo,
                     onPlayToggle = { viewModel.setPlaying(!state.playing) },
+                    onExport = viewModel::exportGoovie,
                 )
                 EditorPanel.BRUSH -> BrushRail(
                     tool = state.tool,

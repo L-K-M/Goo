@@ -3,6 +3,7 @@ package ch.lkmc.goo.di
 import android.content.Context
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.data.MovieSaver
 import ch.lkmc.goo.data.OnboardingPrefs
 import dagger.Module
 import dagger.Provides
@@ -29,4 +30,9 @@ object AppModule {
     @Singleton
     fun provideOnboardingPrefs(@ApplicationContext context: Context): OnboardingPrefs =
         OnboardingPrefs(context)
+
+    @Provides
+    @Singleton
+    fun provideMovieSaver(@ApplicationContext context: Context): MovieSaver =
+        MovieSaver(context)
 }

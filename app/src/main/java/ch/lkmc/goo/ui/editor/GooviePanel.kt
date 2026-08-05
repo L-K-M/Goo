@@ -19,8 +19,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -44,6 +47,7 @@ import ch.lkmc.goo.ui.components.CandyIconButton
 import ch.lkmc.goo.ui.components.darken
 import ch.lkmc.goo.ui.components.lighten
 import ch.lkmc.goo.ui.theme.CandyCyan
+import ch.lkmc.goo.ui.theme.CandyGrape
 import ch.lkmc.goo.ui.theme.CandyLemon
 import ch.lkmc.goo.ui.theme.CandyLime
 import ch.lkmc.goo.ui.theme.CandyOrange
@@ -64,12 +68,15 @@ fun GooviePanel(
     playing: Boolean,
     selected: Int,
     canCapture: Boolean,
+    exporting: Boolean,
+    exportProgress: Float,
     onCapture: () -> Unit,
     onSelect: (Int) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
     onScrub: (Float) -> Unit,
     onPlayToggle: () -> Unit,
+    onExport: (share: Boolean) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -90,7 +97,10 @@ fun GooviePanel(
                 ),
                 color = CandyLime,
                 selected = playing,
-                enabled = keyframes.size >= 2,
+                // Playing during an export would advance a preview the
+                // busy GL thread can't draw — a frozen image and a queue
+                // of no-op tweens.
+                enabled = keyframes.size >= 2 && !exporting,
                 onClick = onPlayToggle,
             )
             LazyRow(
@@ -114,12 +124,30 @@ fun GooviePanel(
                 contentDescription = stringResource(R.string.goovie_capture),
                 color = CandyPink,
                 selected = false,
-                enabled = canCapture,
+                enabled = canCapture && !exporting,
                 onClick = onCapture,
             )
         }
 
-        if (keyframes.isEmpty()) {
+        if (exporting) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.goovie_exporting),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LinearProgressIndicator(
+                    progress = { exportProgress },
+                    modifier = Modifier.weight(1f),
+                    color = CandyLime,
+                    trackColor = GooTableShadow,
+                )
+            }
+        } else if (keyframes.isEmpty()) {
             Text(
                 text = stringResource(R.string.goovie_empty_hint),
                 style = MaterialTheme.typography.bodySmall,
@@ -169,6 +197,26 @@ fun GooviePanel(
                     selected = false,
                     enabled = selected >= 0,
                     onClick = onDelete,
+                    size = 38.dp,
+                )
+                CandyIconButton(
+                    icon = Icons.Filled.Download,
+                    contentDescription = stringResource(R.string.goovie_save_movie),
+                    color = CandyGrape,
+                    selected = false,
+                    enabled = keyframes.size >= 2,
+                    haptic = false,
+                    onClick = { onExport(false) },
+                    size = 38.dp,
+                )
+                CandyIconButton(
+                    icon = Icons.Filled.IosShare,
+                    contentDescription = stringResource(R.string.goovie_share_movie),
+                    color = CandyGrape,
+                    selected = false,
+                    enabled = keyframes.size >= 2,
+                    haptic = false,
+                    onClick = { onExport(true) },
                     size = 38.dp,
                 )
             }

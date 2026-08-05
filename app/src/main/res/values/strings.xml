@@ -39,6 +39,9 @@
     <string name="goovie_move_earlier">Move keyframe earlier</string>
     <string name="goovie_move_later">Move keyframe later</string>
     <string name="goovie_empty_hint">Goo the photo, then punch keyframes — scrub or play to watch it dance.</string>
+    <string name="goovie_save_movie">Save GOOvie as video</string>
+    <string name="goovie_share_movie">Share GOOvie</string>
+    <string name="goovie_exporting">Filming…</string>
     <string name="lever_bulge">Bulge</string>
     <string name="lever_twirl">Twirl</string>
     <string name="lever_squeeze">Squeeze</string>

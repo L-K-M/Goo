@@ -1,6 +1,8 @@
 package ch.lkmc.goo.engine.gl
 
 import android.graphics.Bitmap
+import android.opengl.EGL14
+import android.opengl.EGLExt
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
@@ -9,8 +11,14 @@ import androidx.core.graphics.createBitmap
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.GoovieTimeline
+import ch.lkmc.goo.engine.core.Keyframe
+import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
+import ch.lkmc.goo.engine.core.lerp
+import ch.lkmc.goo.engine.media.MovieEncoder
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -84,6 +92,9 @@ class GlWarpRenderer(
 
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
+
+    /** Set by WarpSurfaceView: whether the context config is recordable. */
+    var recordableConfig: (() -> Boolean)? = null
 
     // ---- GOOvie tween state --------------------------------------------
     // Two endpoint fields materialized by replaying stroke-log prefixes;
@@ -215,6 +226,176 @@ class GlWarpRenderer(
     /** Leave GOOvie mode: the warp pass reads the live field again. */
     fun clearTween() {
         tweenT = -1f
+    }
+
+    /**
+     * Render the whole GOOvie into an MP4 (PLAN.md §5): every tweened
+     * frame draws into the MediaCodec input surface through an EGL window
+     * surface made current on THIS thread's own context — same context,
+     * so the source texture and endpoint fields are directly usable, no
+     * share groups. Offline pacing via eglPresentationTimeANDROID.
+     *
+     * GL-thread command. Blocks preview redraws for the duration (seconds;
+     * [onProgress] feeds the UI). Fail-soft like exportBitmap: any codec
+     * or EGL failure lands in onResult(false), never a crash.
+     */
+    fun renderMovie(
+        strokes: List<Stroke>,
+        keyframes: List<Keyframe>,
+        outputFile: File,
+        onProgress: (Float) -> Unit,
+        onResult: (Boolean) -> Unit,
+    ) {
+        val bitmap = sourceBitmap
+        val program = warpProgram
+        if (!contextReady || bitmap == null || program == null || keyframes.size < 2 ||
+            recordableConfig?.invoke() != true
+        ) {
+            onResult(false)
+            return
+        }
+        // Preview scrub state, restored whatever happens below.
+        val savedT = tweenT
+        val savedGlobals = tweenGlobals
+
+        val display = EGL14.eglGetCurrentDisplay()
+        val prevDraw = EGL14.eglGetCurrentSurface(EGL14.EGL_DRAW)
+        val prevRead = EGL14.eglGetCurrentSurface(EGL14.EGL_READ)
+        val context = EGL14.eglGetCurrentContext()
+
+        var encoder: MovieEncoder? = null
+        var eglSurface: android.opengl.EGLSurface? = null
+        var ok = false
+        try {
+            val (vw, vh) = MovieSpec.videoSize(bitmap.width, bitmap.height)
+            encoder = MovieEncoder(vw, vh, outputFile)
+            eglSurface = createRecordableEglSurface(display, context, encoder.inputSurface)
+
+            val total = MovieSpec.totalFrames(keyframes.size)
+            for (frame in 0 until total) {
+                val p = MovieSpec.positionAt(frame, total, keyframes.size)
+                val k = GoovieTimeline.segment(p, keyframes.size)
+                val t = GoovieTimeline.fraction(p, keyframes.size)
+                val a = keyframes[k]
+                val b = keyframes[k + 1]
+                // Endpoint materialization must happen on the PREVIEW
+                // surface being current is irrelevant — FBO work — but
+                // must precede making the encoder surface current only
+                // for clarity; the cache makes repeats free.
+                tweenTo(
+                    strokes,
+                    GoovieTimeline.clampCount(a, strokes.size),
+                    GoovieTimeline.clampCount(b, strokes.size),
+                    t,
+                    a.globals.lerp(b.globals, t),
+                )
+                if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) {
+                    error("eglMakeCurrent(encoder) failed")
+                }
+                GLES30.glViewport(0, 0, vw, vh)
+                drawTweenQuad(program)
+                EGLExt.eglPresentationTimeANDROID(display, eglSurface, MovieSpec.ptsNanos(frame))
+                if (!EGL14.eglSwapBuffers(display, eglSurface)) error("eglSwapBuffers failed")
+                encoder.drain(endOfStream = false)
+                if (frame % 6 == 0) onProgress(frame.toFloat() / total)
+            }
+            encoder.finish()
+            ok = true
+        } catch (t: Throwable) {
+            Log.w(TAG, "movie export failed", t)
+        } finally {
+            EGL14.eglMakeCurrent(display, prevDraw, prevRead, context)
+            eglSurface?.let { EGL14.eglDestroySurface(display, it) }
+            encoder?.release()
+            tweenT = savedT
+            tweenGlobals = savedGlobals
+        }
+        onResult(ok)
+    }
+
+    /** Full-frame warp draw of the current tween state (movie pass). */
+    private fun drawTweenQuad(program: GlProgram) {
+        val f = field ?: return
+        program.use()
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glUniform4f(uRect, -1f, 1f, 2f, -2f)
+        GLES30.glUniform1i(uImage, 0)
+        GLES30.glUniform1i(uFieldWarp, 1)
+        GLES30.glUniform1i(uFieldB, 2)
+        GLES30.glUniform1f(uGAspect, aspect)
+        val a = endpointA
+        val b = endpointB
+        val tweening = tweenT >= 0f && a != null && b != null
+        GLES30.glUniform1f(uTween, if (tweening) tweenT else 0f)
+        GLES30.glUniform1fv(
+            uGlobals, 6,
+            (if (tweening) tweenGlobals else globalParams).toArray(), 0,
+        )
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) a!!.readTexture else f.readTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) b!!.readTexture else f.readTexture)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        GLES30.glDisableVertexAttribArray(0)
+    }
+
+    /** EGL window surface over the codec input surface, on the context's own config. */
+    private fun createRecordableEglSurface(
+        display: android.opengl.EGLDisplay,
+        context: android.opengl.EGLContext,
+        surface: android.view.Surface,
+    ): android.opengl.EGLSurface {
+        // Same-config surfaces are ALWAYS compatible with the context (EGL
+        // 1.4 §2.2); a re-chosen "equivalent" config is driver goodwill and
+        // an EGL_BAD_MATCH away from silently killing movie export on some
+        // device. The renderMovie gate on recordableConfig guarantees the
+        // context's config carries EGL_RECORDABLE_ANDROID — the chooser
+        // picked it under that constraint.
+        val config = contextConfig(display, context) ?: chooseRecordableConfig(display)
+        val egl = EGL14.eglCreateWindowSurface(
+            display, config, surface, intArrayOf(EGL14.EGL_NONE), 0,
+        )
+        check(egl != null && egl != EGL14.EGL_NO_SURFACE) { "eglCreateWindowSurface failed" }
+        return egl
+    }
+
+    /** The exact EGLConfig [context] was created from, or null if unqueryable. */
+    private fun contextConfig(
+        display: android.opengl.EGLDisplay,
+        context: android.opengl.EGLContext,
+    ): android.opengl.EGLConfig? {
+        val id = IntArray(1)
+        if (!EGL14.eglQueryContext(display, context, EGL14.EGL_CONFIG_ID, id, 0)) return null
+        // With EGL_CONFIG_ID present all other attributes are ignored
+        // (EGL 1.4 §3.4.1) — an exact single-config lookup.
+        val attrs = intArrayOf(EGL14.EGL_CONFIG_ID, id[0], EGL14.EGL_NONE)
+        val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+        val count = IntArray(1)
+        val ok = EGL14.eglChooseConfig(display, attrs, 0, configs, 0, 1, count, 0)
+        return if (ok && count[0] > 0) configs[0] else null
+    }
+
+    /** Attribute-based fallback when the context config can't be queried. */
+    private fun chooseRecordableConfig(display: android.opengl.EGLDisplay): android.opengl.EGLConfig {
+        val attrs = intArrayOf(
+            EGL14.EGL_RED_SIZE, 8,
+            EGL14.EGL_GREEN_SIZE, 8,
+            EGL14.EGL_BLUE_SIZE, 8,
+            EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_RENDERABLE_TYPE, EGLExt.EGL_OPENGL_ES3_BIT_KHR,
+            EGL_RECORDABLE_ANDROID, 1,
+            EGL14.EGL_NONE,
+        )
+        val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+        val count = IntArray(1)
+        check(
+            EGL14.eglChooseConfig(display, attrs, 0, configs, 0, 1, count, 0) && count[0] > 0,
+        ) { "no recordable EGL config" }
+        return configs[0]!!
     }
 
     private fun ensureEndpointA(like: PingPongField): PingPongField =
@@ -543,5 +724,8 @@ class GlWarpRenderer(
 
     private companion object {
         const val TAG = "GlWarpRenderer"
+
+        /** EGL_RECORDABLE_ANDROID — not in the EGL14 constant set. */
+        const val EGL_RECORDABLE_ANDROID = 0x3142
     }
 }

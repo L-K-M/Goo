@@ -116,7 +116,13 @@ downscale (~12 MP output); true full-resolution tiled export
 (displacement-bounded source tiles) is tracked as REVIEW.md G-5. Movie
 export renders each tweened frame into a MediaCodec input surface (shared
 EGL context) and muxes H.264 into MP4; GIF uses a bounded-size palette
-encoder.
+encoder. As built (#8): no share group at all — the GLSurfaceView thread
+makes an EGL window surface over the codec input surface current on its
+OWN context (config chosen with EGL_RECORDABLE_ANDROID at surface setup),
+so source and endpoint textures are directly usable; offline pacing via
+eglPresentationTimeANDROID; sync-mode codec + muxer driven entirely on
+the GL thread; 1080p-cap even-dimension sizing and frame timing in
+MovieSpec (pure, tested). GIF deferred to the polish pass.
 
 ### 4.2 Package layout
 
