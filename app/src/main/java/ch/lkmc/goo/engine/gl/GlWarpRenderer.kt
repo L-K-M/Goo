@@ -316,6 +316,12 @@ class GlWarpRenderer(
     /** Full-frame warp draw of the current tween state (movie pass). */
     private fun drawTweenQuad(program: GlProgram) {
         val f = field ?: return
+        // Defensive: every FBO user in this file unbinds after itself
+        // (stampInto, PingPongField.clear), so 0 is already bound — but
+        // this draw targets the encoder window surface, and depending on
+        // a non-local invariant here would let any future FBO code path
+        // corrupt movie export invisibly. Make it self-sufficient.
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         program.use()
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
         GLES30.glEnableVertexAttribArray(0)

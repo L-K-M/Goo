@@ -81,7 +81,14 @@ class MovieSaver(private val context: Context) {
         val dir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
             ?: File(context.filesDir, "movies").apply { mkdirs() }
         val file = File(dir, movie.name)
-        movie.copyTo(file, overwrite = true)
+        try {
+            movie.copyTo(file, overwrite = true)
+        } catch (e: Exception) {
+            // Same discipline as the MediaStore path: never leave a
+            // truncated MP4 behind (disk-full mid-copy).
+            file.delete()
+            throw e
+        }
         return SaveResult.AppStorage(file)
     }
 
