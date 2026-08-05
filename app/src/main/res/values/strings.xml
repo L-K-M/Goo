@@ -42,6 +42,8 @@
 
     <string name="editor_goovies">GOOvies</string>
     <string name="goovie_capture">Punch a keyframe</string>
+    <string name="goovie_punch">Punch</string>
+    <string name="goovie_punch_count">Punch (%1$d)</string>
     <string name="goovie_play">Play</string>
     <string name="goovie_pause">Pause</string>
     <string name="goovie_delete">Delete keyframe</string>

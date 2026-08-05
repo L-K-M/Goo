@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.CenterFocusStrong
@@ -580,11 +581,13 @@ private fun WarpEditor(
                     radius = state.brushRadius,
                     strength = state.brushStrength,
                     showFusionPick = state.tool == BrushTool.FUSE && state.bitmapB != null,
+                    keyframeCount = state.keyframes.size,
                     onToolChange = viewModel::setTool,
                     onMirrorToggle = viewModel::toggleMirror,
                     onRadiusChange = viewModel::setBrushRadius,
                     onStrengthChange = viewModel::setBrushStrength,
                     onAdjustingChange = { adjustingBrush = it },
+                    onPunch = viewModel::captureKeyframe,
                     onFusionPick = {
                         pickImageB.launch(
                             PickVisualMediaRequest(
@@ -733,10 +736,12 @@ private fun BrushRail(
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,
+    keyframeCount: Int,
     onToolChange: (BrushTool) -> Unit,
     onMirrorToggle: () -> Unit,
     onRadiusChange: (Float) -> Unit,
     onStrengthChange: (Float) -> Unit,
+    onPunch: () -> Unit,
     onFusionPick: () -> Unit,
     onAdjustingChange: (Boolean) -> Unit,
     onFusionRemove: () -> Unit,
@@ -775,6 +780,22 @@ private fun BrushRail(
                 color = CandyGrape,
                 selected = mirrored,
                 onClick = onMirrorToggle,
+            )
+            // The KPT loop is goo → punch → goo → punch; punching never
+            // needed the strip open (pins are stroke counts, safe to grab
+            // mid-edit), so the bead lives on the rail. The count in the
+            // label is the punch confirmation.
+            CandyToolChip(
+                icon = Icons.Filled.AddAPhoto,
+                label = if (keyframeCount > 0) {
+                    stringResource(R.string.goovie_punch_count, keyframeCount)
+                } else {
+                    stringResource(R.string.goovie_punch)
+                },
+                color = CandyLemon,
+                selected = false,
+                enabled = keyframeCount < EditorViewModel.MAX_KEYFRAMES,
+                onClick = onPunch,
             )
             if (showFusionPick) {
                 CandyToolChip(
