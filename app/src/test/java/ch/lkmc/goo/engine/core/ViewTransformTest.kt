@@ -135,4 +135,79 @@ class ViewTransformTest {
         assertClose(5f, mid.tx)
         assertClose(10f, mid.ty)
     }
+
+    @Test
+    fun `viewport rebase keeps the same source point centered`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+        val oldView = ViewTransform(scale = 2.4f, rotation = 0.35f, tx = -180f, ty = 90f)
+
+        val (oldCanvasX, oldCanvasY) = oldView.invert(
+            oldFit.viewWidth / 2f,
+            oldFit.viewHeight / 2f,
+        )
+        val expectedUv = oldFit.viewToUv(oldCanvasX, oldCanvasY)
+        val rebased = oldView.rebase(oldFit, newFit)
+        val (newCanvasX, newCanvasY) = rebased.invert(
+            newFit.viewWidth / 2f,
+            newFit.viewHeight / 2f,
+        )
+        val actualUv = newFit.viewToUv(newCanvasX, newCanvasY)
+
+        assertClose(expectedUv.first, actualUv.first)
+        assertClose(expectedUv.second, actualUv.second)
+        assertEquals(oldView.scale, rebased.scale)
+        assertEquals(oldView.rotation, rebased.rotation)
+    }
+
+    @Test
+    fun `identity remains identity when the viewport changes`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+
+        val rebased = ViewTransform().rebase(oldFit, newFit)
+
+        assertTrue(rebased.isIdentity, "got $rebased")
+    }
+
+    @Test
+    fun `singular view does not gain NaN translation during rebase`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+        val singular = ViewTransform(scale = 0f, tx = 12f, ty = 34f)
+
+        assertEquals(singular, singular.rebase(oldFit, newFit))
+    }
+
+    @Test
+    fun `non-finite rotation does not spread into translation`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+        val invalid = ViewTransform(rotation = Float.NaN, tx = 12f, ty = 34f)
+
+        assertEquals(invalid, invalid.rebase(oldFit, newFit))
+    }
+
+    @Test
+    fun `chained viewport rebases preserve the centered source point`() {
+        val fitA = FitTransform(400f, 700f, 1200f, 800f)
+        val fitB = FitTransform(480f, 620f, 1200f, 800f)
+        val fitC = FitTransform(700f, 400f, 1200f, 800f)
+        val initial = ViewTransform(scale = 2.4f, rotation = 0.35f, tx = -180f, ty = 90f)
+
+        fun centeredUv(transform: ViewTransform, fit: FitTransform): Pair<Float, Float> {
+            val canvas = transform.invert(fit.viewWidth / 2f, fit.viewHeight / 2f)
+            return fit.viewToUv(canvas.first, canvas.second)
+        }
+
+        val expected = centeredUv(initial, fitA)
+        val atB = initial.rebase(fitA, fitB)
+        val atC = atB.rebase(fitB, fitC)
+        val actual = centeredUv(atC, fitC)
+
+        assertClose(expected.first, actual.first)
+        assertClose(expected.second, actual.second)
+        assertEquals(initial.scale, atC.scale)
+        assertEquals(initial.rotation, atC.rotation)
+    }
 }
