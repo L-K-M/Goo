@@ -131,15 +131,105 @@ void main() {
 }
 """
 
+    /**
+     * The global-effect levers ride the warp pass as analytic uniforms —
+     * GlobalField.displacement transliterated. u_g order is
+     * GlobalParams.toArray(): bulge, twirl, squeeze, stretch, spike,
+     * static. Literals mirror GlobalField constants — keep in sync:
+     *   2.5  = TWIRL_MAX_RAD    0.35 = BULGE_SCALE   0.30 = AXIS_SCALE
+     *   0.08 = SPIKE_SCALE      8    = SPIKE_COUNT
+     *   0.05 = STATIC_SCALE     24   = STATIC_CELLS
+     * The integer hash is bit-identical to GlobalField.hash — value
+     * noise stays CPU/GPU consistent (no sin-hash driver drift).
+     */
     const val WARP_FRAG = """#version 300 es
 precision highp float;
+// highp int explicitly: fragment shaders predeclare mediump int (GLSL ES
+// §4.5.4), which the spec only guarantees 16 bits — the integer hash
+// below would collapse (h >> 16 ≡ 0, products wrap at 2^16) on 16-bit-ALU
+// GPUs. highp int is exactly 32-bit, matching Kotlin UInt bit for bit.
+precision highp int;
 uniform sampler2D u_image;
 // highp: see STAMP_FRAG — the field must not be read at lowp.
 uniform highp sampler2D u_field;
+uniform float u_gAspect;   // image width / height
+uniform float u_g[6];
 in vec2 v_uv;
 out vec4 o_color;
+
+float hash(uint x, uint y, uint seed) {
+    uint h = x * 1664525u + y * 1013904223u + seed * 2654435761u;
+    h = h ^ (h >> 16);
+    h *= 2246822519u;
+    h = h ^ (h >> 13);
+    return float(h & 0x00FFFFFFu) / 16777216.0;
+}
+
+float valueNoise(float x, float y, uint seed) {
+    float xf = floor(x);
+    float yf = floor(y);
+    int x0 = int(xf);
+    int y0 = int(yf);
+    float fx = x - xf;
+    float fy = y - yf;
+    float sx = fx * fx * (3.0 - 2.0 * fx);
+    float sy = fy * fy * (3.0 - 2.0 * fy);
+    float a = hash(uint(x0), uint(y0), seed);
+    float b = hash(uint(x0 + 1), uint(y0), seed);
+    float c = hash(uint(x0), uint(y0 + 1), seed);
+    float d = hash(uint(x0 + 1), uint(y0 + 1), seed);
+    float top = a + (b - a) * sx;
+    float bottom = c + (d - c) * sx;
+    return top + (bottom - top) * sy;
+}
+
+float smoothShape(float t) { return t * t * (3.0 - 2.0 * t); }
+
+// GlobalField.displacement, line for line.
+vec2 globalDisp(vec2 uv) {
+    float ax = (uv.x - 0.5) * u_gAspect;
+    float ay = uv.y - 0.5;
+    float r = sqrt(ax * ax + ay * ay);
+    float rMax = sqrt(u_gAspect * u_gAspect + 1.0) * 0.5;
+    float shape = smoothShape(1.0 - clamp(r / rMax, 0.0, 1.0));
+    float dx = 0.0;
+    float dy = 0.0;
+    if (u_g[0] != 0.0 && r > 1e-6) {
+        float m = -u_g[0] * 0.35 * shape * r / rMax;
+        dx += (ax / r) * m;
+        dy += (ay / r) * m;
+    }
+    if (u_g[1] != 0.0) {
+        float theta = u_g[1] * 2.5 * shape;
+        float c = cos(theta);
+        float s = sin(theta);
+        dx += ax * c - ay * s - ax;
+        dy += ax * s + ay * c - ay;
+    }
+    if (u_g[2] != 0.0) {
+        dx += ax * u_g[2] * 0.30;
+        dy += -ay * u_g[2] * 0.30 * 0.5;
+    }
+    if (u_g[3] != 0.0) {
+        dy += -ay * u_g[3] * 0.30;
+    }
+    if (u_g[4] != 0.0 && r > 1e-6) {
+        float phi = atan(ay, ax);
+        float m = u_g[4] * 0.08 * shape * sin(8.0 * phi);
+        dx += (ax / r) * m;
+        dy += (ay / r) * m;
+    }
+    if (u_g[5] != 0.0) {
+        float nx = valueNoise(uv.x * 24.0, uv.y * 24.0, 1u);
+        float ny = valueNoise(uv.x * 24.0, uv.y * 24.0, 2u);
+        dx += (nx * 2.0 - 1.0) * u_g[5] * 0.05;
+        dy += (ny * 2.0 - 1.0) * u_g[5] * 0.05;
+    }
+    return vec2(dx / u_gAspect, dy);
+}
+
 void main() {
-    vec2 disp = texture(u_field, v_uv).xy;
+    vec2 disp = texture(u_field, v_uv).xy + globalDisp(v_uv);
     o_color = texture(u_image, v_uv + disp);
 }
 """

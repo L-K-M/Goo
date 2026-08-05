@@ -12,6 +12,7 @@ import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
+import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
@@ -54,7 +55,7 @@ import kotlin.coroutines.resume
  */
 @HiltViewModel
 class EditorViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val imageLoader: ImageLoader,
     private val imageSaver: ImageSaver,
 ) : ViewModel() {
@@ -74,6 +75,8 @@ class EditorViewModel @Inject constructor(
         val brushStrength: Float = DEFAULT_STRENGTH,
         /** Mirror toggle: every stamp gets a vertically reflected twin. */
         val mirrored: Boolean = false,
+        /** Global-effect levers — live document state, not history. */
+        val globals: GlobalParams = GlobalParams(),
     )
 
     /** One-shot outcomes of export/share runs, consumed by the screen. */
@@ -120,6 +123,12 @@ class EditorViewModel @Inject constructor(
     val strokesSnapshot: List<Stroke> get() = log.strokes
 
     init {
+        savedStateHandle.get<FloatArray>(KEY_GLOBALS)?.let { a ->
+            GlobalParams.fromArray(a)?.let { g ->
+                _uiState.update { it.copy(globals = g) }
+                refreshHistoryFlags()
+            }
+        }
         val route = savedStateHandle.toRoute<EditorRoute>()
         viewModelScope.launch {
             try {
@@ -289,10 +298,23 @@ class EditorViewModel @Inject constructor(
     /** @return the (empty) stroke list to rebuild with, or null if no-op. */
     fun reset(): List<Stroke>? {
         discardLiveStroke()
+        // Reset means "back to the photo": levers zero too.
+        setGlobals(GlobalParams())
         if (log.isEmpty) return null
         log.reset()
         refreshHistoryFlags()
         return log.strokes
+    }
+
+    // ---- Global levers -------------------------------------------------
+    // Levers are live document state, not history entries (PLAN.md §4.1):
+    // pulling one back to center undoes it exactly, so undo/redo stay
+    // stroke-only. The screen syncs the renderer whenever they change.
+
+    fun setGlobals(globals: GlobalParams) {
+        _uiState.update { it.copy(globals = globals) }
+        savedStateHandle[KEY_GLOBALS] = globals.toArray()
+        refreshHistoryFlags()
     }
 
     private fun discardLiveStroke() {
@@ -389,7 +411,13 @@ class EditorViewModel @Inject constructor(
 
     private fun refreshHistoryFlags() {
         _uiState.update {
-            it.copy(canUndo = log.canUndo, canRedo = log.canRedo, canReset = !log.isEmpty)
+            it.copy(
+                canUndo = log.canUndo,
+                canRedo = log.canRedo,
+                // Levers count: an image warped only by levers must still
+                // offer "back to the photo".
+                canReset = !log.isEmpty || !it.globals.isIdentity,
+            )
         }
     }
 
@@ -407,5 +435,6 @@ class EditorViewModel @Inject constructor(
         const val DEFAULT_STRENGTH = 0.85f
 
         private const val KEY_SESSION_FILE = "sessionFile"
+        private const val KEY_GLOBALS = "globals"
     }
 }

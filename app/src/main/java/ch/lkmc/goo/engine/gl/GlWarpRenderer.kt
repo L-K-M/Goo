@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.core.graphics.createBitmap
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.FitTransform
+import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import java.nio.ByteBuffer
@@ -76,6 +77,11 @@ class GlWarpRenderer(
     private var uImage = 0
     private var uFieldWarp = 0
     private var uRect = 0
+    private var uGAspect = 0
+    private var uGlobals = 0
+
+    /** Live lever values; uploaded to the warp pass every draw. */
+    private var globalParams = GlobalParams()
 
     // ---- Commands (call on the GL thread via queueEvent) ---------------
 
@@ -88,6 +94,14 @@ class GlWarpRenderer(
         aspect = bitmap.width.toFloat() / bitmap.height
         strokesToReplay = strokes
         if (contextReady) rebuildImageState()
+    }
+
+    /**
+     * Update the lever values used by every subsequent warp draw —
+     * preview and export alike. GL-thread command; cheap (uniforms only).
+     */
+    fun setGlobalParams(params: GlobalParams) {
+        globalParams = params
     }
 
     /** Stamp a batch from the live stroke into the preview field. */
@@ -174,6 +188,8 @@ class GlWarpRenderer(
             uImage = it.uniform("u_image")
             uFieldWarp = it.uniform("u_field")
             uRect = it.uniform("u_rect")
+            uGAspect = it.uniform("u_gAspect")
+            uGlobals = it.uniform("u_g")
         }
 
         val vbo = IntArray(1)
@@ -226,6 +242,8 @@ class GlWarpRenderer(
         GLES30.glUniform4f(uRect, ndcX, ndcY, ndcW, ndcH)
         GLES30.glUniform1i(uImage, 0)
         GLES30.glUniform1i(uFieldWarp, 1)
+        GLES30.glUniform1f(uGAspect, aspect)
+        GLES30.glUniform1fv(uGlobals, 6, globalParams.toArray(), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
@@ -379,6 +397,8 @@ class GlWarpRenderer(
         GLES30.glUniform4f(uRect, -1f, 1f, 2f, -2f)
         GLES30.glUniform1i(uImage, 0)
         GLES30.glUniform1i(uFieldWarp, 1)
+        GLES30.glUniform1f(uGAspect, exportAspect)
+        GLES30.glUniform1fv(uGlobals, 6, globalParams.toArray(), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex[0])
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
