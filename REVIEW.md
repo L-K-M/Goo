@@ -54,6 +54,20 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Won't do (for now)
 
+- **G-W2** ⏸️ Direct unit tests for `EditorViewModel` verbs
+  (`repunchSelectedKeyframe` et al; GLM on PR #26, info-level). The
+  constructor takes five injected collaborators and `init` decodes an
+  image through `ImageLoader` off a `SavedStateHandle` route, so a real
+  test needs a mocking framework plus `coroutines-test` — neither is on
+  the classpath, and "keep dead deps for future tests" is already an
+  explicitly declined position (ANALYSIS.md). The fragile logic was
+  pushed down into pure types instead and IS covered:
+  `KeyframePinTest` (a pin survives undo/redo/reset/branch truncation —
+  the actual reported bug), `KeyframeStalenessTest` (the Update
+  affordance's trigger), `GoovieHintTest` (the nudge wording).
+  Reconsider as a whole when a coroutine-level VM test is genuinely
+  needed; adding the deps is one catalog edit at that point.
+
 - **G-W1** ⏸️ Packed-RGBA8 displacement-field fallback for GLES3 devices
   without renderable float formats (`EXT_color_buffer_half_float` /
   `EXT_color_buffer_float`). Such hardware is essentially nonexistent in

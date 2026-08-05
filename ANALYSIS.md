@@ -24,13 +24,20 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
   session-file restore path exists — the log just isn't written down.
   Highest-value open item. Shape: ProjectStore (JSON in filesDir),
   write-through on commit, restore on editor entry, plus a Home "resume"
-  affordance (that also clears K3-27).
+  affordance (that also clears K3-27). **Watch out:** a `Keyframe` now
+  holds its whole stroke snapshot, shared in memory but *duplicated* by a
+  naive `Json.encodeToString` — 64 keyframes could write the log 64 times
+  over. The format needs to write the strokes once as a pool and give
+  each keyframe a list of indices into it (and restore by rebuilding the
+  shared lists, so the renderer's identity-keyed endpoint cache still
+  hits). Do not "solve" this by reverting pins to prefix counts — that
+  was the undo-flattens-the-strip bug.
 
 - **K3-9** ⚠️ **Replay cost grows with pumped-tool stamps** (= REVIEW.md
   G-6) — and GOOvie playback hitches at segment boundaries: a segment
-  crossing mid-playback replays a whole stroke prefix on the GL thread
-  (`materializeInto`) inside the frame loop, so heavy logs stutter exactly
-  at each keyframe. REVIEW.md's fix (field snapshot checkpoints every N
+  crossing mid-playback replays a whole keyframe stroke snapshot on the
+  GL thread (`materializeInto`) inside the frame loop, so heavy logs
+  stutter exactly at each keyframe. REVIEW.md's fix (field snapshot checkpoints every N
   strokes) cures both. Do when replay latency is user-visible; measure on
   a low-end device first.
 
@@ -59,6 +66,22 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
   Stroke-start pop, pump squelch keyed to stamp rate, lever detent click,
   keyframe punch. Depends on K3-15 for the off switch.
 
+- **K3-28** ✨ **"Go to keyframe" — load a pin's state into the editor.**
+  Now that a keyframe carries its own stroke snapshot, restoring the
+  editor to it is a few lines: push the snapshot onto `StrokeLog` as an
+  ordinary (undoable) history entry, rebuild, and you are gooing at that
+  keyframe's exact state — tweak, then Update. Today you get there the
+  long way round: undo/Reset back to the state you want, punch or update,
+  then redo. Deliberately not in the same PR as the snapshot change; the
+  user's ask (punch the original photo as a closing frame) is already
+  unblocked by undo → punch → redo. Note the one wrinkle: levers are live
+  document state, not history, so a jump would have to restore
+  `keyframe.globals` explicitly alongside the strokes.
+
+  Explicitly NOT wanted (confirmed with the user): making keyframes 2–5
+  inherit an edit made to keyframe 1. "Each keyframe should be its own
+  thing" — which is exactly what the snapshot model now guarantees.
+
 - **K3-17** ✨ **GIF export** — explicitly deferred by PLAN.md §4.1
   ("GIF secondary… deferred to the polish pass"). MP4 covers the share
   case; a palette encoder is a chunk of work. Revisit if users ask.
@@ -73,7 +96,8 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
 - **K3-20** ✨ **Keyframe thumbnails.** The strip's numbered beads were an
   acknowledged stand-in; real thumbnails = tiny GL renders cached per pin
   (the tween machinery already materializes endpoint fields — read back a
-  96px thumb when a pin is punched or the log prefix changes). Lovely,
+  96px thumb whenever a pin is punched or re-punched; the pin's snapshot
+  is immutable, so the thumb never goes stale under it). Lovely,
   medium-heavy.
 
 - **K3-21** ✨ **Candy-fy the stock M3 sliders** (brush rail, export
