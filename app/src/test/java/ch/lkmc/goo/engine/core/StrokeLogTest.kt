@@ -166,4 +166,27 @@ class StrokeLogTest {
         assertEquals(1, log.redo()!!.size)
         assertEquals(2 / 10f, log.strokes[0].stamps[0].cx)
     }
+
+    @Test
+    fun `clearHistory leaves nothing reachable in either direction`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        log.push(stroke(2))
+        log.undo()
+
+        log.clearHistory()
+
+        // Unlike reset, the old document must be gone in BOTH directions:
+        // its strokes recorded UVs of a frame that no longer exists.
+        assertTrue(log.isEmpty)
+        assertFalse(log.canUndo)
+        assertFalse(log.canRedo)
+        assertNull(log.undo())
+        assertNull(log.redo())
+
+        // And the log keeps working afterwards.
+        log.push(stroke(3))
+        assertEquals(1, log.strokes.size)
+        assertTrue(log.canUndo)
+    }
 }
