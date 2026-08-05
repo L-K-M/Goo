@@ -81,8 +81,16 @@ Liquify works internally, and it buys us everything at once:
   fields are materialized (by replay, cached by count, slot-swapped for
   adjacent segments). Naive per-keyframe field snapshots would cost
   hundreds of MB. Levers lerp on the CPU into the same warp uniforms.
-  Edits and history are paused while the strip is open so pins can't
-  shift under a scrub; keyframes live in session memory like the log.
+  Editing stays live while the strip is open (revised after user
+  testing: "the editor isn't active in movie mode" read as a broken
+  feature). A pin is a prefix count into an append-only log, so gooing on
+  top of a keyframe cannot move it; the only ops that can are
+  undo/redo/reset, and those already push a rebuild that drops the
+  count-keyed endpoint cache. What the strip genuinely can't do is paint
+  *into* a tween — stamps land in the live field — so any edit first
+  drops the preview from the tween to live. A keyframe's content is
+  edited by re-punching it (Update), never by drawing "inside" it.
+  Keyframes live in session memory like the log.
 - **Crash/context-loss safety**: GPU state is a cache. The stroke log is the
   document; after EGL context loss the field is rebuilt by replay.
 
@@ -244,7 +252,7 @@ steady-state before merge (policy: [CLAUDE.md](CLAUDE.md)).
 | 4  | Full brush palette     | Grow/Shrink/Move/Smudge/Nudge/Smooth/UnGoo, Mirror, size/strength controls, confirmed Reset | all brushes behave per §4.1 table |
 | 5  | Global effects         | Bulge/Twirl/Squeeze/Stretch/Spike/Static + lever UI, composed with brush field | levers warp whole image live |
 | 6  | Candy UI               | full KPT-style theme, springy animations, haptics, optional sounds, app icon, samples, onboarding hint | it feels like funware |
-| 7  | Keyframes (GOOvies)    | keyframe strip: capture/reorder/delete, tween scrubbing, live playback | record and replay a warp dance |
+| 7  | Keyframes (GOOvies)    | keyframe strip: capture/re-punch/reorder/delete, tween scrubbing, live playback | record and replay a warp dance |
 | 8  | Movie export           | MP4 via MediaCodec/MediaMuxer (EGL encoder surface); GIF secondary | shareable MP4 of the animation |
 | 9  | Fusion                 | second image through-paint brush | brush one face onto another |
 | 10 | v1 polish + release    | settings, about, README screenshots, release v1.0.0 | tagged release with APK |

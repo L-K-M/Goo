@@ -88,8 +88,18 @@ class EditorViewModel @Inject constructor(
         val globals: GlobalParams = GlobalParams(),
         /** First-ever image: float the "drag to goo" hint until a stroke. */
         val showHint: Boolean = false,
-        /** GOOvie mode: the strip is open; canvas edits are paused. */
+        /** GOOvie mode: the strip is open. Gooing still works (see [goovieLive]). */
         val goovieMode: Boolean = false,
+        /**
+         * In GOOvie mode, the canvas shows the LIVE document instead of the
+         * scrub tween — set by any edit, cleared by any strip navigation.
+         * Stamps only ever land in the live field, so painting while a
+         * tween is on screen would be invisible; this flag is what makes
+         * "touch the canvas in the strip and it just goos" honest.
+         */
+        val goovieLive: Boolean = false,
+        /** Committed strokes in the document — the pin a punch would take. */
+        val strokeCount: Int = 0,
         /** Captured keyframes in playback order (pins into the log). */
         val keyframes: List<Keyframe> = emptyList(),
         /** Continuous strip position: [0, size-1]; ints sit on keyframes. */
@@ -101,7 +111,19 @@ class EditorViewModel @Inject constructor(
         /** MP4 export in flight; [movieProgress] in [0,1] feeds the bar. */
         val exportingMovie: Boolean = false,
         val movieProgress: Float = 0f,
-    )
+    ) {
+        /**
+         * The selected pin is behind the live document: Punch and Update
+         * would now produce different keyframes. Drives the strip's nudge
+         * and the brush rail's Update chip — the affordance that answers
+         * "I edited the photo but my keyframe didn't change".
+         */
+        val selectedKeyframeStale: Boolean
+            get() {
+                val kf = keyframes.getOrNull(selectedKeyframe) ?: return false
+                return kf.strokeCount != strokeCount || kf.globals != globals
+            }
+    }
 
     /** Everything the GL thread needs to show one scrub position. */
     data class TweenRequest(
@@ -278,11 +300,18 @@ class EditorViewModel @Inject constructor(
     // at emission, so stored strokes replay identically everywhere
     // (undo rebuilds, export) with no mirror logic downstream.
 
-    fun beginStroke(u: Float, v: Float) {
-        val bitmap = _uiState.value.bitmap ?: return
+    /** @return true when a stroke actually started; false = canvas locked. */
+    fun beginStroke(u: Float, v: Float): Boolean {
+        val bitmap = _uiState.value.bitmap ?: return false
         val state = _uiState.value
-        // The strip is playback territory; the canvas doesn't paint there.
-        if (state.goovieMode) return
+        // A movie render owns the GL thread for seconds; stamps queued
+        // behind it would land on a field nobody is looking at, and the
+        // export's own snapshot wouldn't contain them either.
+        if (state.exportingMovie) return false
+        // Gooing inside the strip is allowed — that IS how you author the
+        // next keyframe. What isn't possible is painting into a tween: the
+        // stamps go to the live field, so drop the preview to live first.
+        goLive()
         if (state.showHint) {
             onboardingPrefs.smearHintSeen = true
             _uiState.update { it.copy(showHint = false) }
@@ -314,6 +343,7 @@ class EditorViewModel @Inject constructor(
             resampler = StrokeResampler(radius = radius, aspect = aspect)
                 .also { it.begin(u, v) }
         }
+        return true
     }
 
     /** @return newly produced stamps for incremental GPU stamping. */
@@ -422,6 +452,8 @@ class EditorViewModel @Inject constructor(
      * caller still rebuilds (wiping the orphaned head).
      */
     private inline fun withDiscardGuard(op: () -> List<Stroke>?): List<Stroke>? {
+        // History moves the document, so the strip must show the document.
+        goLive()
         val discarded = discardLiveStroke()
         val restored = op()
         refreshHistoryFlags()
@@ -430,6 +462,7 @@ class EditorViewModel @Inject constructor(
 
     /** @return the (empty) stroke list to rebuild with, or null if no-op. */
     fun reset(): List<Stroke>? {
+        goLive()
         val discarded = discardLiveStroke()
         // Reset means "back to the photo": levers zero too.
         setGlobals(GlobalParams())
@@ -453,22 +486,49 @@ class EditorViewModel @Inject constructor(
     // ---- GOOvies -------------------------------------------------------
     // A keyframe pins (strokeCount, globals) — the document stays the
     // single source of truth and endpoints materialize by replay
-    // (PLAN.md §4.1). Canvas edits and history buttons are disabled while
-    // the strip is open, so pins can't go stale mid-scrub. Keyframes live
-    // in session memory only, like the stroke log they point into.
+    // (PLAN.md §4.1). Keyframes live in session memory only, like the
+    // stroke log they point into.
+    //
+    // Editing stays LIVE while the strip is open. A pin is a prefix count
+    // into an append-only log, so gooing on top of a keyframe cannot move
+    // it; only undo/redo/reset can, and those already funnel a rebuild
+    // through the renderer that drops the count-keyed endpoint cache. What
+    // the strip really can't do is paint into a tween — stamps land in the
+    // live field, which a tween isn't showing — hence [goLive].
+
+    /**
+     * Drop the strip's preview from the tween to the live document, so the
+     * goo about to land is actually visible. Pins are untouched: Punch
+     * adds a keyframe for the new state, Update re-pins the selected one.
+     * No-op outside the strip, and idempotent inside it.
+     */
+    private fun goLive() {
+        val s = _uiState.value
+        if (!s.goovieMode || s.goovieLive) return
+        _uiState.update { it.copy(goovieLive = true, playing = false) }
+        // Eagerly, not via the screen's tween effect: the first stamps of
+        // this stroke reach the GL thread before the next recomposition
+        // does, and they must not be swallowed by a stale tween.
+        engineBridge?.invoke { clearTween() }
+    }
 
     fun toggleGoovie() {
         // A second finger can tap the Movie bead mid-gesture. Commit (not
         // discard) the live stroke — same policy as setTool and gesture
         // CANCEL: its stamps are already on the field, and committing
-        // keeps screen ≡ document. Entry then gates beginStroke, so no
-        // live stroke can exist inside goovie mode.
+        // keeps screen ≡ document.
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
         _uiState.update {
             if (it.goovieMode) {
-                it.copy(goovieMode = false, playing = false)
+                it.copy(goovieMode = false, playing = false, goovieLive = false)
             } else {
-                it.copy(goovieMode = true, scrubPos = GoovieTimeline.clamp(it.scrubPos, it.keyframes.size))
+                it.copy(
+                    goovieMode = true,
+                    // Entry shows the movie, not the live head — the strip
+                    // is a player first.
+                    goovieLive = false,
+                    scrubPos = GoovieTimeline.clamp(it.scrubPos, it.keyframes.size),
+                )
             }
         }
     }
@@ -477,8 +537,7 @@ class EditorViewModel @Inject constructor(
         // Punching mid-gesture (a second finger, or the brush-rail bead):
         // commit the live stroke — same policy as setTool/toggleGoovie:
         // its stamps are already on the field, and the pin should include
-        // the drag anyway. In goovie mode no live stroke can exist, so
-        // this is a no-op there.
+        // the drag anyway.
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
         _uiState.update { s ->
             if (s.keyframes.size >= MAX_KEYFRAMES) return@update s
@@ -488,6 +547,34 @@ class EditorViewModel @Inject constructor(
                 keyframes = list,
                 selectedKeyframe = list.size - 1,
                 scrubPos = (list.size - 1).toFloat(),
+                // The new pin IS the live state, so the strip can show the
+                // movie again without the picture changing under the user.
+                goovieLive = false,
+            )
+        }
+    }
+
+    /**
+     * Re-pin the selected keyframe to the live document — the missing
+     * "edit this step" verb. There is no per-keyframe canvas to edit: you
+     * goo the photo until it looks right, then re-punch the keyframe that
+     * should hold it. Without this, edits made after a punch could only
+     * ever become a NEW keyframe.
+     */
+    fun repunchSelectedKeyframe() {
+        endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
+        _uiState.update { s ->
+            val i = s.selectedKeyframe
+            if (i !in s.keyframes.indices) return@update s
+            val list = s.keyframes.toMutableList().apply {
+                this[i] = Keyframe(strokeCount = log.strokes.size, globals = s.globals)
+            }
+            s.copy(
+                keyframes = list,
+                scrubPos = i.toFloat(),
+                playing = false,
+                // Same as a punch: the pin now matches what's on screen.
+                goovieLive = false,
             )
         }
     }
@@ -495,7 +582,12 @@ class EditorViewModel @Inject constructor(
     fun selectKeyframe(index: Int) {
         _uiState.update { s ->
             if (index !in s.keyframes.indices) return@update s
-            s.copy(selectedKeyframe = index, scrubPos = index.toFloat(), playing = false)
+            s.copy(
+                selectedKeyframe = index,
+                scrubPos = index.toFloat(),
+                playing = false,
+                goovieLive = false,
+            )
         }
     }
 
@@ -535,6 +627,8 @@ class EditorViewModel @Inject constructor(
                 scrubPos = GoovieTimeline.clamp(p, it.keyframes.size),
                 selectedKeyframe = -1,
                 playing = false,
+                // Any strip navigation means "show me the movie again".
+                goovieLive = false,
             )
         }
     }
@@ -542,7 +636,11 @@ class EditorViewModel @Inject constructor(
     fun setPlaying(playing: Boolean) {
         _uiState.update { s ->
             if (playing && s.keyframes.size < 2) s
-            else s.copy(playing = playing, selectedKeyframe = if (playing) -1 else s.selectedKeyframe)
+            else s.copy(
+                playing = playing,
+                selectedKeyframe = if (playing) -1 else s.selectedKeyframe,
+                goovieLive = if (playing) false else s.goovieLive,
+            )
         }
     }
 
@@ -624,11 +722,13 @@ class EditorViewModel @Inject constructor(
                 // it keys on changed), so re-sync the preview's scrub
                 // position explicitly. Cache contents stay valid (the log
                 // can't have changed under a queued rebuild without
-                // invalidation), so this is at most two replays.
-                tweenRequest()?.let { r ->
-                    engineBridge?.invoke {
-                        tweenTo(r.strokes, r.countA, r.countB, r.t, r.lerpedGlobals)
-                    }
+                // invalidation), so this is at most two replays. A null
+                // request means the strip was showing live goo when the
+                // export started — restore that, don't leave a tween on.
+                val r = tweenRequest()
+                engineBridge?.invoke {
+                    if (r == null) clearTween()
+                    else tweenTo(r.strokes, r.countA, r.countB, r.t, r.lerpedGlobals)
                 }
             }
         }
@@ -637,7 +737,7 @@ class EditorViewModel @Inject constructor(
     /** The engine payload for the current scrub position; null = live. */
     fun tweenRequest(): TweenRequest? {
         val s = _uiState.value
-        if (!s.goovieMode || s.keyframes.size < 2) return null
+        if (!s.goovieMode || s.goovieLive || s.keyframes.size < 2) return null
         val strokes = log.strokes
         val size = s.keyframes.size
         val k = GoovieTimeline.segment(s.scrubPos, size)
@@ -774,6 +874,9 @@ class EditorViewModel @Inject constructor(
             it.copy(
                 canUndo = log.canUndo,
                 canRedo = log.canRedo,
+                // Feeds UiState.selectedKeyframeStale — every path that
+                // moves the log or the levers already lands here.
+                strokeCount = log.strokes.size,
                 // Levers count: an image warped only by levers must still
                 // offer "back to the photo".
                 canReset = !log.isEmpty || !it.globals.isIdentity,

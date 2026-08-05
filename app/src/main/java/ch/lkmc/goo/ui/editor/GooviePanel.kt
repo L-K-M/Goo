@@ -2,6 +2,7 @@ package ch.lkmc.goo.ui.editor
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,9 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -44,7 +47,9 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
+import ch.lkmc.goo.engine.core.GoovieHint
 import ch.lkmc.goo.engine.core.Keyframe
+import ch.lkmc.goo.engine.core.goovieHint
 import ch.lkmc.goo.ui.components.CandyIconButton
 import ch.lkmc.goo.ui.components.darken
 import ch.lkmc.goo.ui.components.lighten
@@ -62,6 +67,12 @@ import ch.lkmc.goo.ui.theme.GooTableShadow
  * scrub the tweens, play the loop. Numbered candy beads stand in for
  * thumbnails until the polish pass (#10) — the numbers are the KPT way
  * anyway.
+ *
+ * Gooing works while the strip is open: touching the canvas drops the
+ * preview from the tween to the live document ([live]) so the strokes are
+ * visible where they land. Punch pins that as a new keyframe; Update
+ * re-pins the selected one. The hint line names whichever of those the
+ * strip's current state calls for.
  */
 @Composable
 fun GooviePanel(
@@ -69,10 +80,15 @@ fun GooviePanel(
     scrubPos: Float,
     playing: Boolean,
     selected: Int,
+    /** The canvas is showing live goo instead of the scrub tween. */
+    live: Boolean,
+    /** The selected pin is behind the live document (Update would move it). */
+    stale: Boolean,
     canCapture: Boolean,
     exporting: Boolean,
     exportProgress: Float,
     onCapture: () -> Unit,
+    onRepunch: () -> Unit,
     onSelect: (Int) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
@@ -159,81 +175,132 @@ fun GooviePanel(
                     trackColor = GooTableShadow,
                 )
             }
-        } else if (keyframes.isEmpty()) {
-            Text(
-                text = stringResource(R.string.goovie_empty_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
         } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CandyIconButton(
-                    icon = Icons.Filled.ChevronLeft,
-                    contentDescription = stringResource(R.string.goovie_move_earlier),
-                    color = CandyCyan,
-                    selected = false,
-                    enabled = selected > 0,
-                    onClick = { onMove(-1) },
-                    size = 38.dp,
-                )
-                CandyIconButton(
-                    icon = Icons.Filled.ChevronRight,
-                    contentDescription = stringResource(R.string.goovie_move_later),
-                    color = CandyCyan,
-                    selected = false,
-                    enabled = selected in 0 until keyframes.size - 1,
-                    onClick = { onMove(1) },
-                    size = 38.dp,
-                )
+            if (keyframes.isNotEmpty()) {
+                // The scrub gets its own row: the control beads below claim
+                // 48dp of layout each (minimumInteractiveComponentSize), so
+                // sharing a row with six of them left the slider a stub on
+                // a 360dp screen.
                 Slider(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     value = scrubPos,
                     onValueChange = onScrub,
                     valueRange = 0f..(keyframes.size - 1).coerceAtLeast(1).toFloat(),
                     enabled = keyframes.size >= 2,
                     colors = SliderDefaults.colors(
-                        thumbColor = CandyLemon,
-                        activeTrackColor = CandyLemon.copy(alpha = 0.6f),
+                        // Live goo is off the timeline: the thumb still
+                        // marks where a scrub would land (and scrubbing is
+                        // how you get back), but it is NOT what's on
+                        // screen — so dim it instead of implying it is.
+                        thumbColor = if (live) CandyLemon.copy(alpha = 0.45f) else CandyLemon,
+                        activeTrackColor = CandyLemon.copy(alpha = if (live) 0.25f else 0.6f),
                         inactiveTrackColor = GooTableShadow,
                     ),
                 )
-                CandyIconButton(
-                    icon = Icons.Filled.Close,
-                    contentDescription = stringResource(R.string.goovie_delete),
-                    color = CandyOrange,
-                    selected = false,
-                    enabled = selected >= 0,
-                    onClick = onDelete,
-                    size = 38.dp,
-                )
-                CandyIconButton(
-                    icon = Icons.Filled.Download,
-                    contentDescription = stringResource(R.string.goovie_save_movie),
-                    color = CandyGrape,
-                    selected = false,
-                    enabled = keyframes.size >= 2,
-                    haptic = false,
-                    onClick = { onExport(false) },
-                    size = 38.dp,
-                )
-                CandyIconButton(
-                    icon = Icons.Filled.IosShare,
-                    contentDescription = stringResource(R.string.goovie_share_movie),
-                    color = CandyGrape,
-                    selected = false,
-                    enabled = keyframes.size >= 2,
-                    haptic = false,
-                    onClick = { onExport(true) },
-                    size = 38.dp,
-                )
+                // Scrollable for the same reason the top rail is (K3-1):
+                // six 48dp targets plus gaps overflow a 360dp screen.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    CandyIconButton(
+                        icon = Icons.Filled.ChevronLeft,
+                        contentDescription = stringResource(R.string.goovie_move_earlier),
+                        color = CandyCyan,
+                        selected = false,
+                        enabled = selected > 0,
+                        onClick = { onMove(-1) },
+                        size = 38.dp,
+                    )
+                    CandyIconButton(
+                        icon = Icons.Filled.ChevronRight,
+                        contentDescription = stringResource(R.string.goovie_move_later),
+                        color = CandyCyan,
+                        selected = false,
+                        enabled = selected in 0 until keyframes.size - 1,
+                        onClick = { onMove(1) },
+                        size = 38.dp,
+                    )
+                    // Re-punch: the "edit this step" verb. Lit while the
+                    // pin lags the live goo, so it reads as the answer to
+                    // "my edits didn't land in the keyframe".
+                    CandyIconButton(
+                        icon = Icons.Filled.Cached,
+                        contentDescription = stringResource(R.string.goovie_update),
+                        color = CandyLemon,
+                        selected = stale,
+                        enabled = selected >= 0,
+                        onClick = onRepunch,
+                        size = 38.dp,
+                    )
+                    CandyIconButton(
+                        icon = Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.goovie_delete),
+                        color = CandyOrange,
+                        selected = false,
+                        enabled = selected >= 0,
+                        onClick = onDelete,
+                        size = 38.dp,
+                    )
+                    CandyIconButton(
+                        icon = Icons.Filled.Download,
+                        contentDescription = stringResource(R.string.goovie_save_movie),
+                        color = CandyGrape,
+                        selected = false,
+                        enabled = keyframes.size >= 2,
+                        haptic = false,
+                        onClick = { onExport(false) },
+                        size = 38.dp,
+                    )
+                    CandyIconButton(
+                        icon = Icons.Filled.IosShare,
+                        contentDescription = stringResource(R.string.goovie_share_movie),
+                        color = CandyGrape,
+                        selected = false,
+                        enabled = keyframes.size >= 2,
+                        haptic = false,
+                        onClick = { onExport(true) },
+                        size = 38.dp,
+                    )
+                }
             }
+            StripHint(keyframes = keyframes, selected = selected, stale = stale, live = live)
         }
     }
+}
+
+/**
+ * The line under the strip that says what to do next. Two lines tall
+ * whatever it says, so swapping hints never re-measures the canvas (and
+ * with it the GLSurfaceView).
+ */
+@Composable
+private fun StripHint(
+    keyframes: List<Keyframe>,
+    selected: Int,
+    stale: Boolean,
+    live: Boolean,
+) {
+    val hint = goovieHint(keyframes, selected, stale, live)
+    val text = when (hint) {
+        GoovieHint.EMPTY -> stringResource(R.string.goovie_empty_hint)
+        GoovieHint.LIVE_PINNED -> stringResource(R.string.goovie_hint_live_pinned, selected + 1)
+        GoovieHint.LIVE -> stringResource(R.string.goovie_hint_live)
+        GoovieHint.NEEDS_SECOND -> stringResource(R.string.goovie_hint_needs_second)
+        GoovieHint.ALL_SAME -> stringResource(R.string.goovie_hint_all_same)
+        GoovieHint.STALE -> stringResource(R.string.goovie_hint_stale, selected + 1)
+        GoovieHint.READY -> stringResource(R.string.goovie_hint_ready)
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        minLines = 2,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
 }
 
 /** A numbered candy bead — the strip's stand-in for a thumbnail. */

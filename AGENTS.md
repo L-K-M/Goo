@@ -62,6 +62,15 @@ lives in `engine/core` as pure JVM classes.
   pin the semantics.
 - Brush geometry is computed in normalized source coordinates, never screen
   pixels — preview/export parity depends on it (PLAN.md §5.4).
+- **A GOOvie keyframe is a pin, not a canvas.** It stores
+  `(strokeCount, globals)`, so there is no "editing keyframe 2" — you goo
+  the photo and re-punch (`repunchSelectedKeyframe`). Deviation from the
+  original PLAN.md §4.1 wording: editing is NOT paused while the strip is
+  open. Appends can't invalidate a prefix pin, and undo/redo/reset already
+  push a `rebuild` that drops the renderer's count-keyed endpoint cache.
+  The one real constraint is that stamps only ever reach the *live* field,
+  so any edit inside the strip first flips `UiState.goovieLive` and clears
+  the tween — don't reintroduce an edit lock to "protect" the pins.
 - The app has **no INTERNET permission**. Keep it that way; adding any
   network dependency is a product decision requiring an ADR.
 - App display name lives ONLY in `strings.xml` `app_name` (rename

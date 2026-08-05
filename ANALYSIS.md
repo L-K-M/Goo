@@ -59,6 +59,17 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
   Stroke-start pop, pump squelch keyed to stamp rate, lever detent click,
   keyframe punch. Depends on K3-15 for the off switch.
 
+- **K3-28** ✨ **Goo *at* an earlier keyframe.** Editing inside the strip
+  always happens at the head of the log — touching the canvas drops the
+  preview to live, and Update re-pins the selected keyframe to that head.
+  So a strip can be authored and revised forward, but you still can't
+  select keyframe 1 of 5, tweak it, and have keyframes 2–5 inherit the
+  tweak. Prefix pins make that genuinely hard: inserting strokes mid-log
+  would need every later pin bumped, and the redo-branch truncation in
+  `StrokeLog.push` would eat the tail. Shape if it's ever worth it: an
+  insert-at-cursor log op plus pin remapping, or per-keyframe stroke
+  ranges instead of prefixes. Wait for someone to actually ask.
+
 - **K3-17** ✨ **GIF export** — explicitly deferred by PLAN.md §4.1
   ("GIF secondary… deferred to the polish pass"). MP4 covers the share
   case; a palette encoder is a chunk of work. Revisit if users ask.
