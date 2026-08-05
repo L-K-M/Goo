@@ -86,16 +86,20 @@ void main() {
     float distA = length(fromCenter);
     float d = distA / u_radius;
     float w = falloff(d) * u_strength;
-    vec2 cur = texture(u_field, v_uv).xy;
-    vec2 next;
-    if (u_mode == 3) {              // RELAX
-        vec2 blur = 0.25 * (
-            texture(u_field, v_uv + vec2(u_fieldTexel.x, 0.0)).xy +
-            texture(u_field, v_uv - vec2(u_fieldTexel.x, 0.0)).xy +
-            texture(u_field, v_uv + vec2(0.0, u_fieldTexel.y)).xy +
-            texture(u_field, v_uv - vec2(0.0, u_fieldTexel.y)).xy);
+    // Field texel: xy = displacement, z = Fusion mask (see
+    // DisplacementField — CHANNELS is 3; the texture's w is unused).
+    vec3 cur = texture(u_field, v_uv).xyz;
+    vec3 next;
+    if (u_mode == 5) {              // FUSE: mask flow, displacement as-is
+        next = vec3(cur.xy, clamp(cur.z + w * 0.30, 0.0, 1.0));
+    } else if (u_mode == 3) {       // RELAX
+        vec3 blur = 0.25 * (
+            texture(u_field, v_uv + vec2(u_fieldTexel.x, 0.0)).xyz +
+            texture(u_field, v_uv - vec2(u_fieldTexel.x, 0.0)).xyz +
+            texture(u_field, v_uv + vec2(0.0, u_fieldTexel.y)).xyz +
+            texture(u_field, v_uv - vec2(0.0, u_fieldTexel.y)).xyz);
         next = mix(cur, blur, w * 0.22);
-    } else if (u_mode == 4) {       // ERASE
+    } else if (u_mode == 4) {       // ERASE (un-fuses too)
         next = cur * (1.0 - w * 0.22);
     } else {                        // warp modes: b(p) then warp-of-warp
         vec2 b;
@@ -108,9 +112,11 @@ void main() {
                 : vec2((fromCenter.x / distA) / u_aspect, fromCenter.y / distA);
             b = (u_mode == 1 ? -1.0 : 1.0) * outward * m;
         }
-        next = b + texture(u_field, v_uv + b).xy;
+        // Mask rides the same lookup — painted fusion moves with the goo.
+        vec3 prev = texture(u_field, v_uv + b).xyz;
+        next = vec3(b + prev.xy, prev.z);
     }
-    o_field = vec4(next, 0.0, 1.0);
+    o_field = vec4(next, 0.0);
 }
 """
 
@@ -157,6 +163,11 @@ uniform highp sampler2D u_field;
 // so mix() degenerates to the plain read.
 uniform highp sampler2D u_fieldB;
 uniform float u_tween;
+// Fusion (PLAN.md §3): photo B, cover-cropped to A's UV space at upload,
+// revealed by the field's z-channel mask. u_hasB gates stale masks when
+// no B is loaded.
+uniform sampler2D u_imageB;
+uniform float u_hasB;
 uniform float u_gAspect;   // image width / height
 uniform float u_g[6];
 in vec2 v_uv;
@@ -234,10 +245,16 @@ vec2 globalDisp(vec2 uv) {
 }
 
 void main() {
-    vec2 dispA = texture(u_field, v_uv).xy;
-    vec2 dispB = texture(u_fieldB, v_uv).xy;
-    vec2 disp = mix(dispA, dispB, u_tween) + globalDisp(v_uv);
-    o_color = texture(u_image, v_uv + disp);
+    // xy = displacement, z = fusion mask; the vec3 mix tweens both, so
+    // GOOvies animate fusion reveals with no extra machinery.
+    vec3 fa = texture(u_field, v_uv).xyz;
+    vec3 fb = texture(u_fieldB, v_uv).xyz;
+    vec3 f = mix(fa, fb, u_tween);
+    vec2 disp = f.xy + globalDisp(v_uv);
+    vec2 src = v_uv + disp;
+    vec4 colorA = texture(u_image, src);
+    vec4 colorB = texture(u_imageB, src);
+    o_color = mix(colorA, colorB, clamp(f.z, 0.0, 1.0) * u_hasB);
 }
 """
 }

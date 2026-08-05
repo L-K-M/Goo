@@ -87,14 +87,14 @@ class BrushModeBehaviorTest {
         // Sharp synthetic bump: one texel row of displacement.
         val ix = 32
         val iy = 32
-        f.data[(iy * 64 + ix) * 2] = 0.1f
+        f.data[(iy * 64 + ix) * DisplacementField.CHANNELS] = 0.1f
         val peakBefore = f.sampleX(0.5f + 0.5f / 64, 0.5f + 0.5f / 64)
         var sumBefore = 0f
-        for (i in f.data.indices step 2) sumBefore += abs(f.data[i])
+        for (i in f.data.indices step DisplacementField.CHANNELS) sumBefore += abs(f.data[i])
         repeat(15) { f.applyStamp(stroke(BrushTool.SMOOTH), center) }
         val peakAfter = abs(f.sampleX(0.5f + 0.5f / 64, 0.5f + 0.5f / 64))
         var sumAfter = 0f
-        for (i in f.data.indices step 2) sumAfter += abs(f.data[i])
+        for (i in f.data.indices step DisplacementField.CHANNELS) sumAfter += abs(f.data[i])
         assertTrue(peakAfter < peakBefore * 0.6f, "peak $peakBefore -> $peakAfter")
         assertTrue(sumAfter > sumBefore * 0.25f, "smooth should spread, not erase")
     }

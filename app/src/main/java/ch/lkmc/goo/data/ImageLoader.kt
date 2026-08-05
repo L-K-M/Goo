@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.net.Uri
 import androidx.core.graphics.scale
 import androidx.exifinterface.media.ExifInterface
+import ch.lkmc.goo.engine.core.CoverCrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -71,15 +72,40 @@ class ImageLoader(private val context: Context) {
         }
 
     /**
-     * Delete session files except [keep] (REVIEW.md G-1): the previous
-     * session's copy is garbage the moment a new image is imported, and
-     * relying on the OS cache eviction alone lets tens of full-size copies
-     * pile up first.
+     * Decode [file] cover-cropped and scaled to exactly [targetWidth] ×
+     * [targetHeight] — Fusion's photo B path: B must live in A's UV
+     * space texel-for-texel (preview and export both call this with
+     * their respective A dimensions). EXIF-upright, ARGB_8888.
      */
-    suspend fun sweepSessions(keep: File?) = withContext(Dispatchers.IO) {
-        val keepPath = keep?.path
+    suspend fun decodeCover(file: File, targetWidth: Int, targetHeight: Int): Bitmap =
+        withContext(Dispatchers.IO) {
+            val upright = decodePreview(file, maxDimension = maxOf(targetWidth, targetHeight))
+            val crop = CoverCrop.rect(
+                upright.width, upright.height,
+                targetWidth.toFloat() / targetHeight,
+            )
+            val cropped = Bitmap.createBitmap(upright, crop[0], crop[1], crop[2], crop[3])
+            val scaled = cropped.scale(targetWidth, targetHeight)
+            // createBitmap/scale may return their input; never recycle a
+            // bitmap that is also the result. When the crop is full-frame
+            // (cropped === upright) but the scale still resizes, upright is
+            // NOT the result and must be recycled — checking it against
+            // cropped here would skip exactly that case and leak it.
+            if (cropped !== upright && cropped !== scaled) cropped.recycle()
+            if (upright !== scaled) upright.recycle()
+            scaled
+        }
+
+    /**
+     * Delete session files except [keep] (REVIEW.md G-1): the previous
+     * session's copies are garbage the moment a new image is imported,
+     * and relying on the OS cache eviction alone lets tens of full-size
+     * copies pile up first. Fusion sessions keep two files (A and B).
+     */
+    suspend fun sweepSessions(keep: Set<File>) = withContext(Dispatchers.IO) {
+        val keepPaths = keep.map { it.path }.toSet()
         File(context.cacheDir, "sessions").listFiles()
-            ?.filter { it.path != keepPath }
+            ?.filter { it.path !in keepPaths }
             ?.forEach { it.delete() }
     }
 

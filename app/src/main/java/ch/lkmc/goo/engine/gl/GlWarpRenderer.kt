@@ -89,12 +89,19 @@ class GlWarpRenderer(
     private var uGlobals = 0
     private var uFieldB = 0
     private var uTween = 0
+    private var uImageB = 0
+    private var uHasB = 0
 
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
 
     /** Set by WarpSurfaceView: whether the context config is recordable. */
     var recordableConfig: (() -> Boolean)? = null
+
+    // Fusion: photo B, cover-cropped to A's UV space by the caller.
+    // Retained like sourceBitmap for context recovery.
+    private var sourceBitmapB: Bitmap? = null
+    private var sourceTextureB = 0
 
     // ---- GOOvie tween state --------------------------------------------
     // Two endpoint fields materialized by replaying stroke-log prefixes;
@@ -125,6 +132,34 @@ class GlWarpRenderer(
      */
     fun setGlobalParams(params: GlobalParams) {
         globalParams = params
+    }
+
+    /**
+     * Install (or clear) Fusion's photo B. [bitmap] must already be
+     * cover-cropped to A's UV space (ImageLoader.decodeCover) so the two
+     * images align texel-for-texel under the shared warp.
+     */
+    fun setImageB(bitmap: Bitmap?) {
+        sourceBitmapB = bitmap
+        if (!contextReady) return
+        uploadImageB()
+    }
+
+    private fun uploadImageB() {
+        if (sourceTextureB != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(sourceTextureB), 0)
+            sourceTextureB = 0
+        }
+        val bitmap = sourceBitmapB ?: return
+        val tex = IntArray(1)
+        GLES30.glGenTextures(1, tex, 0)
+        sourceTextureB = tex[0]
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTextureB)
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
     }
 
     /** Stamp a batch from the live stroke into the preview field. */
@@ -345,12 +380,19 @@ class GlWarpRenderer(
             uGlobals, 6,
             (if (tweening) tweenGlobals else globalParams).toArray(), 0,
         )
+        GLES30.glUniform1i(uImageB, 3)
+        GLES30.glUniform1f(uHasB, if (sourceTextureB != 0) 1f else 0f)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) a!!.readTexture else f.readTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) b!!.readTexture else f.readTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
+        GLES30.glBindTexture(
+            GLES30.GL_TEXTURE_2D,
+            if (sourceTextureB != 0) sourceTextureB else sourceTexture,
+        )
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         GLES30.glDisableVertexAttribArray(0)
     }
@@ -469,6 +511,8 @@ class GlWarpRenderer(
             uGlobals = it.uniform("u_g")
             uFieldB = it.uniform("u_fieldB")
             uTween = it.uniform("u_tween")
+            uImageB = it.uniform("u_imageB")
+            uHasB = it.uniform("u_hasB")
         }
 
         val vbo = IntArray(1)
@@ -484,6 +528,7 @@ class GlWarpRenderer(
         // for the same reason as field — their names belong to the dead
         // context, and deleting them here would poke the new one.
         sourceTexture = 0
+        sourceTextureB = 0
         field = null
         endpointA = null
         endpointB = null
@@ -539,12 +584,19 @@ class GlWarpRenderer(
             uGlobals, 6,
             (if (tweening) tweenGlobals else globalParams).toArray(), 0,
         )
+        GLES30.glUniform1i(uImageB, 3)
+        GLES30.glUniform1f(uHasB, if (sourceTextureB != 0) 1f else 0f)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) a!!.readTexture else f.readTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) b!!.readTexture else f.readTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
+        GLES30.glBindTexture(
+            GLES30.GL_TEXTURE_2D,
+            if (sourceTextureB != 0) sourceTextureB else sourceTexture,
+        )
         // Bitmaps upload premultiplied; without premul-correct blending a
         // transparent PNG's clear regions would render black instead of
         // showing the table. Warp pass only — the stamp pass must write
@@ -591,6 +643,7 @@ class GlWarpRenderer(
         endpointB = null
         loadedCountA = -1
         loadedCountB = -1
+        uploadImageB()
         rebuild(strokesToReplay)
     }
 
@@ -604,7 +657,12 @@ class GlWarpRenderer(
      * All temporary GL objects are released before returning; the preview
      * field and source texture are untouched.
      */
-    fun exportBitmap(source: Bitmap, strokes: List<Stroke>, onResult: (Bitmap?) -> Unit) {
+    fun exportBitmap(
+        source: Bitmap,
+        sourceB: Bitmap?,
+        strokes: List<Stroke>,
+        onResult: (Bitmap?) -> Unit,
+    ) {
         if (!contextReady || warpProgram == null) {
             onResult(null)
             return
@@ -614,12 +672,14 @@ class GlWarpRenderer(
         // export decode ran) no-ops GL calls — both make the setup below
         // throwable. An uncaught throw here kills the process.
         var tex: IntArray? = null
+        var texB: IntArray? = null
         var exportField: PingPongField? = null
         var outTex: IntArray? = null
         var outFbo: IntArray? = null
         try {
-            onResult(renderExport(source, strokes,
+            onResult(renderExport(source, sourceB, strokes,
                 allocTex = { tex = it },
+                allocTexB = { texB = it },
                 allocField = { exportField = it },
                 allocOutTex = { outTex = it },
                 allocOutFbo = { outFbo = it }))
@@ -631,14 +691,17 @@ class GlWarpRenderer(
             outFbo?.let { GLES30.glDeleteFramebuffers(1, it, 0) }
             outTex?.let { GLES30.glDeleteTextures(1, it, 0) }
             tex?.let { GLES30.glDeleteTextures(1, it, 0) }
+            texB?.let { GLES30.glDeleteTextures(1, it, 0) }
             exportField?.delete()
         }
     }
 
     private inline fun renderExport(
         source: Bitmap,
+        sourceB: Bitmap?,
         strokes: List<Stroke>,
         allocTex: (IntArray) -> Unit,
+        allocTexB: (IntArray) -> Unit,
         allocField: (PingPongField) -> Unit,
         allocOutTex: (IntArray) -> Unit,
         allocOutFbo: (IntArray) -> Unit,
@@ -655,6 +718,22 @@ class GlWarpRenderer(
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
+        // Fusion's photo B at export size (cover-cropped upstream to A's
+        // UV space, same as the preview path).
+        var texBId = 0
+        if (sourceB != null) {
+            val texB = IntArray(1)
+            GLES30.glGenTextures(1, texB, 0)
+            allocTexB(texB)
+            texBId = texB[0]
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texBId)
+            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, sourceB, 0)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        }
 
         // Fresh field, replayed from the log (never the preview field: its
         // texel grid belongs to the preview bitmap).
@@ -706,6 +785,8 @@ class GlWarpRenderer(
         // samplers on the export field.
         GLES30.glUniform1i(uFieldB, 2)
         GLES30.glUniform1f(uTween, 0f)
+        GLES30.glUniform1i(uImageB, 3)
+        GLES30.glUniform1f(uHasB, if (texBId != 0) 1f else 0f)
         GLES30.glUniform1f(uGAspect, exportAspect)
         GLES30.glUniform1fv(uGlobals, 6, globalParams.toArray(), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -714,6 +795,8 @@ class GlWarpRenderer(
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (texBId != 0) texBId else tex[0])
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         GLES30.glDisableVertexAttribArray(0)
 

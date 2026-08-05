@@ -103,6 +103,7 @@ allocation on the touch path. Brush math: `b(p) = strength · falloff(|p−c|/r)
 | Nudge  | Smear with heavy damping — fine adjustments                   |
 | Smooth | blur/relax the field toward locally-averaged values           |
 | UnGoo  | lerp the field toward zero under the brush (localized eraser) |
+| Fusion | photo B cover-cropped into A's UV space (CoverCrop, one shared warp); the through-paint mask is the field's z channel, written by a FUSE stamp mode — so it warps with the goo (warp-of-warp lookup carries z), blurs under Smooth, erases under UnGoo, undoes/replays/exports via the stroke log, and tweens in GOOvies through the same field mix, all with zero new machinery. Field format RG16F→RGBA16F (same extension gates) |
 | Global effects | parametric analytic fields (bulge, twirl, …) composed additively over the stroke field, live in the warp pass as uniforms. Levers are document state, not history entries: center = identity, pulling back undoes exactly, Reset zeroes them; undo/redo stay stroke-only. Static uses integer-hash value noise (fixed seed) so CPU and GPU agree bit-for-bit — a sin-hash would drift per driver |
 
 **Export.** Decode the original (EXIF-rotated) at the export cap — the GL

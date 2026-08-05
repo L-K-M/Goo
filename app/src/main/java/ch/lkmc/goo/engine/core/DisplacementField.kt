@@ -20,13 +20,14 @@ import kotlin.math.sqrt
  * produces the difference from `D + b` is second-order, but warp-of-warp
  * keeps long strokes from drifting off their own trail.
  *
- * Grid layout: [width]×[height] texels, two floats each (dx, dy in UV
- * units), row-major, texel (ix, iy) centered at UV
+ * Grid layout: [width]×[height] texels, three floats each (dx, dy in UV
+ * units, then the Fusion mask m in [0,1] — the GL side stores it in the
+ * field texture's z channel), row-major, texel (ix, iy) centered at UV
  * `((ix+0.5)/width, (iy+0.5)/height)`.
  */
 class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
 
-    val data = FloatArray(width * height * 2)
+    val data = FloatArray(width * height * CHANNELS)
 
     fun reset() = data.fill(0f)
 
@@ -35,6 +36,9 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
 
     /** Bilinearly sampled displacement y-component at UV (u, v). */
     fun sampleY(u: Float, v: Float): Float = sample(u, v, 1)
+
+    /** Bilinearly sampled Fusion mask at UV (u, v). */
+    fun sampleMask(u: Float, v: Float): Float = sample(u, v, 2)
 
     /**
      * Where the pixel shown at (u, v) is fetched from: `p + D(p)` — the
@@ -67,6 +71,14 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                 val dist = distA / stroke.radius
                 val w = BrushFalloff.weight(dist, profile) * stroke.strength
                 when (mode) {
+                    StampMode.FUSE -> {
+                        // Mask flow only; displacement passes through.
+                        out[i] = at(ix, iy, 0)
+                        out[i + 1] = at(ix, iy, 1)
+                        out[i + 2] = (at(ix, iy, 2) + w * BrushDynamics.FUSE_STEP)
+                            .coerceIn(0f, 1f)
+                    }
+
                     StampMode.DIRECTIONAL, StampMode.INFLATE, StampMode.DEFLATE -> {
                         // b(p): falloff-weighted brush displacement,
                         // backward-mapped (negative = content moves with
@@ -93,9 +105,11 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                                 by = s * oy * m
                             }
                         }
-                        // D'(p) = b(p) + D(p + b(p))
+                        // D'(p) = b(p) + D(p + b(p)); the mask rides the
+                        // same lookup so painted fusion moves with the goo.
                         out[i] = bx + sampleX(u + bx, v + by)
                         out[i + 1] = by + sampleY(u + bx, v + by)
+                        out[i + 2] = sampleMask(u + bx, v + by)
                     }
 
                     StampMode.RELAX -> {
@@ -108,17 +122,23 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         val blurY = 0.25f * (
                             sampleY(u + tx, v) + sampleY(u - tx, v) +
                                 sampleY(u, v + ty) + sampleY(u, v - ty))
+                        val blurM = 0.25f * (
+                            sampleMask(u + tx, v) + sampleMask(u - tx, v) +
+                                sampleMask(u, v + ty) + sampleMask(u, v - ty))
                         out[i] = at(ix, iy, 0) + (blurX - at(ix, iy, 0)) * k
                         out[i + 1] = at(ix, iy, 1) + (blurY - at(ix, iy, 1)) * k
+                        out[i + 2] = at(ix, iy, 2) + (blurM - at(ix, iy, 2)) * k
                     }
 
                     StampMode.ERASE -> {
+                        // UnGoo un-fuses too: everything back to photo A.
                         val k = 1f - w * BrushDynamics.BLEND_STEP
                         out[i] = at(ix, iy, 0) * k
                         out[i + 1] = at(ix, iy, 1) * k
+                        out[i + 2] = at(ix, iy, 2) * k
                     }
                 }
-                i += 2
+                i += CHANNELS
             }
         }
         out.copyInto(data)
@@ -150,5 +170,11 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
         return top + (bottom - top) * fy
     }
 
-    private fun at(ix: Int, iy: Int, channel: Int): Float = data[(iy * width + ix) * 2 + channel]
+    private fun at(ix: Int, iy: Int, channel: Int): Float =
+        data[(iy * width + ix) * CHANNELS + channel]
+
+    companion object {
+        /** dx, dy, fusion mask. */
+        const val CHANNELS = 3
+    }
 }
