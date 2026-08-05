@@ -139,6 +139,7 @@ private fun WarpEditor(
     var confirmReset by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
+    var adjustingBrush by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -368,6 +369,21 @@ private fun WarpEditor(
                 },
             )
 
+            // Live brush preview while a Size/Strength slider is in hand.
+            // Gated on the brush panel being the active one: a mid-drag
+            // panel swap strands the flag true (onValueChangeFinished
+            // never fires for a slider that left composition).
+            state.bitmap?.let { bmp ->
+                BrushPreviewOverlay(
+                    visible = adjustingBrush && !state.goovieMode && !showLevers,
+                    imageWidth = bmp.width,
+                    imageHeight = bmp.height,
+                    radius = state.brushRadius,
+                    strength = state.brushStrength,
+                    profile = state.tool.profile,
+                )
+            }
+
             // First-run hint: floats until the first stroke lands, ever.
             // Fully qualified on purpose: this Box nests inside the screen
             // Column, whose ColumnScope member extension AnimatedVisibility
@@ -451,6 +467,7 @@ private fun WarpEditor(
                     onMirrorToggle = viewModel::toggleMirror,
                     onRadiusChange = viewModel::setBrushRadius,
                     onStrengthChange = viewModel::setBrushStrength,
+                    onAdjustingChange = { adjustingBrush = it },
                     onFusionPick = {
                         pickImageB.launch(
                             PickVisualMediaRequest(
@@ -595,7 +612,13 @@ private fun BrushRail(
     onRadiusChange: (Float) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onFusionPick: () -> Unit,
+    onAdjustingChange: (Boolean) -> Unit,
 ) {
+    // A slider dragged off-screen (panel swap) never delivers its
+    // onValueChangeFinished — clear the adjusting flag on the way out.
+    DisposableEffect(Unit) {
+        onDispose { onAdjustingChange(false) }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -641,12 +664,14 @@ private fun BrushRail(
             value = radius,
             onValueChange = onRadiusChange,
             valueRange = EditorViewModel.MIN_RADIUS..EditorViewModel.MAX_RADIUS,
+            onAdjustingChange = onAdjustingChange,
         )
         LabeledSlider(
             label = stringResource(R.string.editor_brush_strength),
             value = strength,
             onValueChange = onStrengthChange,
             valueRange = 0.05f..1f,
+            onAdjustingChange = onAdjustingChange,
         )
     }
 }
@@ -657,6 +682,7 @@ private fun LabeledSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
+    onAdjustingChange: (Boolean) -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -672,7 +698,11 @@ private fun LabeledSlider(
         Slider(
             modifier = Modifier.weight(1f),
             value = value,
-            onValueChange = onValueChange,
+            onValueChange = {
+                onAdjustingChange(true)
+                onValueChange(it)
+            },
+            onValueChangeFinished = { onAdjustingChange(false) },
             valueRange = valueRange,
             colors = SliderDefaults.colors(
                 thumbColor = CandyPink,
