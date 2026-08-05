@@ -297,6 +297,10 @@ class EditorViewModel @Inject constructor(
     fun cancelExport() {
         exportJob?.cancel()
         exportJob = null
+        // The job's finally lands a dispatcher tick later; restore idle
+        // state synchronously so callers see it immediately (idempotent
+        // with the finally's own reset).
+        _uiState.update { it.copy(exporting = false) }
     }
 
     private fun refreshHistoryFlags() {

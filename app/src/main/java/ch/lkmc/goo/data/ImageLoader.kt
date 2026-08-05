@@ -77,8 +77,9 @@ class ImageLoader(private val context: Context) {
      * pile up first.
      */
     suspend fun sweepSessions(keep: File?) = withContext(Dispatchers.IO) {
+        val keepPath = keep?.path
         File(context.cacheDir, "sessions").listFiles()
-            ?.filter { it != keep && it.path != keep?.path }
+            ?.filter { it.path != keepPath }
             ?.forEach { it.delete() }
     }
 
