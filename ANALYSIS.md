@@ -35,9 +35,9 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
 
 - **K3-9** ⚠️ **Replay cost grows with pumped-tool stamps** (= REVIEW.md
   G-6) — and GOOvie playback hitches at segment boundaries: a segment
-  crossing mid-playback replays a whole stroke prefix on the GL thread
-  (`materializeInto`) inside the frame loop, so heavy logs stutter exactly
-  at each keyframe. REVIEW.md's fix (field snapshot checkpoints every N
+  crossing mid-playback replays a whole keyframe stroke snapshot on the
+  GL thread (`materializeInto`) inside the frame loop, so heavy logs
+  stutter exactly at each keyframe. REVIEW.md's fix (field snapshot checkpoints every N
   strokes) cures both. Do when replay latency is user-visible; measure on
   a low-end device first.
 
@@ -96,7 +96,8 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
 - **K3-20** ✨ **Keyframe thumbnails.** The strip's numbered beads were an
   acknowledged stand-in; real thumbnails = tiny GL renders cached per pin
   (the tween machinery already materializes endpoint fields — read back a
-  96px thumb when a pin is punched or the log prefix changes). Lovely,
+  96px thumb whenever a pin is punched or re-punched; the pin's snapshot
+  is immutable, so the thumb never goes stale under it). Lovely,
   medium-heavy.
 
 - **K3-21** ✨ **Candy-fy the stock M3 sliders** (brush rail, export
