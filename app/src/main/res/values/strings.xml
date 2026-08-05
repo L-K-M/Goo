@@ -37,6 +37,7 @@
     <string name="about_close">Close</string>
     <string name="fusion_change_photo">Swap photo</string>
     <string name="fusion_remove_photo">Remove photo</string>
+    <string name="fusion_loading_photo">Melting the new Fusion photo into place…</string>
     <string name="tool_mirror">Mirror</string>
 
     <string name="editor_levers">Global effects</string>
