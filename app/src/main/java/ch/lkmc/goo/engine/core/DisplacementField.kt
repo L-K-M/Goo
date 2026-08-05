@@ -45,28 +45,79 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
 
     /**
      * Apply one [Stamp] of a [Stroke] to every texel: the shader's
-     * per-fragment body, looped. `b(p)` is the brush displacement —
-     * negative drag delta scaled by strength and the shared smoothstep
-     * falloff over aspect-space distance from the stamp center.
+     * per-fragment body, looped, switched on the tool's [StampMode].
+     *
+     * Warp modes (DIRECTIONAL, INFLATE, DEFLATE) compute a brush
+     * displacement `b(p)` and compose warp-of-warp; field modes (RELAX,
+     * ERASE) operate on the stored displacement itself — blurring it or
+     * fading it toward identity — with no resampling.
      */
     fun applyStamp(stroke: Stroke, stamp: Stamp) {
         val out = FloatArray(data.size)
+        val mode = stroke.tool.mode
+        val profile = stroke.tool.profile
         var i = 0
         for (iy in 0 until height) {
             val v = (iy + 0.5f) / height
             for (ix in 0 until width) {
                 val u = (ix + 0.5f) / width
-                // b(p): falloff-weighted content displacement, negated for
-                // backward mapping.
                 val du = (u - stamp.cx) * aspect
                 val dv = v - stamp.cy
-                val dist = sqrt(du * du + dv * dv) / stroke.radius
-                val w = BrushFalloff.weight(dist)
-                val bx = -stamp.dx * stroke.strength * w
-                val by = -stamp.dy * stroke.strength * w
-                // D'(p) = b(p) + D(p + b(p))
-                out[i] = bx + sampleX(u + bx, v + by)
-                out[i + 1] = by + sampleY(u + bx, v + by)
+                val distA = sqrt(du * du + dv * dv)
+                val dist = distA / stroke.radius
+                val w = BrushFalloff.weight(dist, profile) * stroke.strength
+                when (mode) {
+                    StampMode.DIRECTIONAL, StampMode.INFLATE, StampMode.DEFLATE -> {
+                        // b(p): falloff-weighted brush displacement,
+                        // backward-mapped (negative = content moves with
+                        // the gesture / bulges outward).
+                        var bx: Float
+                        var by: Float
+                        if (mode == StampMode.DIRECTIONAL) {
+                            bx = -stamp.dx * w
+                            by = -stamp.dy * w
+                        } else {
+                            // Outward unit direction in aspect space,
+                            // converted back to a UV delta; ramped to zero
+                            // at the center where it is undefined.
+                            val m = w * BrushFalloff.centerRamp(dist) *
+                                BrushDynamics.RADIAL_STEP_UV
+                            if (distA < 1e-6f) {
+                                bx = 0f
+                                by = 0f
+                            } else {
+                                val ox = (du / distA) / aspect
+                                val oy = dv / distA
+                                val s = if (mode == StampMode.INFLATE) -1f else 1f
+                                bx = s * ox * m
+                                by = s * oy * m
+                            }
+                        }
+                        // D'(p) = b(p) + D(p + b(p))
+                        out[i] = bx + sampleX(u + bx, v + by)
+                        out[i + 1] = by + sampleY(u + bx, v + by)
+                    }
+
+                    StampMode.RELAX -> {
+                        val k = w * BrushDynamics.BLEND_STEP
+                        val tx = 1f / width
+                        val ty = 1f / height
+                        val blurX = 0.25f * (
+                            sampleX(u + tx, v) + sampleX(u - tx, v) +
+                                sampleX(u, v + ty) + sampleX(u, v - ty))
+                        val blurY = 0.25f * (
+                            sampleY(u + tx, v) + sampleY(u - tx, v) +
+                                sampleY(u, v + ty) + sampleY(u, v - ty))
+                        out[i] = at(ix, iy, 0) + (blurX - at(ix, iy, 0)) * k
+                        out[i + 1] = at(ix, iy, 1) + (blurY - at(ix, iy, 1)) * k
+                    }
+
+                    StampMode.ERASE -> {
+                        val k = 1f - w * BrushDynamics.BLEND_STEP
+                        out[i] = at(ix, iy, 0) * k
+                        out[i + 1] = at(ix, iy, 1) * k
+                    }
+                }
                 i += 2
             }
         }
