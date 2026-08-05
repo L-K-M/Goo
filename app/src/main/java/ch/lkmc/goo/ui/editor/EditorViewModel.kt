@@ -283,10 +283,6 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         // The strip is playback territory; the canvas doesn't paint there.
         if (state.goovieMode) return
-        if (state.showHint) {
-            onboardingPrefs.smearHintSeen = true
-            _uiState.update { it.copy(showHint = false) }
-        }
         val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
         val tool = state.tool
@@ -370,6 +366,12 @@ class EditorViewModel @Inject constructor(
         val stroke = params.copy(stamps = liveStamps.toList())
         liveStamps = mutableListOf()
         log.push(stroke)
+        if (_uiState.value.showHint) {
+            // A touch-down or sub-spacing directional drag is not a
+            // successful edit. Retire onboarding only after real work lands.
+            onboardingPrefs.smearHintSeen = true
+            _uiState.update { it.copy(showHint = false) }
+        }
         refreshHistoryFlags()
         return stroke
     }
