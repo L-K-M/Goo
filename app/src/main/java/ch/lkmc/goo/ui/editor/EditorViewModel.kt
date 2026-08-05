@@ -667,7 +667,9 @@ class EditorViewModel @Inject constructor(
                         }
                     }
                 }
-                warped = rendered ?: throw IllegalStateException("engine could not render the export")
+                val result = rendered
+                    ?: throw IllegalStateException("engine could not render the export")
+                warped = result
                 full.recycle()
                 full = null
                 fullB?.recycle()
