@@ -135,4 +135,38 @@ class ViewTransformTest {
         assertClose(5f, mid.tx)
         assertClose(10f, mid.ty)
     }
+
+    @Test
+    fun `viewport rebase keeps the same source point centered`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+        val oldView = ViewTransform(scale = 2.4f, rotation = 0.35f, tx = -180f, ty = 90f)
+
+        val (oldCanvasX, oldCanvasY) = oldView.invert(
+            oldFit.viewWidth / 2f,
+            oldFit.viewHeight / 2f,
+        )
+        val expectedUv = oldFit.viewToUv(oldCanvasX, oldCanvasY)
+        val rebased = oldView.rebase(oldFit, newFit)
+        val (newCanvasX, newCanvasY) = rebased.invert(
+            newFit.viewWidth / 2f,
+            newFit.viewHeight / 2f,
+        )
+        val actualUv = newFit.viewToUv(newCanvasX, newCanvasY)
+
+        assertClose(expectedUv.first, actualUv.first)
+        assertClose(expectedUv.second, actualUv.second)
+        assertEquals(oldView.scale, rebased.scale)
+        assertEquals(oldView.rotation, rebased.rotation)
+    }
+
+    @Test
+    fun `identity remains identity when the viewport changes`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+
+        val rebased = ViewTransform().rebase(oldFit, newFit)
+
+        assertTrue(rebased.isIdentity, "got $rebased")
+    }
 }

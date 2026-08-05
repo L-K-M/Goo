@@ -12,7 +12,7 @@ import kotlin.math.sin
  *
  * `T(p) = s·R(θ)·p + t`. Similarities are closed under composition, so
  * two-finger gesture steps accumulate exactly. Ephemeral state — not
- * serialized; a reset button (and rotation) starts it over.
+ * serialized; a reset button returns it to identity.
  */
 data class ViewTransform(
     val scale: Float = 1f,
@@ -72,6 +72,27 @@ data class ViewTransform(
             rotation = normalizeAngle(rotation + rotationDelta),
             tx = centroidX + panX + effectiveZoom * (c * relX - s * relY),
             ty = centroidY + panY + effectiveZoom * (s * relX + c * relY),
+        )
+    }
+
+    /**
+     * Rebase this navigation from [oldFit] to [newFit]. The source UV shown
+     * at the old viewport center remains at the new viewport center, while
+     * zoom and rotation stay unchanged. This handles rotation, multi-window,
+     * fold posture, and editor-panel height changes without stale pixel pan.
+     */
+    fun rebase(oldFit: FitTransform, newFit: FitTransform): ViewTransform {
+        if (isIdentity) return this
+        val oldCenterX = oldFit.viewWidth / 2f
+        val oldCenterY = oldFit.viewHeight / 2f
+        val (oldCanvasX, oldCanvasY) = invert(oldCenterX, oldCenterY)
+        val (centerU, centerV) = oldFit.viewToUv(oldCanvasX, oldCanvasY)
+        val (newCanvasX, newCanvasY) = newFit.uvToView(centerU, centerV)
+        val newCenterX = newFit.viewWidth / 2f
+        val newCenterY = newFit.viewHeight / 2f
+        return copy(
+            tx = newCenterX - (a * newCanvasX - b * newCanvasY),
+            ty = newCenterY - (b * newCanvasX + a * newCanvasY),
         )
     }
 

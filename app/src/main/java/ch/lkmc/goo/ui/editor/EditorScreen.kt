@@ -339,7 +339,26 @@ private fun WarpEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .onSizeChanged { canvasSize = it }
+                .onSizeChanged { newSize ->
+                    val oldSize = canvasSize
+                    if (oldSize.width > 0 && oldSize.height > 0 &&
+                        newSize.width > 0 && newSize.height > 0 &&
+                        oldSize != newSize
+                    ) {
+                        viewResetJob?.cancel()
+                        view = view.rebase(
+                            oldFit = FitTransform(
+                                oldSize.width.toFloat(), oldSize.height.toFloat(),
+                                bitmap.width.toFloat(), bitmap.height.toFloat(),
+                            ),
+                            newFit = FitTransform(
+                                newSize.width.toFloat(), newSize.height.toFloat(),
+                                bitmap.width.toFloat(), bitmap.height.toFloat(),
+                            ),
+                        )
+                    }
+                    canvasSize = newSize
+                }
                 .pointerInput(bitmap) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
