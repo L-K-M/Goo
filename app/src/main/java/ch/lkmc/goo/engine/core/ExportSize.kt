@@ -13,12 +13,15 @@ object ExportSize {
      * Long-side cap for the export decode: the GL max texture size AND the
      * memory budget, whichever is tighter.
      *
-     * The budget exists because two full ARGB bitmaps (decode + readback)
-     * plus their GL copies live at once during export — an uncapped 48 MP
-     * photo would cost >500 MB and OOM mid-range devices. 4096 keeps the
-     * worst case near 150 MB and covers native 12 MP output; larger
-     * sources downscale. True full-resolution tiled export is tracked in
-     * REVIEW.md.
+     * The budget exists because five export-sized allocations coexist at
+     * the readback peak: decoded source bitmap, GL source texture, GL
+     * output texture, the direct readback buffer, and the result bitmap —
+     * ~320 MB at a square 4096² worst case (~250 MB at 4:3), almost all
+     * native/GPU rather than Java heap. Uncapped 48 MP would quadruple
+     * that and OOM mid-range devices. 4096 covers native 12 MP output;
+     * larger sources downscale. (The separate readback buffer is
+     * unavoidable without NDK pixel locking.) True full-resolution tiled
+     * export is tracked in REVIEW.md.
      */
     fun exportLongSideCap(maxTextureSize: Int): Int {
         require(maxTextureSize > 0) { "invalid max texture size: $maxTextureSize" }

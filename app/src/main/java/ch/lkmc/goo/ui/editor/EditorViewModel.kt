@@ -263,7 +263,9 @@ class EditorViewModel @Inject constructor(
                 val rendered = suspendCancellableCoroutine { cont ->
                     bridge {
                         exportBitmap(decoded, strokes) { out ->
-                            if (cont.isActive) cont.resume(out)
+                            // Cancelled mid-render: nobody will ever see
+                            // this bitmap — free ~50 MB now, not at GC.
+                            if (cont.isActive) cont.resume(out) else out?.recycle()
                         }
                     }
                 }

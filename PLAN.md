@@ -100,8 +100,9 @@ allocation on the touch path. Brush math: `b(p) = strength · falloff(|p−c|/r)
 
 **Export.** Decode the original (EXIF-rotated) at the export cap — the GL
 max texture size or the 4096 memory budget, whichever is tighter
-(`ExportSize`; two full ARGB bitmaps plus GL copies coexist during export,
-so uncapped 48 MP would OOM mid-range devices). Upload, replay the stroke
+(`ExportSize`; five export-sized allocations coexist at the readback peak
+— source bitmap, two GL textures, readback buffer, result bitmap: ~320 MB
+at the 4096² worst case, so uncapped 48 MP would OOM mid-range devices). Upload, replay the stroke
 log into a fresh field with the identical stamp code, run the same warp
 shader into an offscreen FBO, `glReadPixels`, save. Sources beyond the cap
 downscale (~12 MP output); true full-resolution tiled export
