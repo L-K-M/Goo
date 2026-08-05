@@ -11,7 +11,15 @@ import kotlin.test.assertTrue
  * [EditorViewModel.UiState.hasUnsavedWork] is the whole exit guard: it
  * decides whether Back leaves silently or stops to ask. A false negative
  * destroys a session with no warning and no undo, which is the failure
- * this flag exists to prevent — so every kind of work gets its own case.
+ * this flag exists to prevent — so each signal it reads gets its own case.
+ *
+ * One signal is missing on purpose: `bitmapB` (a picked Fusion photo).
+ * `Bitmap` is a final Android class with no JVM-constructible instance,
+ * and this module's test tier is deliberately pure JVM — no Robolectric,
+ * no mocking framework (see ANALYSIS.md's declined "dead deps" entry).
+ * Pulling one in to pin a single `!= null` term costs more than it
+ * guards. If a Robolectric or mockk tier ever lands for other reasons,
+ * this is the first test to add.
  */
 class UnsavedWorkTest {
 

@@ -80,6 +80,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
@@ -172,8 +173,15 @@ private fun WarpEditor(
     // Leaving the editor ends the session and takes the document with it
     // (nothing is persisted until SOL-34), so both ways out — the rail's
     // Back bead and the system gesture/button — go through one guard.
-    fun leaveEditor() {
-        if (state.hasUnsavedWork) confirmExit = true else onBack()
+    //
+    // Remembered rather than rebuilt each pass: WarpEditor recomposes on
+    // every pointer move (the cursor ring's strokePos), and handing the
+    // rail a fresh lambda would drag all eight of its beads into every
+    // one of those frames. rememberUpdatedState keeps the guard reading
+    // the current state without making the lambda itself unstable.
+    val latestState by rememberUpdatedState(state)
+    val leaveEditor: () -> Unit = remember(onBack) {
+        { if (latestState.hasUnsavedWork) confirmExit = true else onBack() }
     }
     // Crop mode owns the whole canvas: back leaves the overlay, the way it
     // would dismiss any other modal, instead of leaving the room. Enabled
@@ -356,7 +364,7 @@ private fun WarpEditor(
             canUndo = state.canUndo && !state.exportingMovie,
             canRedo = state.canRedo && !state.exportingMovie,
             canReset = state.canReset && !state.exportingMovie,
-            onBack = { leaveEditor() },
+            onBack = leaveEditor,
             onUndo = {
                 viewModel.undo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
