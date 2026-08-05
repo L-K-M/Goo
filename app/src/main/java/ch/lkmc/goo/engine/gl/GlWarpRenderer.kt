@@ -363,38 +363,22 @@ class GlWarpRenderer(
         // a non-local invariant here would let any future FBO code path
         // corrupt movie export invisibly. Make it self-sufficient.
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-        program.use()
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
-        GLES30.glEnableVertexAttribArray(0)
-        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-        GLES30.glUniform4f(uRect, -1f, 1f, 2f, -2f)
-        GLES30.glUniform1i(uImage, 0)
-        GLES30.glUniform1i(uFieldWarp, 1)
-        GLES30.glUniform1i(uFieldB, 2)
-        GLES30.glUniform1f(uGAspect, aspect)
         val a = endpointA
         val b = endpointB
         val tweening = tweenT >= 0f && a != null && b != null
-        GLES30.glUniform1f(uTween, if (tweening) tweenT else 0f)
-        GLES30.glUniform1fv(
-            uGlobals, 6,
-            (if (tweening) tweenGlobals else globalParams).toArray(), 0,
+        drawWarpQuad(
+            program = program,
+            rectX = -1f, rectY = 1f, rectW = 2f, rectH = -2f,
+            imageTex = sourceTexture,
+            fieldTexA = if (tweening) a!!.readTexture else f.readTexture,
+            fieldTexB = if (tweening) b!!.readTexture else f.readTexture,
+            imageBTex = if (sourceTextureB != 0) sourceTextureB else sourceTexture,
+            hasB = sourceTextureB != 0,
+            tween = if (tweening) tweenT else 0f,
+            globals = if (tweening) tweenGlobals else globalParams,
+            imageAspect = aspect,
+            blend = false,
         )
-        GLES30.glUniform1i(uImageB, 3)
-        GLES30.glUniform1f(uHasB, if (sourceTextureB != 0) 1f else 0f)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) a!!.readTexture else f.readTexture)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) b!!.readTexture else f.readTexture)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
-        GLES30.glBindTexture(
-            GLES30.GL_TEXTURE_2D,
-            if (sourceTextureB != 0) sourceTextureB else sourceTexture,
-        )
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
-        GLES30.glDisableVertexAttribArray(0)
     }
 
     /** EGL window surface over the codec input surface, on the context's own config. */
@@ -565,46 +549,79 @@ class GlWarpRenderer(
         val ndcW = fit.fittedWidth / viewWidth * 2f
         val ndcH = fit.fittedHeight / viewHeight * 2f
 
-        program.use()
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
-        GLES30.glEnableVertexAttribArray(0)
-        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-        GLES30.glUniform4f(uRect, ndcX, ndcY, ndcW, ndcH)
-        GLES30.glUniform1i(uImage, 0)
-        GLES30.glUniform1i(uFieldWarp, 1)
-        GLES30.glUniform1i(uFieldB, 2)
-        GLES30.glUniform1f(uGAspect, aspect)
         // GOOvie scrub: mix the endpoint fields and show lerped levers.
         // Live mode: field on both samplers, t=0 — mix degenerates.
         val a = endpointA
         val b = endpointB
         val tweening = tweenT >= 0f && a != null && b != null
-        GLES30.glUniform1f(uTween, if (tweening) tweenT else 0f)
-        GLES30.glUniform1fv(
-            uGlobals, 6,
-            (if (tweening) tweenGlobals else globalParams).toArray(), 0,
+        drawWarpQuad(
+            program = program,
+            rectX = ndcX, rectY = ndcY, rectW = ndcW, rectH = ndcH,
+            imageTex = sourceTexture,
+            fieldTexA = if (tweening) a!!.readTexture else f.readTexture,
+            fieldTexB = if (tweening) b!!.readTexture else f.readTexture,
+            imageBTex = if (sourceTextureB != 0) sourceTextureB else sourceTexture,
+            hasB = sourceTextureB != 0,
+            tween = if (tweening) tweenT else 0f,
+            globals = if (tweening) tweenGlobals else globalParams,
+            imageAspect = aspect,
+            // Bitmaps upload premultiplied; without premul-correct blending
+            // a transparent PNG's clear regions would render black instead
+            // of showing the table. Preview only — export/movie composite
+            // onto their own cleared/overwritten buffers.
+            blend = true,
         )
+    }
+
+    /**
+     * The one true warp draw: every consumer (preview frame, GOOvie movie
+     * frame, still export) goes through here so sampler layout and
+     * uniform plumbing can never drift apart between paths (they were
+     * three hand-synced copies before v1 polish).
+     */
+    private fun drawWarpQuad(
+        program: GlProgram,
+        rectX: Float,
+        rectY: Float,
+        rectW: Float,
+        rectH: Float,
+        imageTex: Int,
+        fieldTexA: Int,
+        fieldTexB: Int,
+        imageBTex: Int,
+        hasB: Boolean,
+        tween: Float,
+        globals: GlobalParams,
+        imageAspect: Float,
+        blend: Boolean,
+    ) {
+        program.use()
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glUniform4f(uRect, rectX, rectY, rectW, rectH)
+        GLES30.glUniform1i(uImage, 0)
+        GLES30.glUniform1i(uFieldWarp, 1)
+        GLES30.glUniform1i(uFieldB, 2)
         GLES30.glUniform1i(uImageB, 3)
-        GLES30.glUniform1f(uHasB, if (sourceTextureB != 0) 1f else 0f)
+        GLES30.glUniform1f(uTween, tween)
+        GLES30.glUniform1f(uHasB, if (hasB) 1f else 0f)
+        GLES30.glUniform1f(uGAspect, imageAspect)
+        GLES30.glUniform1fv(uGlobals, 6, globals.toArray(), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, imageTex)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) a!!.readTexture else f.readTexture)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, fieldTexA)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) b!!.readTexture else f.readTexture)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, fieldTexB)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
-        GLES30.glBindTexture(
-            GLES30.GL_TEXTURE_2D,
-            if (sourceTextureB != 0) sourceTextureB else sourceTexture,
-        )
-        // Bitmaps upload premultiplied; without premul-correct blending a
-        // transparent PNG's clear regions would render black instead of
-        // showing the table. Warp pass only — the stamp pass must write
-        // raw field values.
-        GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, imageBTex)
+        if (blend) {
+            GLES30.glEnable(GLES30.GL_BLEND)
+            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        }
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
-        GLES30.glDisable(GLES30.GL_BLEND)
+        if (blend) GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glDisableVertexAttribArray(0)
     }
 
@@ -769,36 +786,26 @@ class GlWarpRenderer(
 
         // Warp pass into the offscreen buffer. u_rect with negative height
         // flips vertically so glReadPixels' bottom-up rows come out as a
-        // top-down bitmap — no CPU row flip needed.
+        // top-down bitmap — no CPU row flip needed. Export renders the
+        // live document, never a scrub: t = 0 and both field samplers on
+        // the export field.
         val program = warpProgram!!
         GLES30.glViewport(0, 0, source.width, source.height)
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        program.use()
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
-        GLES30.glEnableVertexAttribArray(0)
-        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-        GLES30.glUniform4f(uRect, -1f, 1f, 2f, -2f)
-        GLES30.glUniform1i(uImage, 0)
-        GLES30.glUniform1i(uFieldWarp, 1)
-        // Export renders the live document, never a scrub: t = 0 and both
-        // samplers on the export field.
-        GLES30.glUniform1i(uFieldB, 2)
-        GLES30.glUniform1f(uTween, 0f)
-        GLES30.glUniform1i(uImageB, 3)
-        GLES30.glUniform1f(uHasB, if (texBId != 0) 1f else 0f)
-        GLES30.glUniform1f(uGAspect, exportAspect)
-        GLES30.glUniform1fv(uGlobals, 6, globalParams.toArray(), 0)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex[0])
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE3)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (texBId != 0) texBId else tex[0])
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
-        GLES30.glDisableVertexAttribArray(0)
+        drawWarpQuad(
+            program = program,
+            rectX = -1f, rectY = 1f, rectW = 2f, rectH = -2f,
+            imageTex = tex[0],
+            fieldTexA = exportField.readTexture,
+            fieldTexB = exportField.readTexture,
+            imageBTex = if (texBId != 0) texBId else tex[0],
+            hasB = texBId != 0,
+            tween = 0f,
+            globals = globalParams,
+            imageAspect = exportAspect,
+            blend = false,
+        )
 
         // Read back and package.
         val buffer = ByteBuffer.allocateDirect(source.width * source.height * 4)

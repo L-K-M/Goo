@@ -17,8 +17,11 @@ object ExportSize {
      * the readback peak: decoded source bitmap, GL source texture, GL
      * output texture, the direct readback buffer, and the result bitmap —
      * ~320 MB at a square 4096² worst case (~250 MB at 4:3), almost all
-     * native/GPU rather than Java heap. Uncapped 48 MP would quadruple
-     * that and OOM mid-range devices. 4096 covers native 12 MP output;
+     * native/GPU rather than Java heap; with a Fusion photo B loaded add
+     * two more export-sized allocations (B bitmap + B texture) — ~450 MB
+     * worst case, still inside the budget this cap was sized for.
+     * Uncapped 48 MP would quadruple that and OOM mid-range devices.
+     * 4096 covers native 12 MP output;
      * larger sources downscale. (The separate readback buffer is
      * unavoidable without NDK pixel locking.) True full-resolution tiled
      * export is tracked in REVIEW.md.

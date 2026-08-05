@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -103,7 +105,17 @@ fun GooviePanel(
                 enabled = keyframes.size >= 2 && !exporting,
                 onClick = onPlayToggle,
             )
+            val stripState = rememberLazyListState()
+            // Keep the SELECTED bead in view — capture selects the new
+            // bead, so fresh punches scroll into view past the fold.
+            // Deliberately selection-only: scrubbing clears selection
+            // (-1), and yanking the strip around during a scrub or
+            // playback would fight the user.
+            LaunchedEffect(selected) {
+                if (selected >= 0) stripState.animateScrollToItem(selected)
+            }
             LazyRow(
+                state = stripState,
                 modifier = Modifier.weight(1f),
                 // minimumInteractiveComponentSize grows each item's layout
                 // node to 48dp, so targets can never overlap; the 8dp gap
