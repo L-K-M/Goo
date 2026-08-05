@@ -115,6 +115,7 @@ import ch.lkmc.goo.ui.components.ChromeIconButton
 import ch.lkmc.goo.ui.components.chromePanel
 import ch.lkmc.goo.ui.components.ChromeToolChip
 import ch.lkmc.goo.ui.export.ExportSheet
+import ch.lkmc.goo.ui.export.MovieExportSheet
 import ch.lkmc.goo.ui.theme.NeonCyan
 import ch.lkmc.goo.ui.theme.NeonViolet
 import ch.lkmc.goo.ui.theme.NeonAmber
@@ -160,6 +161,7 @@ private fun WarpEditor(
     var surface by remember { mutableStateOf<WarpSurfaceView?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
+    var showMovieSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
     var adjustingBrush by remember { mutableStateOf(false) }
     // Crop mode: the overlay owns the canvas; painting is gated off.
@@ -280,6 +282,7 @@ private fun WarpEditor(
 
     // One-shot export outcomes: snackbars and the share chooser.
     val savedGallery = stringResource(R.string.export_saved_gallery)
+    val savedMovieGallery = stringResource(R.string.export_saved_movies)
     val savedAppStorage = stringResource(R.string.export_saved_app_storage)
     val failedPrefix = stringResource(R.string.export_failed)
     LaunchedEffect(viewModel) {
@@ -287,13 +290,19 @@ private fun WarpEditor(
             when (event) {
                 is EditorViewModel.ExportEvent.Saved -> {
                     showExportSheet = false
+                    showMovieSheet = false
                     snackbarHostState.showSnackbar(
-                        if (event.toGallery) savedGallery else savedAppStorage,
+                        when {
+                            !event.toGallery -> savedAppStorage
+                            event.video -> savedMovieGallery
+                            else -> savedGallery
+                        },
                     )
                 }
 
                 is EditorViewModel.ExportEvent.ShareReady -> {
                     showExportSheet = false
+                    showMovieSheet = false
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = event.mimeType
                         putExtra(Intent.EXTRA_STREAM, event.uri)
@@ -733,7 +742,7 @@ private fun WarpEditor(
                     onMove = viewModel::moveSelectedKeyframe,
                     onScrub = viewModel::scrubTo,
                     onPlayToggle = { viewModel.setPlaying(!state.playing) },
-                    onExport = viewModel::exportGoovie,
+                    onExport = { showMovieSheet = true },
                 )
                 EditorPanel.BRUSH -> BrushRail(
                     tool = state.tool,
@@ -782,6 +791,21 @@ private fun WarpEditor(
             onSave = viewModel::export,
             onShare = viewModel::share,
             onDismiss = { if (!state.exporting) showExportSheet = false },
+        )
+    }
+
+    if (showMovieSheet) {
+        MovieExportSheet(
+            keyframeCount = state.keyframes.size,
+            exporting = state.exportingMovie,
+            progress = state.movieProgress,
+            onSave = { format, speed, loop ->
+                viewModel.exportGoovie(share = false, format = format, speed = speed, loop = loop)
+            },
+            onShare = { format, speed, loop ->
+                viewModel.exportGoovie(share = true, format = format, speed = speed, loop = loop)
+            },
+            onDismiss = { if (!state.exportingMovie) showMovieSheet = false },
         )
     }
 

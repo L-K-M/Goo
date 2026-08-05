@@ -78,9 +78,18 @@
     <string name="goovie_hint_all_same">Every keyframe holds the same goo, so nothing moves. Goo more, then punch or Update.</string>
     <string name="goovie_hint_stale">Your goo is ahead of keyframe %1$d. Punch a new one, or Update to re-pin it.</string>
     <string name="goovie_hint_ready">Scrub or play to watch it dance.</string>
-    <string name="goovie_save_movie">Save GOOvie as video</string>
-    <string name="goovie_share_movie">Share GOOvie</string>
+    <string name="goovie_export_movie">Save or share the GOOvie</string>
     <string name="goovie_exporting">Filming…</string>
+
+    <string name="movie_export_title">GOOvie out</string>
+    <string name="movie_speed">Speed</string>
+    <!-- Speed chips. Multiplication signs, not "x": the strip runs at 1×. -->
+    <string name="movie_speed_half">½×</string>
+    <string name="movie_speed_normal">1×</string>
+    <string name="movie_speed_double">2×</string>
+    <string name="movie_speed_quadruple">4×</string>
+    <string name="movie_loop">Loop forever</string>
+    <string name="movie_length">About %1$s seconds long</string>
     <string name="lever_bulge">Bulge</string>
     <string name="lever_twirl">Twirl</string>
     <string name="lever_squeeze">Squeeze</string>
@@ -96,6 +105,7 @@
     <string name="export_save">Save</string>
     <string name="export_share">Share</string>
     <string name="export_saved_gallery">Saved to Pictures/Meltorama</string>
+    <string name="export_saved_movies">Saved to Movies/Meltorama</string>
     <string name="export_saved_app_storage">Saved — use Share to move it to your gallery</string>
     <!-- Generic: the Failed event carries import failures too (photo B). -->
     <string name="export_failed">That didn\'t work:</string>

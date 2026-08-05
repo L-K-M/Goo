@@ -20,8 +20,11 @@ import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.core.lerp
+import ch.lkmc.goo.engine.media.GifEncoder
 import ch.lkmc.goo.engine.media.MovieEncoder
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -299,6 +302,7 @@ class GlWarpRenderer(
      */
     fun renderMovie(
         keyframes: List<Keyframe>,
+        speed: Float,
         outputFile: File,
         onProgress: (Float) -> Unit,
         onResult: (Boolean) -> Unit,
@@ -325,36 +329,30 @@ class GlWarpRenderer(
         var ok = false
         try {
             val (vw, vh) = MovieSpec.videoSize(bitmap.width, bitmap.height)
-            encoder = MovieEncoder(vw, vh, outputFile)
-            eglSurface = createRecordableEglSurface(display, context, encoder.inputSurface)
+            // Locals as well as the teardown vars: the frame walk is an
+            // inline lambda, and a captured `var` gets no smart cast.
+            val movieEncoder = MovieEncoder(vw, vh, outputFile)
+            encoder = movieEncoder
+            val surface = createRecordableEglSurface(display, context, movieEncoder.inputSurface)
+            eglSurface = surface
 
-            val total = MovieSpec.totalFrames(keyframes.size)
-            for (frame in 0 until total) {
-                val p = MovieSpec.positionAt(frame, total, keyframes.size)
-                val k = GoovieTimeline.segment(p, keyframes.size)
-                val t = GoovieTimeline.fraction(p, keyframes.size)
-                val a = keyframes[k]
-                val b = keyframes[k + 1]
-                // Endpoint materialization is FBO work — surface-agnostic,
-                // safe whichever window surface is current. The per-frame
-                // eglMakeCurrent below is deliberately re-asserted (near
-                // no-op when already current) so this loop never depends
-                // on a non-local "nothing changed the surface" invariant.
-                // Each keyframe pins its own revision: the movie renders
-                // exactly what the strip shows, whatever the editor's undo
-                // cursor happens to be sitting on.
-                tweenTo(a.revision, b.revision, t, a.globals.lerp(b.globals, t))
-                if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) {
+            val total = MovieSpec.totalFrames(keyframes.size, speed)
+            // The per-frame eglMakeCurrent below is deliberately
+            // re-asserted (near no-op when already current) so this loop
+            // never depends on a non-local "nothing changed the surface"
+            // invariant — endpoint materialization inside the walk is FBO
+            // work, surface-agnostic but not surface-preserving in spirit.
+            eachTweenFrame(keyframes, total) { frame ->
+                if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
                     error("eglMakeCurrent(encoder) failed")
                 }
-                GLES30.glViewport(0, 0, vw, vh)
                 drawTweenQuad(program, vw, vh)
-                EGLExt.eglPresentationTimeANDROID(display, eglSurface, MovieSpec.ptsNanos(frame))
-                if (!EGL14.eglSwapBuffers(display, eglSurface)) error("eglSwapBuffers failed")
-                encoder.drain(endOfStream = false)
+                EGLExt.eglPresentationTimeANDROID(display, surface, MovieSpec.ptsNanos(frame))
+                if (!EGL14.eglSwapBuffers(display, surface)) error("eglSwapBuffers failed")
+                movieEncoder.drain(endOfStream = false)
                 if (frame % 6 == 0) onProgress(frame.toFloat() / total)
             }
-            encoder.finish()
+            movieEncoder.finish()
             // The %6 throttle tops out ~98%; land the bar before dismissal.
             onProgress(1f)
             ok = true
@@ -370,18 +368,166 @@ class GlWarpRenderer(
         onResult(ok)
     }
 
+    /**
+     * Render the whole GOOvie into a looping (or one-shot) GIF.
+     *
+     * Same tween walk as [renderMovie], different sink: there is no codec
+     * surface, so frames go into an offscreen FBO at GIF size, come back
+     * through glReadPixels, and are palettised and LZW-packed straight
+     * into [outputFile] one frame at a time ([GifEncoder]). No EGL surface
+     * juggling and no recordable-config requirement — an FBO is legal on
+     * whatever surface is current.
+     *
+     * GL-thread command, fail-soft like [renderMovie]: any GL or IO
+     * failure lands in onResult(false).
+     */
+    fun renderGif(
+        keyframes: List<Keyframe>,
+        speed: Float,
+        loop: Boolean,
+        outputFile: File,
+        onProgress: (Float) -> Unit,
+        onResult: (Boolean) -> Unit,
+    ) {
+        val bitmap = sourceBitmap
+        val program = warpProgram
+        if (!contextReady || bitmap == null || program == null || keyframes.size < 2) {
+            onResult(false)
+            return
+        }
+        // Preview scrub state, restored whatever happens below.
+        val savedT = tweenT
+        val savedGlobals = tweenGlobals
+
+        val (gw, gh) = MovieSpec.gifSize(bitmap.width, bitmap.height)
+        // Frame rate, not strip length, absorbs an over-long GOOvie: the
+        // GIF keeps the MP4's duration and gets choppier instead.
+        val fps = MovieSpec.gifFps(keyframes.size, speed)
+        val total = MovieSpec.totalFrames(keyframes.size, speed, fps)
+        val delay = MovieSpec.gifDelayCentis(fps)
+
+        var outTex: IntArray? = null
+        var outFbo: IntArray? = null
+        var ok = false
+        try {
+            val texture = IntArray(1)
+            GLES30.glGenTextures(1, texture, 0)
+            outTex = texture
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture[0])
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, gw, gh, 0,
+                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null,
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST,
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST,
+            )
+            val framebuffer = IntArray(1)
+            GLES30.glGenFramebuffers(1, framebuffer, 0)
+            outFbo = framebuffer
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer[0])
+            GLES30.glFramebufferTexture2D(
+                GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
+                GLES30.GL_TEXTURE_2D, texture[0], 0,
+            )
+            check(
+                GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) ==
+                    GLES30.GL_FRAMEBUFFER_COMPLETE,
+            ) { "gif framebuffer incomplete" }
+
+            val buffer = ByteBuffer.allocateDirect(gw * gh * 4).order(ByteOrder.nativeOrder())
+            val pixels = IntArray(gw * gh)
+            BufferedOutputStream(FileOutputStream(outputFile)).use { stream ->
+                val gif = GifEncoder(stream, gw, gh, loop)
+                eachTweenFrame(keyframes, total) { frame ->
+                    // tweenTo materializes endpoints through its own FBO
+                    // binds, so the target is re-asserted every frame.
+                    drawTweenQuad(program, gw, gh, framebuffer = framebuffer[0], flipY = true)
+                    buffer.rewind()
+                    GLES30.glReadPixels(
+                        0, 0, gw, gh, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer,
+                    )
+                    readArgb(buffer, pixels)
+                    gif.addFrame(pixels, delay)
+                    // Denser than the MP4's throttle: a GIF frame costs a
+                    // palette pass, so the bar has to move on fewer frames.
+                    if (frame % 3 == 0) onProgress(frame.toFloat() / total)
+                }
+                gif.finish()
+            }
+            onProgress(1f)
+            ok = true
+        } catch (t: Throwable) {
+            Log.w(TAG, "gif export failed", t)
+        } finally {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            outFbo?.let { GLES30.glDeleteFramebuffers(1, it, 0) }
+            outTex?.let { GLES30.glDeleteTextures(1, it, 0) }
+            tweenT = savedT
+            tweenGlobals = savedGlobals
+        }
+        onResult(ok)
+    }
+
+    /**
+     * Walk one full pass over the strip, leaving the renderer on frame
+     * [frame]'s tween before each [body] call. Shared by both export
+     * sinks so MP4 and GIF can never disagree about what a GOOvie is.
+     *
+     * Each keyframe pins its own revision: the movie renders exactly what
+     * the strip shows, whatever the editor's undo cursor sits on.
+     */
+    private inline fun eachTweenFrame(
+        keyframes: List<Keyframe>,
+        totalFrames: Int,
+        body: (Int) -> Unit,
+    ) {
+        for (frame in 0 until totalFrames) {
+            val p = MovieSpec.positionAt(frame, totalFrames, keyframes.size)
+            val k = GoovieTimeline.segment(p, keyframes.size)
+            val t = GoovieTimeline.fraction(p, keyframes.size)
+            val a = keyframes[k]
+            val b = keyframes[k + 1]
+            tweenTo(a.revision, b.revision, t, a.globals.lerp(b.globals, t))
+            body(frame)
+        }
+    }
+
+    /** RGBA8 readback rows → opaque ARGB ints, in place, no allocation. */
+    private fun readArgb(buffer: ByteBuffer, pixels: IntArray) {
+        buffer.rewind()
+        for (i in pixels.indices) {
+            val r = buffer.get().toInt() and 0xFF
+            val g = buffer.get().toInt() and 0xFF
+            val b = buffer.get().toInt() and 0xFF
+            buffer.get() // alpha: GIF has none, and the warp pass is opaque
+            pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+    }
+
     /** Full-frame warp draw of the current tween state (movie pass). */
-    private fun drawTweenQuad(program: GlProgram, movieWidth: Int, movieHeight: Int) {
+    private fun drawTweenQuad(
+        program: GlProgram,
+        movieWidth: Int,
+        movieHeight: Int,
+        framebuffer: Int = 0,
+        /** Flip vertically for glReadPixels' bottom-up row order (GIF). */
+        flipY: Boolean = false,
+    ) {
         // Throw, don't skip: a silent return here would swap-present
         // uninitialized frames and report the export as a SUCCESS. The
         // renderMovie catch turns this into onResult(false).
         val f = checkNotNull(field) { "field lost during movie export" }
-        // Defensive: every FBO user in this file unbinds after itself
-        // (stampInto, PingPongField.clear), so 0 is already bound — but
-        // this draw targets the encoder window surface, and depending on
-        // a non-local invariant here would let any future FBO code path
-        // corrupt movie export invisibly. Make it self-sufficient.
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        // Bind (and size) the target here, not at the call site: every FBO
+        // user in this file unbinds after itself (stampInto,
+        // PingPongField.clear), so the tween walk's endpoint
+        // materialization leaves 0 bound — the GIF pass needs its own FBO
+        // re-asserted per frame, and depending on a non-local invariant
+        // would let any future FBO code path corrupt an export invisibly.
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
+        GLES30.glViewport(0, 0, movieWidth, movieHeight)
         val a = endpointA
         val b = endpointB
         val tweening = tweenT >= 0f && a != null && b != null
@@ -390,9 +536,12 @@ class GlWarpRenderer(
         drawWarpQuad(
             program = program,
             // MediaCodec is an EGL window surface like preview, so it uses
-            // the ordinary upright rectangle. Only still export flips for
-            // glReadPixels' bottom-up CPU row order.
-            rectX = 0f, rectY = 0f, rectW = vw, rectH = vh,
+            // the ordinary upright rectangle. The offscreen paths (GIF,
+            // still export) flip: glReadPixels hands back bottom-up rows.
+            rectX = 0f,
+            rectY = if (flipY) vh else 0f,
+            rectW = vw,
+            rectH = if (flipY) -vh else vh,
             viewportW = vw, viewportH = vh,
             viewA = 1f, viewB = 0f, viewTx = 0f, viewTy = 0f,
             imageTex = sourceTexture,

@@ -41,7 +41,8 @@ and a Fusion brush that paints a second photo through the first.
 - **Fusion** — pick a second photo and brush it through the first with
   soft edges; fused regions smear, tween and export like any other paint.
 - **GOOvies** — punch up to 64 keyframes, scrub the tweens, play the
-  loop, and export it as a 1080p MP4 straight from the GPU.
+  loop, and export it at ½×–4× speed as a 1080p MP4 straight from the GPU
+  or as a looping GIF.
 - **Retro-future console UI** — neon domes in milled chrome bezels, a
   detent lever rig, haptic ticks, and a horizon grid running to the
   vanishing point, in the spirit of KPT funware and 1999 box art.

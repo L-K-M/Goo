@@ -78,6 +78,20 @@ lives in `engine/core` as pure JVM classes.
     why `rebuild` no longer invalidates the renderer's endpoint cache
     (it is keyed by `StrokeRevisionId`, which is never reused, so it
     can't lie). Don't "optimize" it back to a count.
+- **GOOvie export speed scales the frame COUNT, not the frame rate**
+  (`MovieSpeed`, `MovieSpec.totalFrames`). The encoder clock, the pts
+  ladder and the GIF centisecond delay all stay nominal; changing that
+  would mean a variable-rate MP4 and delays GIF viewers silently round.
+  The strip itself still plays at 1× — speed is an export choice.
+- **The GIF encoder is pure JVM on purpose** (`engine/media/GifPalette`,
+  `GifEncoder`: an `OutputStream` and ARGB `IntArray`s, no Android
+  types), because the LZW code-width rules are the part that can be
+  subtly wrong. `GifEncoderTest` decodes the encoder's own output with an
+  independent reader — keep it that way, and note that a GIF LZW decoder
+  must drop its dictionary on a clear code or a stale entry answers the
+  KwKwK case. Both export sinks share one tween walk
+  (`GlWarpRenderer.eachTweenFrame`) so MP4 and GIF cannot disagree about
+  what a GOOvie is.
 - Runtime revision graphs are intentionally non-serializable. Project
   persistence must store a normalized revision table plus revision IDs
   rather than recursively serializing shared parent nodes.

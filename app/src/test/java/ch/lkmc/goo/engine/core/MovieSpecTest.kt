@@ -64,4 +64,68 @@ class MovieSpecTest {
         assertEquals(1_000_000_000L / 30, MovieSpec.ptsNanos(1))
         assertEquals(1_000_000_000L, MovieSpec.ptsNanos(30))
     }
+
+    @Test
+    fun `speed scales the frame count, not the frame rate`() {
+        // Same strip, half the frames at 2×: the encoder clock never moves.
+        assertEquals(73, MovieSpec.totalFrames(3, MovieSpeed.NORMAL.multiplier))
+        assertEquals(37, MovieSpec.totalFrames(3, MovieSpeed.DOUBLE.multiplier))
+        assertEquals(19, MovieSpec.totalFrames(3, MovieSpeed.QUADRUPLE.multiplier))
+        assertEquals(145, MovieSpec.totalFrames(3, MovieSpeed.HALF.multiplier))
+    }
+
+    @Test
+    fun `duration follows speed`() {
+        val normal = MovieSpec.durationSeconds(3, MovieSpeed.NORMAL.multiplier)
+        val double = MovieSpec.durationSeconds(3, MovieSpeed.DOUBLE.multiplier)
+
+        assertEquals(2.4f, normal, 0.05f)
+        assertEquals(1.2f, double, 0.05f)
+        assertEquals(0f, MovieSpec.durationSeconds(1))
+    }
+
+    @Test
+    fun `a two-frame movie is the floor at any speed`() {
+        // Even a degenerate 2-keyframe strip at 4× must still have a
+        // segment to walk — positionAt divides by totalFrames - 1.
+        for (speed in MovieSpeed.entries) {
+            assertTrue(MovieSpec.totalFrames(2, speed.multiplier) >= 2)
+            assertTrue(MovieSpec.totalFrames(2, speed.multiplier, MovieSpec.GIF_FPS_LADDER.last()) >= 2)
+        }
+    }
+
+    @Test
+    fun `gif sizing caps far below the video cap`() {
+        val (w, h) = MovieSpec.gifSize(4000, 3000)
+        assertEquals(480, w)
+        assertEquals(360, h)
+        // Never upscales, same as the video path.
+        assertEquals(Pair(200, 100), MovieSpec.gifSize(200, 100))
+    }
+
+    @Test
+    fun `gif frame rate drops rather than dropping the strip`() {
+        // A short strip gets the full rate…
+        assertEquals(20, MovieSpec.gifFps(3))
+        // …and a long one slows down instead of being truncated.
+        val fps = MovieSpec.gifFps(64)
+        assertTrue(fps < 20, "expected a reduced rate, got $fps")
+        assertTrue(MovieSpec.totalFrames(64, 1f, fps) <= MovieSpec.GIF_MAX_FRAMES)
+        // Whatever the rate, the GIF is as long as the MP4 would be.
+        assertEquals(
+            MovieSpec.durationSeconds(64, 1f, MovieSpec.FPS),
+            MovieSpec.durationSeconds(64, 1f, fps),
+            0.5f,
+        )
+    }
+
+    @Test
+    fun `gif delays are whole centiseconds a viewer will honour`() {
+        assertEquals(5, MovieSpec.gifDelayCentis(20))
+        assertEquals(10, MovieSpec.gifDelayCentis(10))
+        for (fps in MovieSpec.GIF_FPS_LADDER) {
+            assertEquals(100, fps * MovieSpec.gifDelayCentis(fps), "fps $fps must divide 100")
+            assertTrue(MovieSpec.gifDelayCentis(fps) >= 2)
+        }
+    }
 }

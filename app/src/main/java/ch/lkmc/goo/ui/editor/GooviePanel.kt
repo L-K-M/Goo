@@ -25,8 +25,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.LinearProgressIndicator
@@ -96,7 +95,8 @@ fun GooviePanel(
     onMove: (Int) -> Unit,
     onScrub: (Float) -> Unit,
     onPlayToggle: () -> Unit,
-    onExport: (share: Boolean) -> Unit,
+    /** Opens the out-tray sheet — the strip itself no longer picks a format. */
+    onExport: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -248,24 +248,17 @@ fun GooviePanel(
                         onClick = onDelete,
                         size = 38.dp,
                     )
+                    // One door to the out-tray, not two: format, speed and
+                    // looping now live in the sheet, so a straight-to-disk
+                    // icon would silently pick for the user.
                     ChromeIconButton(
-                        icon = Icons.Filled.Download,
-                        contentDescription = stringResource(R.string.goovie_save_movie),
+                        icon = Icons.Filled.Movie,
+                        contentDescription = stringResource(R.string.goovie_export_movie),
                         color = NeonViolet,
                         selected = false,
                         enabled = keyframes.size >= 2,
                         haptic = false,
-                        onClick = { onExport(false) },
-                        size = 38.dp,
-                    )
-                    ChromeIconButton(
-                        icon = Icons.Filled.IosShare,
-                        contentDescription = stringResource(R.string.goovie_share_movie),
-                        color = NeonViolet,
-                        selected = false,
-                        enabled = keyframes.size >= 2,
-                        haptic = false,
-                        onClick = { onExport(true) },
+                        onClick = onExport,
                         size = 38.dp,
                     )
                 }
