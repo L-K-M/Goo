@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -78,9 +79,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -159,6 +163,11 @@ private fun WarpEditor(
     // input cancels it instead of fighting it frame-by-frame.
     val viewResetScope = rememberCoroutineScope()
     var viewResetJob by remember { mutableStateOf<Job?>(null) }
+    // Brush cursor: the touch point in view px while a stroke is down
+    // (null = finger up / navigating). The ring overlay reads it with the
+    // live radius.
+    var strokePos by remember { mutableStateOf<Offset?>(null) }
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -325,6 +334,7 @@ private fun WarpEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .onSizeChanged { canvasSize = it }
                 .pointerInput(bitmap) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
@@ -359,6 +369,7 @@ private fun WarpEditor(
                         down.consume()
                         val params = if (stroking) viewModel.liveStrokeParams() else null
                         var navigating = false
+                        if (stroking) strokePos = down.position
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -372,6 +383,7 @@ private fun WarpEditor(
                                 // take over from any running reset spring.
                                 navigating = true
                                 viewResetJob?.cancel()
+                                strokePos = null
                                 if (stroking) {
                                     stroking = false
                                     viewModel.endStroke()?.let { stroke ->
@@ -437,9 +449,11 @@ private fun WarpEditor(
                                 if (stamps.isNotEmpty()) {
                                     surface?.engine { stampBatch(params, stamps) }
                                 }
+                                strokePos = change.position
                             }
                             change.consume()
                         }
+                        strokePos = null
                     }
                 },
         ) {
@@ -498,6 +512,44 @@ private fun WarpEditor(
                         }
                     },
                 )
+            }
+
+            // Brush cursor while painting: KPT drew a ring for the brush;
+            // on a phone the finger covers the work, so position feedback
+            // matters even more. Same ring style as BrushPreviewOverlay,
+            // plus a center dot for aim. The center is the touch (already
+            // in view space); the radius is aspect-space (fraction of
+            // image height) → canvas px → scaled by the view zoom.
+            val cursor = strokePos
+            if (cursor != null && canvasSize.width > 0) {
+                val fit = FitTransform(
+                    viewWidth = canvasSize.width.toFloat(),
+                    viewHeight = canvasSize.height.toFloat(),
+                    imageWidth = bitmap.width.toFloat(),
+                    imageHeight = bitmap.height.toFloat(),
+                )
+                val ringRadius =
+                    viewModel.liveStrokeParams().radius * fit.fittedHeight * view.scale
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Dark backing under the white ring: readable on any photo.
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.35f),
+                        radius = ringRadius,
+                        center = cursor,
+                        style = Stroke(width = 3.dp.toPx()),
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.85f),
+                        radius = ringRadius,
+                        center = cursor,
+                        style = Stroke(width = 1.5.dp.toPx()),
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.85f),
+                        radius = 2.5.dp.toPx(),
+                        center = cursor,
+                    )
+                }
             }
 
             // First-run hint: floats until the first stroke lands, ever.
