@@ -79,6 +79,8 @@ class EditorViewModel @Inject constructor(
         val brushRadius: Float = DEFAULT_RADIUS,
         /** Fusion's photo B, cover-cropped to A's UV space; null = none. */
         val bitmapB: Bitmap? = null,
+        /** A replacement Fusion source is being copied and decoded. */
+        val importingPhotoB: Boolean = false,
         val tool: BrushTool = BrushTool.SMEAR,
         /** User strength slider; scaled per tool at stroke creation. */
         val brushStrength: Float = DEFAULT_STRENGTH,
@@ -137,6 +139,8 @@ class EditorViewModel @Inject constructor(
     private var sessionFile: File? = null
     private var sessionFileB: File? = null
     private var exportJob: Job? = null
+    private var secondImageJob: Job? = null
+    private var secondImageRequestId = 0L
 
     private val log = StrokeLog()
     private var resampler: StrokeResampler? = null
@@ -221,33 +225,49 @@ class EditorViewModel @Inject constructor(
      */
     fun importSecondImage(uri: Uri) {
         val bitmap = _uiState.value.bitmap ?: return
-        viewModelScope.launch {
+        val requestId = ++secondImageRequestId
+        secondImageJob?.cancel()
+        _uiState.update { it.copy(importingPhotoB = true) }
+        secondImageJob = viewModelScope.launch {
+            var candidateFile: File? = null
+            var candidateBitmap: Bitmap? = null
             try {
                 val previousB = sessionFileB
                 val file = imageLoader.importImage(uri)
+                candidateFile = file
                 // Decode BEFORE committing the session pointer: an
                 // undecodable pick must fail this import only — never
                 // poison later exports/restores or evict a working B.
-                val bitmapB = try {
-                    imageLoader.decodeCover(file, bitmap.width, bitmap.height)
-                } catch (e: Exception) {
-                    // Deliberately includes cancellation: the just-copied
-                    // file has no owner yet (sessionFileB still points at
-                    // the old B, the key was never written), so deleting
-                    // here is orphan cleanup, not a stray side effect.
-                    file.delete()
-                    throw e
-                }
+                val bitmapB = imageLoader.decodeCover(file, bitmap.width, bitmap.height)
+                candidateBitmap = bitmapB
                 sessionFileB = file
                 savedStateHandle[KEY_SESSION_B] = file.path
                 previousB?.delete()
                 _uiState.update { it.copy(bitmapB = bitmapB) }
+                candidateFile = null
+                candidateBitmap = null
             } catch (e: CancellationException) {
+                candidateBitmap?.recycle()
+                candidateFile?.delete()
                 throw e
             } catch (e: Exception) {
-                _exportEvents.trySend(
-                    ExportEvent.Failed(e.message ?: "could not open second image"),
-                )
+                candidateBitmap?.recycle()
+                candidateFile?.delete()
+                if (requestId == secondImageRequestId) {
+                    // Keep a working old B during a failed swap. On an
+                    // initial failure, leave no invisible FUSE tool active.
+                    _uiState.update {
+                        it.copy(tool = if (it.bitmapB == null) BrushTool.SMEAR else it.tool)
+                    }
+                    _exportEvents.trySend(
+                        ExportEvent.Failed(e.message ?: "could not open second image"),
+                    )
+                }
+            } finally {
+                if (requestId == secondImageRequestId) {
+                    _uiState.update { it.copy(importingPhotoB = false) }
+                    secondImageJob = null
+                }
             }
         }
     }
@@ -260,10 +280,15 @@ class EditorViewModel @Inject constructor(
      * it, and a later B reveals it again (same policy as a swap).
      */
     fun clearSecondImage() {
+        secondImageRequestId++
+        secondImageJob?.cancel()
+        secondImageJob = null
         sessionFileB?.delete()
         sessionFileB = null
         savedStateHandle.remove<String>(KEY_SESSION_B)
-        _uiState.update { it.copy(bitmapB = null, tool = BrushTool.SMEAR) }
+        _uiState.update {
+            it.copy(bitmapB = null, importingPhotoB = false, tool = BrushTool.SMEAR)
+        }
     }
 
     /** Engine-side failures (GL thread) surface as the screen's error state. */
@@ -282,7 +307,11 @@ class EditorViewModel @Inject constructor(
         val bitmap = _uiState.value.bitmap ?: return
         val state = _uiState.value
         // The strip is playback territory; the canvas doesn't paint there.
-        if (state.goovieMode) return
+        if (state.goovieMode || state.importingPhotoB ||
+            state.tool == BrushTool.FUSE && state.bitmapB == null
+        ) {
+            return
+        }
         if (state.showHint) {
             onboardingPrefs.smearHintSeen = true
             _uiState.update { it.copy(showHint = false) }

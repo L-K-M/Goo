@@ -642,6 +642,7 @@ private fun WarpEditor(
                     radius = state.brushRadius,
                     strength = state.brushStrength,
                     showFusionPick = state.tool == BrushTool.FUSE && state.bitmapB != null,
+                    fusionLoading = state.importingPhotoB,
                     keyframeCount = state.keyframes.size,
                     onToolChange = viewModel::setTool,
                     onMirrorToggle = viewModel::toggleMirror,
@@ -797,6 +798,7 @@ private fun BrushRail(
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,
+    fusionLoading: Boolean,
     keyframeCount: Int,
     onToolChange: (BrushTool) -> Unit,
     onMirrorToggle: () -> Unit,
@@ -832,6 +834,7 @@ private fun BrushRail(
                     label = stringResource(entry.labelRes()),
                     color = entry.candyColor(),
                     selected = tool == entry,
+                    enabled = entry != BrushTool.FUSE || !fusionLoading,
                     onClick = { onToolChange(entry) },
                 )
             }
@@ -864,6 +867,7 @@ private fun BrushRail(
                     label = stringResource(R.string.fusion_change_photo),
                     color = CandyGrape,
                     selected = false,
+                    enabled = !fusionLoading,
                     onClick = onFusionPick,
                 )
                 CandyToolChip(
@@ -871,9 +875,17 @@ private fun BrushRail(
                     label = stringResource(R.string.fusion_remove_photo),
                     color = CandyOrange,
                     selected = false,
+                    enabled = !fusionLoading,
                     onClick = onFusionRemove,
                 )
             }
+        }
+        if (fusionLoading) {
+            Text(
+                text = stringResource(R.string.fusion_loading_photo),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         LabeledSlider(
             label = stringResource(R.string.editor_brush_size),
