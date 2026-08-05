@@ -116,7 +116,9 @@ class ImageSaver(private val context: Context) {
             temporary.outputStream().use { out ->
                 check(bitmap.compress(format.compressFormat, quality, out)) { "compress failed" }
             }
-            check(temporary.renameTo(file)) { "could not finalize image" }
+            if (!temporary.renameTo(file)) {
+                throw IOException("could not finalize image")
+            }
         } catch (e: Exception) {
             temporary.delete()
             throw e
