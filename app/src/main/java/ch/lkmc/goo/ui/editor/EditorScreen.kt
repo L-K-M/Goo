@@ -69,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -164,9 +165,11 @@ private fun WarpEditor(
     val viewResetScope = rememberCoroutineScope()
     var viewResetJob by remember { mutableStateOf<Job?>(null) }
     // Brush cursor: the touch point in view px while a stroke is down
-    // (null = finger up / navigating). The ring overlay reads it with the
-    // live radius.
+    // (null = finger up / navigating), and the stroke's radius, frozen at
+    // beginStroke — captured once at gesture start, so the overlay reads
+    // no ViewModel state during a drag.
     var strokePos by remember { mutableStateOf<Offset?>(null) }
+    var strokeRadius by remember { mutableFloatStateOf(0f) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -369,7 +372,10 @@ private fun WarpEditor(
                         down.consume()
                         val params = if (stroking) viewModel.liveStrokeParams() else null
                         var navigating = false
-                        if (stroking) strokePos = down.position
+                        if (stroking && params != null) {
+                            strokePos = down.position
+                            strokeRadius = params.radius
+                        }
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -520,23 +526,19 @@ private fun WarpEditor(
             // plus a center dot for aim. The center is the touch (already
             // in view space); the radius is aspect-space (fraction of
             // image height) → canvas px → scaled by the view zoom.
+            // Remembered unconditionally (not inside the conditional
+            // branch): positional memoization in branches is a footgun.
+            val cursorFit = remember(canvasSize, bitmap.width, bitmap.height) {
+                FitTransform(
+                    viewWidth = canvasSize.width.toFloat(),
+                    viewHeight = canvasSize.height.toFloat(),
+                    imageWidth = bitmap.width.toFloat(),
+                    imageHeight = bitmap.height.toFloat(),
+                )
+            }
             val cursor = strokePos
             if (cursor != null && canvasSize.width > 0) {
-                // Remembered across the per-frame recompositions a drag
-                // drives; recomputed only when the canvas or image changes.
-                // (The radius read below needs no State: it is frozen at
-                // beginStroke by design, and strokePos — a State — is what
-                // moves the ring.)
-                val fit = remember(canvasSize, bitmap.width, bitmap.height) {
-                    FitTransform(
-                        viewWidth = canvasSize.width.toFloat(),
-                        viewHeight = canvasSize.height.toFloat(),
-                        imageWidth = bitmap.width.toFloat(),
-                        imageHeight = bitmap.height.toFloat(),
-                    )
-                }
-                val ringRadius =
-                    viewModel.liveStrokeParams().radius * fit.fittedHeight * view.scale
+                val ringRadius = strokeRadius * cursorFit.fittedHeight * view.scale
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     // Dark backing under the white ring: readable on any photo.
                     drawCircle(
