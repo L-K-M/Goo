@@ -70,7 +70,11 @@ lives in `engine/core` as pure JVM classes.
   `--help` via the awk one-liner; `==>` / `--` / `!!` log prefixes;
   `set -euo pipefail`.
 - Sample images must be public domain / CC0 with provenance recorded in
-  this file when added.
+  this file when added. Current samples (`app/src/main/assets/samples/`):
+  `goo-guy.png` and `candy-blobs.png` are generated procedurally by
+  `scripts/generate_samples.py` from the app's own palette — provenance is
+  this repo, license is the project's (Unlicense). Regenerate with
+  `python3 scripts/generate_samples.py`.
 
 ## CI/CD
 
