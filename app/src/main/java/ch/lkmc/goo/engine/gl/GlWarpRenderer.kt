@@ -79,9 +79,21 @@ class GlWarpRenderer(
     private var uRect = 0
     private var uGAspect = 0
     private var uGlobals = 0
+    private var uFieldB = 0
+    private var uTween = 0
 
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
+
+    // ---- GOOvie tween state --------------------------------------------
+    // Two endpoint fields materialized by replaying stroke-log prefixes;
+    // the warp pass mixes them (PLAN.md §4.1). tweenT < 0 means live mode.
+    private var endpointA: PingPongField? = null
+    private var endpointB: PingPongField? = null
+    private var loadedCountA = -1
+    private var loadedCountB = -1
+    private var tweenT = -1f
+    private var tweenGlobals = GlobalParams()
 
     // ---- Commands (call on the GL thread via queueEvent) ---------------
 
@@ -154,9 +166,73 @@ class GlWarpRenderer(
     /** Clear the field and replay [strokes] — undo/redo/reset path. */
     fun rebuild(strokes: List<Stroke>) {
         strokesToReplay = strokes
+        // The endpoint cache is keyed by stroke COUNT, which is only valid
+        // while the log is append-only. Every non-append change (undo/redo/
+        // reset, and push-after-undo truncation) funnels through here — a
+        // stale prefix under an unchanged count would show deleted strokes
+        // on the next scrub.
+        loadedCountA = -1
+        loadedCountB = -1
         val f = field ?: return
         f.clear()
         for (stroke in strokes) stampBatch(stroke, stroke.stamps)
+    }
+
+    /**
+     * Enter/refresh a GOOvie tween: materialize the segment's endpoint
+     * fields (log prefixes of [countA]/[countB] strokes) and mix them at
+     * [t] with [lerpedGlobals] on the levers. Endpoint replays are cached
+     * by count — scrubbing within a segment is uniform-only, and stepping
+     * to a neighboring segment reuses the shared endpoint by swapping
+     * slots instead of replaying it.
+     */
+    fun tweenTo(strokes: List<Stroke>, countA: Int, countB: Int, t: Float, lerpedGlobals: GlobalParams) {
+        val f = field ?: return
+        // Adjacent-segment moves: the endpoint we need may already be
+        // loaded in the other slot.
+        if (countA != loadedCountA && countA == loadedCountB ||
+            countB != loadedCountB && countB == loadedCountA
+        ) {
+            val tmpField = endpointA
+            endpointA = endpointB
+            endpointB = tmpField
+            val tmpCount = loadedCountA
+            loadedCountA = loadedCountB
+            loadedCountB = tmpCount
+        }
+        if (loadedCountA != countA) {
+            loadedCountA = countA
+            materializeInto(ensureEndpointA(f), strokes, countA)
+        }
+        if (loadedCountB != countB) {
+            loadedCountB = countB
+            materializeInto(ensureEndpointB(f), strokes, countB)
+        }
+        tweenT = t.coerceIn(0f, 1f)
+        tweenGlobals = lerpedGlobals
+    }
+
+    /** Leave GOOvie mode: the warp pass reads the live field again. */
+    fun clearTween() {
+        tweenT = -1f
+    }
+
+    private fun ensureEndpointA(like: PingPongField): PingPongField =
+        endpointA?.takeIf { it.width == like.width && it.height == like.height }
+            ?: PingPongField(like.width, like.height, PingPongField.hasHalfFloat(extensions))
+                .also { endpointA?.delete(); endpointA = it }
+
+    private fun ensureEndpointB(like: PingPongField): PingPongField =
+        endpointB?.takeIf { it.width == like.width && it.height == like.height }
+            ?: PingPongField(like.width, like.height, PingPongField.hasHalfFloat(extensions))
+                .also { endpointB?.delete(); endpointB = it }
+
+    private fun materializeInto(target: PingPongField, strokes: List<Stroke>, count: Int) {
+        target.clear()
+        val upTo = count.coerceIn(0, strokes.size)
+        for (i in 0 until upTo) {
+            stampInto(target, aspect, strokes[i], strokes[i].stamps)
+        }
     }
 
     // ---- GLSurfaceView.Renderer ----------------------------------------
@@ -190,6 +266,8 @@ class GlWarpRenderer(
             uRect = it.uniform("u_rect")
             uGAspect = it.uniform("u_gAspect")
             uGlobals = it.uniform("u_g")
+            uFieldB = it.uniform("u_fieldB")
+            uTween = it.uniform("u_tween")
         }
 
         val vbo = IntArray(1)
@@ -201,9 +279,15 @@ class GlWarpRenderer(
         )
 
         // Fresh context: previous textures/FBOs are gone. Rebuild from the
-        // retained bitmap + stroke snapshot.
+        // retained bitmap + stroke snapshot. Endpoints null WITHOUT delete
+        // for the same reason as field — their names belong to the dead
+        // context, and deleting them here would poke the new one.
         sourceTexture = 0
         field = null
+        endpointA = null
+        endpointB = null
+        loadedCountA = -1
+        loadedCountB = -1
         rebuildImageState()
     }
 
@@ -242,12 +326,24 @@ class GlWarpRenderer(
         GLES30.glUniform4f(uRect, ndcX, ndcY, ndcW, ndcH)
         GLES30.glUniform1i(uImage, 0)
         GLES30.glUniform1i(uFieldWarp, 1)
+        GLES30.glUniform1i(uFieldB, 2)
         GLES30.glUniform1f(uGAspect, aspect)
-        GLES30.glUniform1fv(uGlobals, 6, globalParams.toArray(), 0)
+        // GOOvie scrub: mix the endpoint fields and show lerped levers.
+        // Live mode: field on both samplers, t=0 — mix degenerates.
+        val a = endpointA
+        val b = endpointB
+        val tweening = tweenT >= 0f && a != null && b != null
+        GLES30.glUniform1f(uTween, if (tweening) tweenT else 0f)
+        GLES30.glUniform1fv(
+            uGlobals, 6,
+            (if (tweening) tweenGlobals else globalParams).toArray(), 0,
+        )
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sourceTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, f.readTexture)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) a!!.readTexture else f.readTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, if (tweening) b!!.readTexture else f.readTexture)
         // Bitmaps upload premultiplied; without premul-correct blending a
         // transparent PNG's clear regions would render black instead of
         // showing the table. Warp pass only — the stamp pass must write
@@ -286,6 +382,14 @@ class GlWarpRenderer(
             height = fieldH,
             halfFloatRenderable = PingPongField.hasHalfFloat(extensions),
         )
+        // Endpoint caches die with the image/context; they re-materialize
+        // on the next tweenTo (counts reset so the cache can't lie).
+        endpointA?.delete()
+        endpointB?.delete()
+        endpointA = null
+        endpointB = null
+        loadedCountA = -1
+        loadedCountB = -1
         rebuild(strokesToReplay)
     }
 
@@ -397,11 +501,17 @@ class GlWarpRenderer(
         GLES30.glUniform4f(uRect, -1f, 1f, 2f, -2f)
         GLES30.glUniform1i(uImage, 0)
         GLES30.glUniform1i(uFieldWarp, 1)
+        // Export renders the live document, never a scrub: t = 0 and both
+        // samplers on the export field.
+        GLES30.glUniform1i(uFieldB, 2)
+        GLES30.glUniform1f(uTween, 0f)
         GLES30.glUniform1f(uGAspect, exportAspect)
         GLES30.glUniform1fv(uGlobals, 6, globalParams.toArray(), 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex[0])
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         GLES30.glDisableVertexAttribArray(0)

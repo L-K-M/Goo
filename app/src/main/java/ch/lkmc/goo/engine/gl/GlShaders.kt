@@ -152,6 +152,11 @@ precision highp int;
 uniform sampler2D u_image;
 // highp: see STAMP_FRAG — the field must not be read at lowp.
 uniform highp sampler2D u_field;
+// GOOvie tween pair (PLAN.md §4.1: tweening two fields is mix(D1,D2,t)).
+// Outside a scrub u_tween is 0 and u_fieldB is bound to the live field,
+// so mix() degenerates to the plain read.
+uniform highp sampler2D u_fieldB;
+uniform float u_tween;
 uniform float u_gAspect;   // image width / height
 uniform float u_g[6];
 in vec2 v_uv;
@@ -229,7 +234,9 @@ vec2 globalDisp(vec2 uv) {
 }
 
 void main() {
-    vec2 disp = texture(u_field, v_uv).xy + globalDisp(v_uv);
+    vec2 dispA = texture(u_field, v_uv).xy;
+    vec2 dispB = texture(u_fieldB, v_uv).xy;
+    vec2 disp = mix(dispA, dispB, u_tween) + globalDisp(v_uv);
     o_color = texture(u_image, v_uv + disp);
 }
 """
