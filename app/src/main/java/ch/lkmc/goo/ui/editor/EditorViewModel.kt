@@ -531,18 +531,21 @@ class EditorViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(exportingMovie = true, movieProgress = 0f, playing = false) }
-        val workFile = movieSaver.createWorkFile()
         val strokes = log.strokes
         val keyframes = s.keyframes
-        bridge.invoke {
-            renderMovie(
-                strokes = strokes,
-                keyframes = keyframes,
-                outputFile = workFile,
-                // MutableStateFlow.update is thread-safe; GL thread is fine.
-                onProgress = { p -> _uiState.update { it.copy(movieProgress = p) } },
-                onResult = { ok -> onMovieRendered(ok, workFile, share) },
-            )
+        // The work file's mkdirs/cleanup is disk I/O — off the main thread.
+        viewModelScope.launch {
+            val workFile = movieSaver.createWorkFile()
+            bridge.invoke {
+                renderMovie(
+                    strokes = strokes,
+                    keyframes = keyframes,
+                    outputFile = workFile,
+                    // MutableStateFlow.update is thread-safe; GL thread is fine.
+                    onProgress = { p -> _uiState.update { it.copy(movieProgress = p) } },
+                    onResult = { ok -> onMovieRendered(ok, workFile, share) },
+                )
+            }
         }
     }
 
