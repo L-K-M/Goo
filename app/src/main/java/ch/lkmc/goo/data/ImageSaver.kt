@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 
 /**
  * The Out room's disk half: writes finished bitmaps where the platform
@@ -81,7 +82,9 @@ class ImageSaver(private val context: Context) {
             } ?: throw IOException("cannot open $uri for writing")
             values.clear()
             values.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
+            if (resolver.update(uri, values, null, null) != 1) {
+                throw IOException("MediaStore finalization failed")
+            }
             return SaveResult.Gallery(uri)
         } catch (e: Exception) {
             // Never leave a pending ghost row behind.
@@ -98,9 +101,25 @@ class ImageSaver(private val context: Context) {
     ): SaveResult {
         val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
             ?: File(context.filesDir, "pictures").apply { mkdirs() }
-        val file = File(dir, name)
-        file.outputStream().use { out ->
-            check(bitmap.compress(format.compressFormat, quality, out)) { "compress failed" }
+        // Legacy storage does not uniquify DISPLAY_NAME like MediaStore. A
+        // short random suffix prevents concurrent/same-clock exports from
+        // replacing an earlier result.
+        val dot = name.lastIndexOf('.')
+        val uniqueName = if (dot > 0) {
+            "${name.substring(0, dot)}-${UUID.randomUUID().toString().take(8)}${name.substring(dot)}"
+        } else {
+            "$name-${UUID.randomUUID().toString().take(8)}"
+        }
+        val file = File(dir, uniqueName)
+        val temporary = File(dir, ".$uniqueName.tmp")
+        try {
+            temporary.outputStream().use { out ->
+                check(bitmap.compress(format.compressFormat, quality, out)) { "compress failed" }
+            }
+            check(temporary.renameTo(file)) { "could not finalize image" }
+        } catch (e: Exception) {
+            temporary.delete()
+            throw e
         }
         return SaveResult.AppStorage(file)
     }
