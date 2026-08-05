@@ -388,16 +388,19 @@ class EditorViewModel @Inject constructor(
     // screen. Hence: null only when nothing was discarded AND the log
     // didn't move.
 
-    fun undo(): List<Stroke>? {
-        val discarded = discardLiveStroke()
-        val restored = log.undo()
-        refreshHistoryFlags()
-        return restored ?: log.strokes.takeIf { discarded }
-    }
+    fun undo(): List<Stroke>? = withDiscardGuard { log.undo() }
 
-    fun redo(): List<Stroke>? {
+    fun redo(): List<Stroke>? = withDiscardGuard { log.redo() }
+
+    /**
+     * Shared spine of undo/redo: discard any live stroke (its stamps are
+     * on the GPU field), run the log op, and when the op was a no-op but
+     * a stroke WAS in flight, return the current list anyway so the
+     * caller still rebuilds (wiping the orphaned head).
+     */
+    private inline fun withDiscardGuard(op: () -> List<Stroke>?): List<Stroke>? {
         val discarded = discardLiveStroke()
-        val restored = log.redo()
+        val restored = op()
         refreshHistoryFlags()
         return restored ?: log.strokes.takeIf { discarded }
     }
