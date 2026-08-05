@@ -550,18 +550,31 @@ class EditorViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(exportingMovie = true, movieProgress = 0f, playing = false) }
-        val workFile = movieSaver.createWorkFile()
         val strokes = log.strokes
         val keyframes = s.keyframes
-        bridge.invoke {
-            renderMovie(
-                strokes = strokes,
-                keyframes = keyframes,
-                outputFile = workFile,
-                // MutableStateFlow.update is thread-safe; GL thread is fine.
-                onProgress = { p -> _uiState.update { it.copy(movieProgress = p) } },
-                onResult = { ok -> onMovieRendered(ok, workFile, share) },
-            )
+        // The work file's mkdirs/cleanup is disk I/O — off the main thread.
+        viewModelScope.launch {
+            // A failure here must not crash the coroutine or wedge the
+            // exporting flag (GLM PR review): report like a render failure.
+            val workFile = try {
+                movieSaver.createWorkFile()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(exportingMovie = false, movieProgress = 0f) }
+                _exportEvents.send(ExportEvent.Failed(e.message ?: "movie export failed"))
+                return@launch
+            }
+            bridge.invoke {
+                renderMovie(
+                    strokes = strokes,
+                    keyframes = keyframes,
+                    outputFile = workFile,
+                    // MutableStateFlow.update is thread-safe; GL thread is fine.
+                    onProgress = { p -> _uiState.update { it.copy(movieProgress = p) } },
+                    onResult = { ok -> onMovieRendered(ok, workFile, share) },
+                )
+            }
         }
     }
 

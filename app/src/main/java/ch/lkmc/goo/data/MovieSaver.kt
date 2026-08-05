@@ -29,11 +29,11 @@ class MovieSaver(private val context: Context) {
     }
 
     /** Scratch file the encoder muxes into; caller owns deletion. */
-    fun createWorkFile(): File {
+    suspend fun createWorkFile(): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "movies").apply { mkdirs() }
         // One movie at a time; a crashed predecessor must not accumulate.
         dir.listFiles()?.forEach { it.delete() }
-        return File(dir, fileName(System.currentTimeMillis()))
+        File(dir, fileName(System.currentTimeMillis()))
     }
 
     suspend fun save(movie: File): SaveResult = withContext(Dispatchers.IO) {
