@@ -70,6 +70,9 @@ class GlWarpRenderer(
     private var uRadius = 0
     private var uStrength = 0
     private var uAspect = 0
+    private var uMode = 0
+    private var uProfile = 0
+    private var uFieldTexel = 0
     private var uImage = 0
     private var uFieldWarp = 0
     private var uRect = 0
@@ -107,6 +110,9 @@ class GlWarpRenderer(
         GLES30.glUniform1f(uRadius, stroke.radius)
         GLES30.glUniform1f(uStrength, stroke.strength)
         GLES30.glUniform1f(uAspect, imageAspect)
+        GLES30.glUniform1i(uMode, stroke.tool.mode.shaderId)
+        GLES30.glUniform1i(uProfile, stroke.tool.profile.shaderId)
+        GLES30.glUniform2f(uFieldTexel, 1f / target.width, 1f / target.height)
         GLES30.glUniform1i(uField, 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         for (stamp in stamps) {
@@ -160,6 +166,9 @@ class GlWarpRenderer(
             uRadius = it.uniform("u_radius")
             uStrength = it.uniform("u_strength")
             uAspect = it.uniform("u_aspect")
+            uMode = it.uniform("u_mode")
+            uProfile = it.uniform("u_profile")
+            uFieldTexel = it.uniform("u_fieldTexel")
         }
         warpProgram = GlProgram(GlShaders.WARP_VERT, GlShaders.WARP_FRAG).also {
             uImage = it.uniform("u_image")

@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import ch.lkmc.goo.data.ExportFormat
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.Stamp
@@ -23,6 +24,7 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +69,11 @@ class EditorViewModel @Inject constructor(
         val exporting: Boolean = false,
         /** Aspect-space brush radius (fraction of image height). */
         val brushRadius: Float = DEFAULT_RADIUS,
+        val tool: BrushTool = BrushTool.SMEAR,
+        /** User strength slider; scaled per tool at stroke creation. */
+        val brushStrength: Float = DEFAULT_STRENGTH,
+        /** Mirror toggle: every stamp gets a vertically reflected twin. */
+        val mirrored: Boolean = false,
     )
 
     /** One-shot outcomes of export/share runs, consumed by the screen. */
@@ -97,6 +104,9 @@ class EditorViewModel @Inject constructor(
     private val log = StrokeLog()
     private var resampler: StrokeResampler? = null
     private var liveStamps = mutableListOf<Stamp>()
+    private var pumpJob: Job? = null
+    private var pumpPoint: Pair<Float, Float>? = null
+    private var mirrorLive = false
 
     /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
@@ -145,31 +155,82 @@ class EditorViewModel @Inject constructor(
     }
 
     // ---- Live stroke ---------------------------------------------------
+    // Directional tools stamp along the resampled drag path; pumped tools
+    // (Grow/Shrink/Smooth/UnGoo) stamp on a clock at the held point — the
+    // KPT feel where holding still keeps working. Mirror twins are added
+    // at emission, so stored strokes replay identically everywhere
+    // (undo rebuilds, export) with no mirror logic downstream.
 
     fun beginStroke(u: Float, v: Float) {
         val bitmap = _uiState.value.bitmap ?: return
+        val state = _uiState.value
         val aspect = bitmap.width.toFloat() / bitmap.height
-        val radius = _uiState.value.brushRadius
+        val radius = state.brushRadius
+        val tool = state.tool
+        mirrorLive = state.mirrored
         liveParams = Stroke(
-            tool = BrushTool.SMEAR,
+            tool = tool,
             radius = radius,
-            strength = SMEAR_STRENGTH,
+            strength = state.brushStrength * tool.strengthScale,
             stamps = emptyList(),
         )
-        resampler = StrokeResampler(radius = radius, aspect = aspect).also { it.begin(u, v) }
         liveStamps = mutableListOf()
+        if (tool.pumped) {
+            pumpPoint = Pair(u, v)
+            startPump()
+        } else {
+            resampler = StrokeResampler(radius = radius, aspect = aspect)
+                .also { it.begin(u, v) }
+        }
     }
 
     /** @return newly produced stamps for incremental GPU stamping. */
     fun extendStroke(u: Float, v: Float): List<Stamp> {
+        if (liveParams?.tool?.pumped == true) {
+            // Pumped tools just track the finger; the ticker emits.
+            pumpPoint = Pair(u, v)
+            return emptyList()
+        }
         val r = resampler ?: return emptyList()
         val fresh = r.extend(u, v, mutableListOf())
-        liveStamps.addAll(fresh)
-        return fresh
+        return emit(fresh)
+    }
+
+    /** Record [fresh] (plus mirror twins) and return what to stamp now. */
+    private fun emit(fresh: List<Stamp>): List<Stamp> {
+        if (fresh.isEmpty()) return fresh
+        val tool = liveParams?.tool ?: return emptyList()
+        val batch = if (mirrorLive) {
+            fresh.flatMap { listOf(it, tool.mirrorStamp(it)) }
+        } else {
+            fresh
+        }
+        liveStamps.addAll(batch)
+        return batch
+    }
+
+    private fun startPump() {
+        pumpJob?.cancel()
+        pumpJob = viewModelScope.launch {
+            while (true) {
+                val (u, v) = pumpPoint ?: break
+                val params = liveParams ?: break
+                val batch = emit(listOf(Stamp(u, v, 0f, 0f)))
+                engineBridge?.invoke { stampBatch(params, batch) }
+                delay(BrushDynamics.PUMP_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopPump() {
+        pumpJob?.cancel()
+        pumpJob = null
+        pumpPoint = null
     }
 
     /** Commit the live stroke. @return it, if it produced any stamps. */
     fun endStroke(): Stroke? {
+        stopPump()
         val params = liveParams ?: return null
         resampler = null
         liveParams = null
@@ -182,12 +243,32 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The (frozen) parameters of the stroke being drawn right now. */
-    fun liveStrokeParams(): Stroke = liveParams ?: Stroke(
-        tool = BrushTool.SMEAR,
-        radius = _uiState.value.brushRadius,
-        strength = SMEAR_STRENGTH,
-        stamps = emptyList(),
-    )
+    fun liveStrokeParams(): Stroke = liveParams ?: _uiState.value.let {
+        Stroke(
+            tool = it.tool,
+            radius = it.brushRadius,
+            strength = it.brushStrength * it.tool.strengthScale,
+            stamps = emptyList(),
+        )
+    }
+
+    fun setTool(tool: BrushTool) {
+        // A second finger can tap a chip mid-gesture. Commit (not discard)
+        // the live stroke — its stamps are already in the GPU field, and
+        // committing keeps screen ≡ document (same policy as gesture
+        // CANCEL); discarding would leave visible warp no log entry knows
+        // about, breaking undo and export.
+        endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
+        _uiState.update { it.copy(tool = tool) }
+    }
+
+    fun setBrushStrength(value: Float) {
+        _uiState.update { it.copy(brushStrength = value.coerceIn(0.05f, 1f)) }
+    }
+
+    fun toggleMirror() {
+        _uiState.update { it.copy(mirrored = !it.mirrored) }
+    }
 
     // ---- History -------------------------------------------------------
     // A history action while a second finger is mid-stroke first discards
@@ -215,6 +296,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun discardLiveStroke() {
+        stopPump()
         resampler = null
         liveParams = null
         liveStamps = mutableListOf()
@@ -321,8 +403,8 @@ class EditorViewModel @Inject constructor(
         const val MIN_RADIUS = 0.04f
         const val MAX_RADIUS = 0.28f
 
-        /** Smear tracks the finger 1:1; other tools will differ. */
-        const val SMEAR_STRENGTH = 1f
+        /** Strength slider default: strong but shy of finger-lock 1:1. */
+        const val DEFAULT_STRENGTH = 0.85f
 
         private const val KEY_SESSION_FILE = "sessionFile"
     }

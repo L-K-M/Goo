@@ -11,13 +11,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.annotation.StringRes
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -52,6 +60,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.R
+import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.engine.gl.WarpSurfaceView
@@ -259,8 +268,14 @@ private fun WarpEditor(
         }
 
         BrushRail(
+            tool = state.tool,
+            mirrored = state.mirrored,
             radius = state.brushRadius,
+            strength = state.brushStrength,
+            onToolChange = viewModel::setTool,
+            onMirrorToggle = viewModel::toggleMirror,
             onRadiusChange = viewModel::setBrushRadius,
+            onStrengthChange = viewModel::setBrushStrength,
         )
     }
     SnackbarHost(
@@ -365,27 +380,102 @@ private fun railTint(enabled: Boolean): Color =
     else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
 
 @Composable
-private fun BrushRail(radius: Float, onRadiusChange: (Float) -> Unit) {
-    Row(
+private fun BrushRail(
+    tool: BrushTool,
+    mirrored: Boolean,
+    radius: Float,
+    strength: Float,
+    onToolChange: (BrushTool) -> Unit,
+    onMirrorToggle: () -> Unit,
+    onRadiusChange: (Float) -> Unit,
+    onStrengthChange: (Float) -> Unit,
+) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BrushTool.entries.forEach { entry ->
+                FilterChip(
+                    selected = tool == entry,
+                    onClick = { onToolChange(entry) },
+                    label = { Text(stringResource(entry.labelRes())) },
+                )
+            }
+            FilterChip(
+                selected = mirrored,
+                onClick = onMirrorToggle,
+                label = { Text(stringResource(R.string.tool_mirror)) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Flip,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize),
+                    )
+                },
+            )
+        }
+        LabeledSlider(
+            label = stringResource(R.string.editor_brush_size),
+            value = radius,
+            onValueChange = onRadiusChange,
+            valueRange = EditorViewModel.MIN_RADIUS..EditorViewModel.MAX_RADIUS,
+        )
+        LabeledSlider(
+            label = stringResource(R.string.editor_brush_strength),
+            value = strength,
+            onValueChange = onStrengthChange,
+            valueRange = 0.05f..1f,
+        )
+    }
+}
+
+@Composable
+private fun LabeledSlider(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            text = stringResource(R.string.editor_brush_size),
+            text = label,
+            modifier = Modifier.width(64.dp),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
             modifier = Modifier.weight(1f),
-            value = radius,
-            onValueChange = onRadiusChange,
-            valueRange = EditorViewModel.MIN_RADIUS..EditorViewModel.MAX_RADIUS,
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
         )
     }
+}
+
+@StringRes
+private fun BrushTool.labelRes(): Int = when (this) {
+    BrushTool.SMEAR -> R.string.tool_smear
+    BrushTool.MOVE -> R.string.tool_move
+    BrushTool.SMUDGE -> R.string.tool_smudge
+    BrushTool.NUDGE -> R.string.tool_nudge
+    BrushTool.GROW -> R.string.tool_grow
+    BrushTool.SHRINK -> R.string.tool_shrink
+    BrushTool.SMOOTH -> R.string.tool_smooth
+    BrushTool.UNGOO -> R.string.tool_ungoo
 }
 
 @Composable

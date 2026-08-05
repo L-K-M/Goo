@@ -33,6 +33,14 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   bound first. Today >12 MP sources export at ~12 MP; revisit when a real
   user asks for native 48 MP output.
 
+- **G-6** ⚠️ ⬜ Pumped tools (Grow/Shrink/Smooth/UnGoo) emit ~60
+  stamps/s while held, so long holds inflate the stroke log and the
+  full-replay cost undo/redo/export pay (a 5 s hold ≈ 300 field passes).
+  Stamps can't be naively merged — warp-of-warp compounding is the pump
+  feel — so the real fix is field snapshot checkpoints every N strokes
+  (replay from nearest checkpoint instead of identity). Do when replay
+  latency becomes user-visible.
+
 ## Won't do (for now)
 
 - **G-W1** ⏸️ Packed-RGBA8 displacement-field fallback for GLES3 devices

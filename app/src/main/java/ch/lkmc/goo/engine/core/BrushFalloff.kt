@@ -22,4 +22,34 @@ object BrushFalloff {
         // smoothstep(0, 1, t) = t² · (3 − 2t)
         return t * t * (3f - 2f * t)
     }
+
+    /**
+     * Weight under a specific [FalloffProfile]. All profiles are 1 at the
+     * center, 0 at (and beyond) the rim, and C1 throughout — including at
+     * the plateau boundary, where smoothstep's zero end-slope meets the
+     * flat top.
+     */
+    fun weight(d: Float, profile: FalloffProfile): Float = when (profile) {
+        FalloffProfile.SMOOTHSTEP -> weight(d)
+        FalloffProfile.FEATHER -> weight(d).let { it * it }
+        FalloffProfile.PLATEAU ->
+            if (d <= PLATEAU_EDGE) 1f
+            else weight((d - PLATEAU_EDGE) / (1f - PLATEAU_EDGE))
+    }
+
+    /**
+     * Radial-mode center ramp: 0 at the exact stamp center (where the
+     * outward direction is undefined) rising smoothstep to 1 by
+     * [BrushDynamics.CENTER_RAMP_END]. Multiplies INFLATE/DEFLATE weights.
+     */
+    fun centerRamp(d: Float): Float {
+        val end = BrushDynamics.CENTER_RAMP_END
+        if (d <= 0f) return 0f
+        if (d >= end) return 1f
+        val t = d / end
+        return t * t * (3f - 2f * t)
+    }
+
+    /** Normalized distance where the PLATEAU profile starts falling. */
+    const val PLATEAU_EDGE = 0.7f
 }

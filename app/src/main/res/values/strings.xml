@@ -16,6 +16,17 @@
     <string name="editor_reset_confirm">Reset</string>
     <string name="editor_reset_cancel">Keep gooing</string>
     <string name="editor_brush_size">Size</string>
+    <string name="editor_brush_strength">Strength</string>
+
+    <string name="tool_smear">Smear</string>
+    <string name="tool_move">Move</string>
+    <string name="tool_smudge">Smudge</string>
+    <string name="tool_nudge">Nudge</string>
+    <string name="tool_grow">Grow</string>
+    <string name="tool_shrink">Shrink</string>
+    <string name="tool_smooth">Smooth</string>
+    <string name="tool_ungoo">UnGoo</string>
+    <string name="tool_mirror">Mirror</string>
     <string name="editor_error_title">That didn\'t goo</string>
     <string name="editor_export">Save or share</string>
 
