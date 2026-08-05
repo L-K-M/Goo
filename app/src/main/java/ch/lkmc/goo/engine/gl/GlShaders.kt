@@ -123,19 +123,33 @@ void main() {
 """
 
     /**
-     * Warp pass: paints the image quad sampling the source at p + D(p).
-     * The quad covers the letterboxed image rect (u_rect maps it), so v_uv
-     * here is image UV directly.
+     * Warp pass vertex stage: the quad covers the letterboxed image rect
+     * (u_rectPx maps it), so v_uv is image UV directly.
+     *
+     * Since the view transform (v1.1): positions run through PIXEL space,
+     * because a similarity applied in NDC would shear under non-square
+     * viewports (NDC x and y scale differ by the aspect). u_view is the
+     * ViewTransform similarity (a = s·cosθ, b = s·sinθ, tx, ty) —
+     * identity (1,0,0,0) for export and movie passes, which render the
+     * document, never the view. u_rectPx.y is the TOP edge; a negative
+     * height flips (the export/readback trick, unchanged in spirit).
      */
     const val WARP_VERT = """#version 300 es
 layout(location = 0) in vec2 a_pos;   // shared quad VBO: NDC corners in [-1,1]²
-uniform vec4 u_rect;                  // image quad in NDC: x, y = bottom-left, z, w = size
+uniform vec4 u_rectPx;                // image quad in pixels: x, y = top-left, z, w = size
+uniform vec2 u_viewport;              // render target size in pixels
+uniform vec4 u_view;                  // pixel-space similarity: a, b, tx, ty
 out vec2 v_uv;
 void main() {
     vec2 unit = a_pos * 0.5 + 0.5;               // [0,1]², origin bottom-left
     v_uv = vec2(unit.x, 1.0 - unit.y);           // image UV, origin top-left
-    vec2 ndc = u_rect.xy + unit * u_rect.zw;
-    gl_Position = vec4(ndc, 0.0, 1.0);
+    // Pixel position, y-down to match v_uv's row order.
+    vec2 px = vec2(u_rectPx.x + unit.x * u_rectPx.z,
+                   u_rectPx.y + (1.0 - unit.y) * u_rectPx.w);
+    vec2 tp = vec2(u_view.x * px.x - u_view.y * px.y + u_view.z,
+                   u_view.y * px.x + u_view.x * px.y + u_view.w);
+    gl_Position = vec4(tp.x / u_viewport.x * 2.0 - 1.0,
+                       1.0 - tp.y / u_viewport.y * 2.0, 0.0, 1.0);
 }
 """
 

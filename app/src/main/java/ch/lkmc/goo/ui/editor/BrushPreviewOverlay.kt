@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.engine.core.BrushFalloff
 import ch.lkmc.goo.engine.core.FalloffProfile
 import ch.lkmc.goo.engine.core.FitTransform
+import ch.lkmc.goo.engine.core.ViewTransform
 
 /**
  * Live brush preview while a Size/Strength slider is in hand: a ring at
@@ -36,6 +37,7 @@ fun BrushPreviewOverlay(
     radius: Float,
     strength: Float,
     profile: FalloffProfile,
+    view: ViewTransform,
     modifier: Modifier = Modifier,
 ) {
     // Quick in, gentle out — the fade-out is the "letting go" feel.
@@ -52,13 +54,17 @@ fun BrushPreviewOverlay(
             imageWidth.toFloat(), imageHeight.toFloat(),
         )
         // Aspect-space radius is a fraction of image height (see
-        // UiState.brushRadius) — px radius scales with the fitted photo.
-        val radiusPx = radius * fit.fittedHeight
+        // UiState.brushRadius) — px radius scales with the fitted photo
+        // AND the view zoom, so the circle stays honest when zoomed in.
+        // Rotation is irrelevant to a circle; the center rides the full
+        // view transform.
+        val radiusPx = radius * fit.fittedHeight * view.scale
         if (radiusPx <= 0f) return@Canvas
-        val center = Offset(
+        val (cx, cy) = view.apply(
             fit.offsetX + fit.fittedWidth / 2f,
             fit.offsetY + fit.fittedHeight / 2f,
         )
+        val center = Offset(cx, cy)
 
         // Fill: the tool's real falloff, strength as peak opacity.
         val peak = 0.45f * strength.coerceIn(0f, 1f) * alpha

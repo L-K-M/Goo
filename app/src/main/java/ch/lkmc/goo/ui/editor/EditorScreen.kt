@@ -13,8 +13,13 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateRotation
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +40,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
@@ -65,7 +71,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.VisibilityThreshold
@@ -87,7 +95,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.FitTransform
+import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import ch.lkmc.goo.engine.gl.WarpSurfaceView
 import ch.lkmc.goo.ui.components.CandyIconButton
 import ch.lkmc.goo.ui.components.CandyToolChip
@@ -140,6 +151,14 @@ private fun WarpEditor(
     var showExportSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
     var adjustingBrush by remember { mutableStateOf(false) }
+    // Pan/zoom/rotate of the preview. Ephemeral by design: not saved
+    // across rotation (the viewport changes under it anyway) — the photo
+    // reappears fitted, which is also what Reset View promises.
+    var view by remember { mutableStateOf(ViewTransform()) }
+    // One reset spring at a time: re-clicks restart it, and new two-finger
+    // input cancels it instead of fighting it frame-by-frame.
+    val viewResetScope = rememberCoroutineScope()
+    var viewResetJob by remember { mutableStateOf<Job?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -148,7 +167,7 @@ private fun WarpEditor(
     // while) the surface exists — export orchestration needs it.
     DisposableEffect(surface) {
         val s = surface
-        viewModel.engineBridge = s?.let { view -> { command -> view.engine(command) } }
+        viewModel.engineBridge = s?.let { sv -> { command -> sv.engine(command) } }
         onDispose {
             viewModel.engineBridge = null
             // A dead surface drops queued events, so a bridged export
@@ -162,6 +181,12 @@ private fun WarpEditor(
     LaunchedEffect(surface, state.globals) {
         val globals = state.globals
         surface?.engine { setGlobalParams(globals) }
+    }
+
+    // View transform: same uniform-sync pattern as the levers.
+    LaunchedEffect(surface, view) {
+        val v = view
+        surface?.engine { setViewTransform(v) }
     }
 
     // Fusion's photo B follows state like A does — including re-upload
@@ -246,11 +271,11 @@ private fun WarpEditor(
 
     // GLSurfaceView must see activity pause/resume or its GL thread leaks.
     DisposableEffect(surface, lifecycleOwner) {
-        val view = surface
+        val surfaceView = surface
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> view?.onPause()
-                Lifecycle.Event.ON_RESUME -> view?.onResume()
+                Lifecycle.Event.ON_PAUSE -> surfaceView?.onPause()
+                Lifecycle.Event.ON_RESUME -> surfaceView?.onResume()
                 else -> Unit
             }
         }
@@ -309,23 +334,76 @@ private fun WarpEditor(
                             imageWidth = bitmap.width.toFloat(),
                             imageHeight = bitmap.height.toFloat(),
                         )
-                        val (u0, v0) = fit.viewToUv(down.position.x, down.position.y)
-                        // Ignore touches farther than a brush radius from
-                        // the image (deep letterbox): they can never move a
-                        // pixel, and committing them would light up Undo
-                        // for a no-op. Starting within one radius stays
-                        // allowed — outside-in edge smears are legitimate.
+                        // Touches map through the INVERSE view transform
+                        // first — painting happens in canvas space however
+                        // the view is panned/zoomed/rotated.
+                        fun toUv(px: Float, py: Float): Pair<Float, Float> {
+                            val (cx, cy) = view.invert(px, py)
+                            return fit.viewToUv(cx, cy)
+                        }
+
+                        val (u0, v0) = toUv(down.position.x, down.position.y)
+                        // Ignore paint starts farther than a brush radius
+                        // from the image (deep letterbox): they can never
+                        // move a pixel, and committing them would light up
+                        // Undo for a no-op. Starting within one radius
+                        // stays allowed — outside-in edge smears are
+                        // legitimate. The gesture itself continues: a
+                        // second finger can still turn it into navigation.
                         val aspect = bitmap.width.toFloat() / bitmap.height
                         val du = (u0.coerceIn(0f, 1f) - u0) * aspect
                         val dv = v0.coerceIn(0f, 1f) - v0
                         val outside = sqrt(du * du + dv * dv)
-                        if (outside > viewModel.uiState.value.brushRadius) return@awaitEachGesture
-                        viewModel.beginStroke(u0, v0)
+                        var stroking = outside <= viewModel.uiState.value.brushRadius
+                        if (stroking) viewModel.beginStroke(u0, v0)
                         down.consume()
-                        val params = viewModel.liveStrokeParams()
+                        val params = if (stroking) viewModel.liveStrokeParams() else null
+                        var navigating = false
 
                         while (true) {
                             val event = awaitPointerEvent()
+                            val pressedCount = event.changes.count { it.pressed }
+
+                            if (!navigating && pressedCount >= 2) {
+                                // Second finger: this gesture is navigation
+                                // now. Commit the in-flight stroke (same
+                                // policy as setTool / gesture CANCEL — its
+                                // stamps are already on the field), and
+                                // take over from any running reset spring.
+                                navigating = true
+                                viewResetJob?.cancel()
+                                if (stroking) {
+                                    stroking = false
+                                    viewModel.endStroke()?.let { stroke ->
+                                        surface?.engine { commit(stroke) }
+                                    }
+                                }
+                            }
+
+                            if (navigating) {
+                                if (pressedCount == 0) break
+                                val zoom = event.calculateZoom()
+                                val rotationRad =
+                                    event.calculateRotation() * DEGREES_TO_RADIANS
+                                val pan = event.calculatePan()
+                                val centroid = event.calculateCentroid()
+                                if (zoom != 1f || rotationRad != 0f || pan != Offset.Zero) {
+                                    view = view.gesture(
+                                        centroidX = centroid.x,
+                                        centroidY = centroid.y,
+                                        panX = pan.x,
+                                        panY = pan.y,
+                                        zoom = zoom,
+                                        rotationDelta = rotationRad,
+                                    )
+                                }
+                                // All changes, pressed or not: nothing
+                                // upstream competes today, but a future
+                                // scrollable ancestor must never see these.
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) {
                                 // Deliberate: gesture CANCEL commits like
@@ -334,27 +412,31 @@ private fun WarpEditor(
                                 // committing keeps screen ≡ document;
                                 // discarding would snap pixels back and
                                 // need a rebuild. Undo covers regrets.
-                                viewModel.endStroke()?.let { stroke ->
-                                    // Feed the committed stroke to the
-                                    // renderer's recovery snapshot (its
-                                    // stamps are already on the GPU).
-                                    surface?.engine { commit(stroke) }
+                                if (stroking) {
+                                    viewModel.endStroke()?.let { stroke ->
+                                        // Feed the committed stroke to the
+                                        // renderer's recovery snapshot (its
+                                        // stamps are already on the GPU).
+                                        surface?.engine { commit(stroke) }
+                                    }
                                 }
                                 break
                             }
-                            // Historical samples first: fast flicks batch
-                            // several path points into one event, and
-                            // skipping them would leave gaps in the goo.
-                            val stamps = buildList {
-                                change.historical.forEach { h ->
-                                    val (u, v) = fit.viewToUv(h.position.x, h.position.y)
+                            if (stroking && params != null) {
+                                // Historical samples first: fast flicks
+                                // batch several path points into one event,
+                                // and skipping them would leave gaps.
+                                val stamps = buildList {
+                                    change.historical.forEach { h ->
+                                        val (u, v) = toUv(h.position.x, h.position.y)
+                                        addAll(viewModel.extendStroke(u, v))
+                                    }
+                                    val (u, v) = toUv(change.position.x, change.position.y)
                                     addAll(viewModel.extendStroke(u, v))
                                 }
-                                val (u, v) = fit.viewToUv(change.position.x, change.position.y)
-                                addAll(viewModel.extendStroke(u, v))
-                            }
-                            if (stamps.isNotEmpty()) {
-                                surface?.engine { stampBatch(params, stamps) }
+                                if (stamps.isNotEmpty()) {
+                                    surface?.engine { stampBatch(params, stamps) }
+                                }
                             }
                             change.consume()
                         }
@@ -381,6 +463,40 @@ private fun WarpEditor(
                     radius = state.brushRadius,
                     strength = state.brushStrength,
                     profile = state.tool.profile,
+                    view = view,
+                )
+            }
+
+            // Reset view: appears whenever the photo is off its fitted
+            // pose; springs everything back to 100% and straight.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !view.isIdentity,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp),
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                CandyIconButton(
+                    icon = Icons.Filled.CenterFocusStrong,
+                    contentDescription = stringResource(R.string.editor_reset_view),
+                    color = CandyCyan,
+                    selected = false,
+                    onClick = {
+                        viewResetJob?.cancel()
+                        val start = view
+                        viewResetJob = viewResetScope.launch {
+                            Animatable(0f).animateTo(
+                                targetValue = 1f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
+                            ) {
+                                view = start.lerp(ViewTransform(), value)
+                            }
+                        }
+                    },
                 )
             }
 
@@ -715,6 +831,8 @@ private fun LabeledSlider(
 
 /** Which bottom panel the editor shows; GOOVIE follows the ViewModel. */
 private enum class EditorPanel { BRUSH, LEVERS, GOOVIE }
+
+private const val DEGREES_TO_RADIANS = (Math.PI / 180.0).toFloat()
 
 @StringRes
 private fun BrushTool.labelRes(): Int = when (this) {

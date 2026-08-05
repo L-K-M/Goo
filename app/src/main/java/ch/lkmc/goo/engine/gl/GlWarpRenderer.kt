@@ -16,6 +16,7 @@ import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
+import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.media.MovieEncoder
 import java.io.File
@@ -84,7 +85,9 @@ class GlWarpRenderer(
     private var uFieldTexel = 0
     private var uImage = 0
     private var uFieldWarp = 0
-    private var uRect = 0
+    private var uRectPx = 0
+    private var uViewport = 0
+    private var uView = 0
     private var uGAspect = 0
     private var uGlobals = 0
     private var uFieldB = 0
@@ -94,6 +97,9 @@ class GlWarpRenderer(
 
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
+
+    /** The editor's pan/zoom/rotate; preview-only (export/movie identity). */
+    private var viewTransform = ViewTransform()
 
     /** Set by WarpSurfaceView: whether the context config is recordable. */
     var recordableConfig: (() -> Boolean)? = null
@@ -132,6 +138,11 @@ class GlWarpRenderer(
      */
     fun setGlobalParams(params: GlobalParams) {
         globalParams = params
+    }
+
+    /** Update the preview's view transform. GL-thread command; uniforms only. */
+    fun setViewTransform(view: ViewTransform) {
+        viewTransform = view
     }
 
     /**
@@ -329,7 +340,7 @@ class GlWarpRenderer(
                     error("eglMakeCurrent(encoder) failed")
                 }
                 GLES30.glViewport(0, 0, vw, vh)
-                drawTweenQuad(program)
+                drawTweenQuad(program, vw, vh)
                 EGLExt.eglPresentationTimeANDROID(display, eglSurface, MovieSpec.ptsNanos(frame))
                 if (!EGL14.eglSwapBuffers(display, eglSurface)) error("eglSwapBuffers failed")
                 encoder.drain(endOfStream = false)
@@ -352,7 +363,7 @@ class GlWarpRenderer(
     }
 
     /** Full-frame warp draw of the current tween state (movie pass). */
-    private fun drawTweenQuad(program: GlProgram) {
+    private fun drawTweenQuad(program: GlProgram, movieWidth: Int, movieHeight: Int) {
         // Throw, don't skip: a silent return here would swap-present
         // uninitialized frames and report the export as a SUCCESS. The
         // renderMovie catch turns this into onResult(false).
@@ -366,9 +377,16 @@ class GlWarpRenderer(
         val a = endpointA
         val b = endpointB
         val tweening = tweenT >= 0f && a != null && b != null
+        val vw = movieWidth.toFloat()
+        val vh = movieHeight.toFloat()
         drawWarpQuad(
             program = program,
-            rectX = -1f, rectY = 1f, rectW = 2f, rectH = -2f,
+            // Full-frame flipped (negative height, same trick as before
+            // the pixel-space rework) at identity view: the movie renders
+            // the document, never the navigation.
+            rectX = 0f, rectY = vh, rectW = vw, rectH = -vh,
+            viewportW = vw, viewportH = vh,
+            viewA = 1f, viewB = 0f, viewTx = 0f, viewTy = 0f,
             imageTex = sourceTexture,
             fieldTexA = if (tweening) a!!.readTexture else f.readTexture,
             fieldTexB = if (tweening) b!!.readTexture else f.readTexture,
@@ -490,7 +508,9 @@ class GlWarpRenderer(
         warpProgram = GlProgram(GlShaders.WARP_VERT, GlShaders.WARP_FRAG).also {
             uImage = it.uniform("u_image")
             uFieldWarp = it.uniform("u_field")
-            uRect = it.uniform("u_rect")
+            uRectPx = it.uniform("u_rectPx")
+            uViewport = it.uniform("u_viewport")
+            uView = it.uniform("u_view")
             uGAspect = it.uniform("u_gAspect")
             uGlobals = it.uniform("u_g")
             uFieldB = it.uniform("u_fieldB")
@@ -541,13 +561,6 @@ class GlWarpRenderer(
             viewWidth.toFloat(), viewHeight.toFloat(),
             bitmap.width.toFloat(), bitmap.height.toFloat(),
         )
-        // NDC rect of the fitted image: x,y = bottom-left corner (GL's y is
-        // up; FitTransform's offsets are top-left, so the bottom edge is
-        // viewHeight − (offsetY + fittedHeight)).
-        val ndcX = fit.offsetX / viewWidth * 2f - 1f
-        val ndcY = (viewHeight - fit.offsetY - fit.fittedHeight) / viewHeight * 2f - 1f
-        val ndcW = fit.fittedWidth / viewWidth * 2f
-        val ndcH = fit.fittedHeight / viewHeight * 2f
 
         // GOOvie scrub: mix the endpoint fields and show lerped levers.
         // Live mode: field on both samplers, t=0 — mix degenerates.
@@ -556,7 +569,13 @@ class GlWarpRenderer(
         val tweening = tweenT >= 0f && a != null && b != null
         drawWarpQuad(
             program = program,
-            rectX = ndcX, rectY = ndcY, rectW = ndcW, rectH = ndcH,
+            // Fitted rect in pixels (top-left origin); the view similarity
+            // pans/zooms/rotates it — preview only.
+            rectX = fit.offsetX, rectY = fit.offsetY,
+            rectW = fit.fittedWidth, rectH = fit.fittedHeight,
+            viewportW = viewWidth.toFloat(), viewportH = viewHeight.toFloat(),
+            viewA = viewTransform.a, viewB = viewTransform.b,
+            viewTx = viewTransform.tx, viewTy = viewTransform.ty,
             imageTex = sourceTexture,
             fieldTexA = if (tweening) a!!.readTexture else f.readTexture,
             fieldTexB = if (tweening) b!!.readTexture else f.readTexture,
@@ -585,6 +604,12 @@ class GlWarpRenderer(
         rectY: Float,
         rectW: Float,
         rectH: Float,
+        viewportW: Float,
+        viewportH: Float,
+        viewA: Float,
+        viewB: Float,
+        viewTx: Float,
+        viewTy: Float,
         imageTex: Int,
         fieldTexA: Int,
         fieldTexB: Int,
@@ -599,7 +624,9 @@ class GlWarpRenderer(
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-        GLES30.glUniform4f(uRect, rectX, rectY, rectW, rectH)
+        GLES30.glUniform4f(uRectPx, rectX, rectY, rectW, rectH)
+        GLES30.glUniform2f(uViewport, viewportW, viewportH)
+        GLES30.glUniform4f(uView, viewA, viewB, viewTx, viewTy)
         GLES30.glUniform1i(uImage, 0)
         GLES30.glUniform1i(uFieldWarp, 1)
         GLES30.glUniform1i(uFieldB, 2)
@@ -784,7 +811,7 @@ class GlWarpRenderer(
         val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
         if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) return null
 
-        // Warp pass into the offscreen buffer. u_rect with negative height
+        // Warp pass into the offscreen buffer. u_rectPx with negative height
         // flips vertically so glReadPixels' bottom-up rows come out as a
         // top-down bitmap — no CPU row flip needed. Export renders the
         // live document, never a scrub: t = 0 and both field samplers on
@@ -795,7 +822,13 @@ class GlWarpRenderer(
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         drawWarpQuad(
             program = program,
-            rectX = -1f, rectY = 1f, rectW = 2f, rectH = -2f,
+            // Full-frame flipped (negative height: glReadPixels' bottom-up
+            // rows come out top-down) at identity view — exports render
+            // the document, never the navigation.
+            rectX = 0f, rectY = source.height.toFloat(),
+            rectW = source.width.toFloat(), rectH = -source.height.toFloat(),
+            viewportW = source.width.toFloat(), viewportH = source.height.toFloat(),
+            viewA = 1f, viewB = 0f, viewTx = 0f, viewTy = 0f,
             imageTex = tex[0],
             fieldTexA = exportField.readTexture,
             fieldTexB = exportField.readTexture,
@@ -823,7 +856,7 @@ class GlWarpRenderer(
     private fun createQuadBuffer(): FloatBuffer {
         // One TRIANGLE_STRIP quad of NDC corners, shared by both passes:
         // QUAD_VERT uses it as a fullscreen quad, WARP_VERT remaps it into
-        // the letterboxed image rect via u_rect.
+        // the letterboxed image rect via u_rectPx.
         val corners = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
         return ByteBuffer.allocateDirect(corners.size * 4)
             .order(ByteOrder.nativeOrder())

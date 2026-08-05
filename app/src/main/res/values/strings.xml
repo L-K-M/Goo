@@ -37,6 +37,7 @@
 
     <string name="editor_levers">Global effects</string>
     <string name="editor_hint_smear">Drag on the photo to goo it</string>
+    <string name="editor_reset_view">Reset view</string>
 
     <string name="editor_goovies">GOOvies</string>
     <string name="goovie_capture">Punch a keyframe</string>
