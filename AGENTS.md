@@ -64,6 +64,9 @@ lives in `engine/core` as pure JVM classes.
   pixels — preview/export parity depends on it (PLAN.md §5.4).
 - Keyframes and replay caches pin immutable `StrokeRevision` identity, never a
   stroke count or history cursor; counts are reused after undo branching.
+- Runtime revision graphs are intentionally non-serializable. Project
+  persistence must store a normalized revision table plus revision IDs rather
+  than recursively serializing shared parent nodes.
 - The app has **no INTERNET permission**. Keep it that way; adding any
   network dependency is a product decision requiring an ADR.
 - App display name lives ONLY in `strings.xml` `app_name` (rename
