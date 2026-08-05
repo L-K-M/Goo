@@ -20,17 +20,21 @@ class StrokeRevision internal constructor(
     internal val appendedStroke: Stroke?,
     val strokeCount: Int,
 ) {
-    /** Materialize oldest-first strokes for renderer/export boundaries. */
+    /**
+     * Materialize oldest-first strokes for renderer/export boundaries.
+     * Each call walks this revision's parent chain; repeated reads of the
+     * current state should use [StrokeLog.strokes], which caches one result.
+     */
     fun materialize(): List<Stroke> {
         if (strokeCount == 0) return emptyList()
-        val newestFirst = ArrayList<Stroke>(strokeCount)
-        var revision: StrokeRevision? = this
-        while (revision != null) {
-            revision.appendedStroke?.let(newestFirst::add)
-            revision = revision.stateParent
+        return buildList(strokeCount) {
+            var revision: StrokeRevision? = this@StrokeRevision
+            while (revision != null) {
+                revision.appendedStroke?.let(::add)
+                revision = revision.stateParent
+            }
+            reverse()
         }
-        newestFirst.reverse()
-        return newestFirst
     }
 }
 

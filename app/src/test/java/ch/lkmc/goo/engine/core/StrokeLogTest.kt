@@ -2,6 +2,7 @@ package ch.lkmc.goo.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -81,6 +82,16 @@ class StrokeLogTest {
         assertSame(first, log.strokes)
         log.push(stroke(2))
         assertTrue(first !== log.strokes)
+    }
+
+    @Test
+    fun `materialized state cannot mutate the active cache`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        val materialized = log.strokes
+
+        assertFails { (materialized as MutableList<Stroke>).add(stroke(2)) }
+        assertEquals(listOf(0.1f), log.strokes.map { it.stamps[0].cx })
     }
 
     @Test
