@@ -1,32 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A pink goo blob mid-squish, with a gloss highlight. Hand-authored
-     vector; the blob outline is deliberately lopsided — perfect circles are
-     for serious apps. -->
+<!-- Meltorama 2000: a neon droplet mid-melt, sunk into a milled chrome
+     bezel with the horizon running behind it — the app's own ChromeButton,
+     shrunk to a launcher. Hand-authored vector; the droplet is
+     deliberately lopsided, because perfect circles are for serious apps.
+
+     The bezel is a real gradient (VectorDrawable <gradient>, native since
+     API 24; minSdk here is 26): flat two-tone rings read as a sticker,
+     and chrome is exactly the material that lives or dies by its
+     gradient. Light comes from the upper left, as everywhere else in the
+     design system.
+
+     Everything sits inside the adaptive-icon safe zone (the centre 72dp
+     of 108dp): the bezel's outer radius is 34, so circle, squircle and
+     rounded-square masks all keep the whole subject. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Blob shadow on the table -->
-    <path
-        android:fillColor="#0A1412"
-        android:fillAlpha="0.55"
-        android:pathData="M54,82 C70,82 80,78 80,74 C80,70 70,67 54,67 C38,67 28,70 28,74 C28,78 38,82 54,82 Z" />
+    <!-- Milled bezel. -->
+    <path android:pathData="M54,20 a34,34 0 1,0 0.1,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="26" android:startY="26"
+                android:endX="82" android:endY="82">
+                <item android:offset="0.0" android:color="#F2F7FF" />
+                <item android:offset="0.30" android:color="#9DAFD2" />
+                <item android:offset="0.52" android:color="#4A5678" />
+                <item android:offset="0.74" android:color="#A9BADB" />
+                <item android:offset="1.0" android:color="#E8F0FC" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Blob body -->
+    <!-- The recess the droplet sits in, with its own inner shadow ring. -->
     <path
-        android:fillColor="#FF5DA2"
-        android:pathData="M55,26 C67,25 78,33 79,44 C80,53 74,57 76,64 C77,70 70,75 61,75 C52,75 49,72 42,73 C34,74 28,68 29,60 C30,53 26,49 28,41 C30,31 43,27 55,26 Z" />
-
-    <!-- Darker underside for volume -->
+        android:fillColor="#1E2540"
+        android:pathData="M54,24 a30,30 0 1,0 0.1,0 Z" />
     <path
-        android:fillColor="#D13B7F"
-        android:pathData="M74,58 C74,66 68,72 60,73 C52,74 48,71 42,72 C36,73 31,69 30,64 C34,69 40,70 47,68 C58,65 68,64 74,58 Z" />
+        android:fillColor="#080A16"
+        android:pathData="M54,26 a28,28 0 1,0 0.1,0 Z" />
 
-    <!-- Gloss highlight -->
+    <!-- Horizon behind the droplet: the grid, one line of it. -->
+    <path
+        android:fillColor="#35E3F2"
+        android:fillAlpha="0.8"
+        android:pathData="M28,66 L80,66 L80,68 L28,68 Z" />
+
+    <!-- Droplet, mid-melt: a heavy sagging body with one drip running off
+         the bottom left, where the shape is already lowest. -->
+    <path
+        android:fillColor="#FF3D9E"
+        android:pathData="M54,32 C64,32 71,39 71,48 C71,56 66,60 67,66 C68,73 61,78 53,78 C45,78 39,74 40,67 C41,60 37,56 37,48 C37,39 44,32 54,32 Z" />
+    <path
+        android:fillColor="#FF3D9E"
+        android:pathData="M46,74 C49,74 50,78 49,82 C48,85 45,85 44,82 C43,79 43,74 46,74 Z" />
+    <!-- Darker underside: volume, and the sag reading as weight. -->
+    <path
+        android:fillColor="#C42A78"
+        android:pathData="M67,58 C67,66 62,74 53,75 C45,76 40,72 40,67 C44,72 49,73 55,71 C61,69 65,64 67,58 Z" />
+    <!-- Gloss: the one highlight that says "wet". -->
     <path
         android:fillColor="#FFFFFF"
-        android:fillAlpha="0.65"
-        android:pathData="M44,34 C50,31 58,31 62,34 C65,36 63,40 58,40 C52,40 48,42 45,41 C41,40 41,36 44,34 Z" />
+        android:fillAlpha="0.72"
+        android:pathData="M46,40 C51,37 58,37 62,40 C65,42 62,45 57,45 C52,45 48,46 46,45 C43,44 43,41 46,40 Z" />
 </vector>

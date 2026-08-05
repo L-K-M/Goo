@@ -139,17 +139,17 @@ def write_png(path, buf):
 def goo_guy():
     """A friendly blob face — the app's mascot-to-be, made to be gooed."""
     buf = new_buffer()
-    fill_radial(buf, hexrgb("2A4A44"), hexrgb("0F1C19"))
+    fill_radial(buf, hexrgb("233156"), hexrgb("080A16"))
 
     cx, cy = SW * 0.5, SH * 0.52
     rx, ry = SW * 0.27, SH * 0.33
 
     # Shadow on the table, then the head.
-    ellipse(buf, cx, cy + ry * 1.02, rx * 0.9, ry * 0.16, hexrgb("060D0B"), alpha=0.5, soft=30)
+    ellipse(buf, cx, cy + ry * 1.02, rx * 0.9, ry * 0.16, hexrgb("04050C"), alpha=0.5, soft=30)
     ellipse(buf, cx, cy, rx, ry, hexrgb("F5C9A0"))
     # Cheeks.
-    circle(buf, cx - rx * 0.52, cy + ry * 0.18, rx * 0.16, hexrgb("FF8FA3"), alpha=0.55, soft=18)
-    circle(buf, cx + rx * 0.52, cy + ry * 0.18, rx * 0.16, hexrgb("FF8FA3"), alpha=0.55, soft=18)
+    circle(buf, cx - rx * 0.52, cy + ry * 0.18, rx * 0.16, hexrgb("FF7FB5"), alpha=0.55, soft=18)
+    circle(buf, cx + rx * 0.52, cy + ry * 0.18, rx * 0.16, hexrgb("FF7FB5"), alpha=0.55, soft=18)
     # Eyes with glints.
     for sx in (-1, 1):
         ex = cx + sx * rx * 0.38
@@ -166,14 +166,14 @@ def goo_guy():
 def candy_blobs():
     """The candy palette as glossy marbles on the goo table."""
     buf = new_buffer()
-    fill_radial(buf, hexrgb("1E3A34"), hexrgb("0A1412"))
-    candies = ["FF5DA2", "4DD8E3", "A8E34D", "FFE066", "B07CF7", "FF9F45"]
+    fill_radial(buf, hexrgb("1B2447"), hexrgb("06080F"))
+    candies = ["FF3D9E", "35E3F2", "A6F03F", "FFDA3D", "B86BFF", "FF9A2E"]
     spots = [(0.22, 0.30, 0.16), (0.52, 0.22, 0.13), (0.78, 0.34, 0.15),
              (0.30, 0.68, 0.14), (0.58, 0.60, 0.17), (0.82, 0.72, 0.12)]
     for (fx, fy, fr), color in zip(spots, candies):
         r = fr * SW
         cx, cy = fx * SW, fy * SH
-        circle(buf, cx + r * 0.08, cy + r * 0.55, r * 0.9, hexrgb("060D0B"), alpha=0.45, soft=r * 0.3)
+        circle(buf, cx + r * 0.08, cy + r * 0.55, r * 0.9, hexrgb("04050C"), alpha=0.45, soft=r * 0.3)
         circle(buf, cx, cy, r, hexrgb(color))
         gloss(buf, cx, cy, r)
     return buf

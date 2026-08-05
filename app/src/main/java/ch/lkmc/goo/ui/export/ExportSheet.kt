@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 
 /**
  * The Out room: format + quality, then Save (gallery) or Share (chooser).
- * Kept deliberately small — candy-fication is the UI-polish roadmap step.
+ * Kept deliberately small: the console's out-tray, not a room of its own.
  */
 @Composable
 fun ExportSheet(

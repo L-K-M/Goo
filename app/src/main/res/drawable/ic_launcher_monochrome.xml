@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Themed-icon variant: the blob silhouette only, single layer. -->
+<!-- Themed-icon variant: the droplet silhouette only, single layer. The
+     bezel and horizon are dropped on purpose — at themed-icon sizes a
+     ring plus a subject reads as a smudge, and the system tints one
+     color, so the ring would fuse with the droplet anyway. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -7,5 +10,5 @@
     android:viewportHeight="108">
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M55,26 C67,25 78,33 79,44 C80,53 74,57 76,64 C77,70 70,75 61,75 C52,75 49,72 42,73 C34,74 28,68 29,60 C30,53 26,49 28,41 C30,31 43,27 55,26 Z" />
+        android:pathData="M55,26 C67,26 76,35 76,46 C76,56 68,60 69,68 C70,76 62,81 54,81 C45,81 37,76 38,68 C39,60 31,56 31,46 C31,35 43,26 55,26 Z" />
 </vector>

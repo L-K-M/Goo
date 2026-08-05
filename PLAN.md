@@ -1,13 +1,17 @@
-# Goo — Plan
+# Meltorama 2000 — Plan
 
-> Working name: **Goo** (`ch.lkmc.goo`). The display name is preliminary and
-> deliberately easy to change — see [Renaming](#renaming). Candidate names are
-> collected in [Appendix A](#appendix-a--name-ideas).
+> Name: **Meltorama 2000** (short form **Meltorama** where length matters —
+> see [Renaming](#renaming)). The applicationId stays `ch.lkmc.goo`, and
+> "goo" stays the verb and the material: the claim is *Goo Your Photos*.
+> The names considered before this one are kept in
+> [Appendix A](#appendix-a--name-ideas).
 
 ## 1. What this is
 
-Goo is a fun, fast photo-warping app for Android in the spirit of **Kai's
-Power Goo** (MetaTools, 1996) — the original "Realtime Liquid Image Funware".
+Meltorama 2000 is a fun, fast photo-warping app for Android in the spirit
+of **Kai's Power Goo** (MetaTools, 1996) — the original "Realtime Liquid
+Image Funware" — wearing the chrome-and-neon retro-future that 1996
+imagined for the year 2000.
 You open a photo, smear it around with your finger like wet paint, balloon an
 eye, shrink a chin, twirl the whole thing into a spiral, then save or share
 the result. Simple and silly on the surface, professional-grade underneath:
@@ -24,7 +28,7 @@ or the share sheet. No network access at all — photos never leave the device.
 KPT Goo organized itself into full-screen "rooms". We keep the metaphor,
 adapted to a phone:
 
-| KPT Goo (1996)                          | Goo (this app)                                     |
+| KPT Goo (1996)                          | Meltorama 2000 (this app)                          |
 | --------------------------------------- | -------------------------------------------------- |
 | **In room** (CD libraries, TWAIN, disk) | Home screen: system Photo Picker + bundled sample images |
 | **Goo room** — brush palette            | Editor: Smear, Move, Grow, Shrink, Smudge, Nudge, Smooth, UnGoo brushes |
@@ -283,15 +287,33 @@ User-feedback PRs after the v1.0.0 tag, same one-PR-one-feature policy:
 | 12 | View navigation        | two-finger pan/zoom/rotate of the preview (paint stays 1-finger), spring-back Reset View button |
 | 13 | Crop                   | freeform reframe from the editor rail. Document-space change, not an edit: strokes/keyframes record UVs of the frame they were painted on, so applying a crop restarts the goo (confirmed when there's goo to lose) and clears history hard ([StrokeLog.clearHistory]). The rect lives in normalized upright ORIGINAL-image space — session bytes stay original, decode applies the rect (preview and export alike), so quality never pays for a re-encode and "back to the full picture" always exists. Re-crops compose inward; the decode target scales up to a 4096 cap so cropped previews stay sharp. |
 
-The name "Goo" is preliminary. To rename later: `app_name` in
-`strings.xml` (single user-visible source), README title/badges, and
-`RELEASE_APP_NAME` in `scripts/release.sh`. The applicationId
-(`ch.lkmc.goo`) and `rootProject.name` stay fixed — changing the appId
-breaks upgrades and the root name only affects local artifact paths.
+### Renaming
+
+Done once already (Goo → Meltorama 2000, PR 14). The complete list of
+places a display name lives, for the next time:
+
+- `strings.xml`: `app_name` (launcher label — keep it short, Android
+  ellipsizes past ~12 characters), `app_name_full` + `app_model` (the
+  Wordmark lockup on the In screen), `about_title`, and the
+  gallery-folder text in `export_saved_gallery`;
+- `res/values/themes.xml` style name + the `android:theme` reference in
+  `AndroidManifest.xml`;
+- the MediaStore folders in `ImageSaver`/`MovieSaver` (`Pictures/…`,
+  `Movies/…`);
+- README title and prose, PLAN/AGENTS/GLOSSARY headers;
+- `RELEASE_APP_NAME` in `scripts/release.sh` and the APK artifact names
+  in `.github/workflows/release.yml`;
+- the launcher icon, if the mark is tied to the name.
+
+The applicationId (`ch.lkmc.goo`), the package, `rootProject.name` and
+the repository name stay fixed — changing the appId breaks upgrades for
+every sideloaded install, and none of them is user-visible.
 
 ## Appendix A — name ideas
 
-Collected for the final decision (appId stays `ch.lkmc.goo` regardless):
+Collected before the name was settled; kept for archaeology. The winner
+was **Meltorama 2000** — retro-future, and it leaves "goo" free to stay
+the verb (appId stays `ch.lkmc.goo` regardless):
 **Taffy** (stretchy, cute), **Squidge** (soft squeeze), **Gloop**,
 **Smoosh**, **Putty** (silly-putty for photos), **Melty**, **Warple**,
 **Gooify**, **Blorb**, **PicPutty**. Current favorite: **Taffy** or

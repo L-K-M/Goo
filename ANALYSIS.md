@@ -1,6 +1,6 @@
 # ANALYSIS.md - forward backlog
 
-The living base for future Goo work. It consolidates the k3 deep review
+The living base for future Meltorama 2000 work. It consolidates the k3 deep review
 (`k3.md`, 2026-08-05) and the Sol whole-project review (`sol.md`, 2026-08-05).
 The point-in-time documents retain full evidence, exact source references, and
 idea detail; this file contains only work that remains open or is waiting to

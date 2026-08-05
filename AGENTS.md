@@ -83,8 +83,16 @@ lives in `engine/core` as pure JVM classes.
   rather than recursively serializing shared parent nodes.
 - The app has **no INTERNET permission**. Keep it that way; adding any
   network dependency is a product decision requiring an ADR.
-- App display name lives ONLY in `strings.xml` `app_name` (rename
-  checklist: PLAN.md "Renaming").
+- App display name lives ONLY in `strings.xml` — `app_name` (short, for
+  the launcher) plus `app_name_full`/`app_model` for the Wordmark lockup.
+  Never hardcode "Meltorama" in a composable (rename checklist: PLAN.md
+  "Renaming"). The applicationId stays `ch.lkmc.goo`; "goo" remains the
+  verb and the material ("Goo Your Photos", GOOvies, UnGoo).
+- The design language is a retro-future console: gunmetal panels with
+  milled bevels (`Modifier.chromePanel`), neon domes in swept chrome rims
+  (`ChromeButton`/`ChromeIconButton`), one light source for every bevel
+  (above, slightly left). Colors come from `ui/theme/Color.kt` — no ad-hoc
+  Color(0x…) in screens.
 - Scripts follow the family house style: header comment doubles as
   `--help` via the awk one-liner; `==>` / `--` / `!!` log prefixes;
   `set -euo pipefail`.

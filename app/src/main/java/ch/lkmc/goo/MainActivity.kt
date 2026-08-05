@@ -7,7 +7,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import ch.lkmc.goo.ui.navigation.GooNavHost
-import ch.lkmc.goo.ui.theme.GooTheme
+import ch.lkmc.goo.ui.theme.MeltoramaTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         setContent {
-            GooTheme {
+            MeltoramaTheme {
                 GooNavHost()
             }
         }

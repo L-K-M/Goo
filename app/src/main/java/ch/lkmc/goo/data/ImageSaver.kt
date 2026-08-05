@@ -19,7 +19,7 @@ import java.util.UUID
  * wants them (PLAN.md §6).
  *
  * - API 29+: MediaStore contribution with IS_PENDING — lands in
- *   Pictures/Goo, visible in every gallery, zero permissions.
+ *   Pictures/Meltorama, visible in every gallery, zero permissions.
  * - API 26–28: shared-collection inserts would need
  *   WRITE_EXTERNAL_STORAGE, which the no-permissions rule forbids, so the
  *   file goes to app-owned external storage and the share sheet is the
@@ -72,7 +72,7 @@ class ImageSaver(private val context: Context) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, format.mimeType)
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Goo")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Meltorama")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)

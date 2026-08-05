@@ -11,15 +11,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
-import ch.lkmc.goo.ui.theme.GooOnDarkDim
+import ch.lkmc.goo.ui.theme.MeltOnDarkDim
 
 /**
- * A palette entry: candy bead with the tool's icon, name underneath.
- * Selection lights the bead in the tool's own candy color and pops it
- * proud of the row (the spring lives in [CandyIconButton]).
+ * A palette entry: a chrome-rimmed bead with the tool's icon, name
+ * underneath. Selection lights the bead in the tool's own neon and pops it
+ * proud of the row (the spring lives in [ChromeIconButton]).
  */
 @Composable
-fun CandyToolChip(
+fun ChromeToolChip(
     icon: ImageVector,
     label: String,
     color: Color,
@@ -33,7 +33,7 @@ fun CandyToolChip(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        CandyIconButton(
+        ChromeIconButton(
             icon = icon,
             contentDescription = label,
             color = color,
@@ -47,9 +47,9 @@ fun CandyToolChip(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = when {
-                !enabled -> GooOnDarkDim.copy(alpha = 0.4f)
+                !enabled -> MeltOnDarkDim.copy(alpha = 0.4f)
                 selected -> color
-                else -> GooOnDarkDim
+                else -> MeltOnDarkDim
             },
             // The bead already announces the label; a second TalkBack stop
             // saying the same word would just be noise.

@@ -29,13 +29,13 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.FitTransform
-import ch.lkmc.goo.ui.components.CandyIconButton
-import ch.lkmc.goo.ui.theme.CandyCyan
-import ch.lkmc.goo.ui.theme.CandyLime
-import ch.lkmc.goo.ui.theme.CandyOrange
+import ch.lkmc.goo.ui.components.ChromeIconButton
+import ch.lkmc.goo.ui.theme.NeonCyan
+import ch.lkmc.goo.ui.theme.NeonLime
+import ch.lkmc.goo.ui.theme.NeonTangerine
 
 /**
- * Full-canvas crop mode: a light rect with candy corner handles over the
+ * Full-canvas crop mode: a light rect with neon corner handles over the
  * dimmed photo. Freeform only (KPT had no crop at all; this one stays
  * humble). The rect starts at the full CURRENT frame and only tightens —
  * "back to the full picture" is the separate [onFullFrame] bead, shown
@@ -165,7 +165,7 @@ fun CropOverlay(
                 style = Stroke(width = 1.5.dp.toPx()),
             )
 
-            // Candy corner handles.
+            // Neon corner handles.
             val handleR = 8.dp.toPx()
             listOf(Offset(l, t), Offset(r, t), Offset(l, b), Offset(r, b)).forEach { c ->
                 drawCircle(Color.Black.copy(alpha = 0.35f), radius = handleR + 1.5.dp.toPx(), center = c)
@@ -179,27 +179,27 @@ fun CropOverlay(
                 .padding(bottom = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.Close,
                 contentDescription = stringResource(R.string.crop_cancel),
-                color = CandyOrange,
+                color = NeonTangerine,
                 selected = false,
                 haptic = false,
                 onClick = onCancel,
             )
             if (showFullFrame) {
-                CandyIconButton(
+                ChromeIconButton(
                     icon = Icons.Filled.CropFree,
                     contentDescription = stringResource(R.string.crop_full_frame),
-                    color = CandyCyan,
+                    color = NeonCyan,
                     selected = false,
                     onClick = onFullFrame,
                 )
             }
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.Check,
                 contentDescription = stringResource(R.string.crop_apply),
-                color = CandyLime,
+                color = NeonLime,
                 selected = false,
                 onClick = { onApply(rect) },
             )

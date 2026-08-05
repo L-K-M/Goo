@@ -556,8 +556,8 @@ class GlWarpRenderer(
     override fun onDrawFrame(gl: GL10?) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glViewport(0, 0, viewWidth, viewHeight)
-        // The goo table (ui/theme GooTable) behind the letterbox.
-        GLES30.glClearColor(0.067f, 0.125f, 0.114f, 1f)
+        // The console deck (ui/theme MeltDeck) behind the letterbox.
+        GLES30.glClearColor(0.043f, 0.055f, 0.110f, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
         val bitmap = sourceBitmap ?: return

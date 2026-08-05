@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Mirrors ui/theme/Color.kt GooTable; keep in sync by hand (two uses:
-         launch window background, launcher icon backdrop). -->
-    <color name="goo_table">#11201D</color>
-    <color name="goo_icon_bg">#1B302C</color>
+    <!-- Mirrors ui/theme/Color.kt MeltDeck/MeltPanel; keep in sync by hand
+         (two uses: launch window background, launcher icon backdrop). -->
+    <color name="melt_deck">#0B0E1C</color>
+    <color name="melt_icon_bg">#161C33</color>
 </resources>

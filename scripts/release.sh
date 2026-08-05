@@ -14,7 +14,7 @@
 # Shared engine: https://github.com/L-K-M/release-tool (this stub only sets config).
 set -euo pipefail
 
-export RELEASE_APP_NAME="Goo"
+export RELEASE_APP_NAME="Meltorama"
 export RELEASE_KIND="gradle-android"
 export RELEASE_CI_NOTE="CI (release.yml) will now test, build the release APK (signed with the checked-in debug keystore), and publish the GitHub Release for <tag>."
 export RELEASE_INVOKED_AS="scripts/release.sh"
