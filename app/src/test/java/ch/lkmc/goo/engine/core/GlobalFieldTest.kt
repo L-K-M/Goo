@@ -113,9 +113,12 @@ class GlobalFieldTest {
     }
 
     @Test
-    fun `hash is uniform-ish and stable`() {
-        // Pin a few values so CPU/GLSL drift would fail loudly.
-        assertEquals(GlobalField.hash(0u, 0u, 1u), GlobalField.hash(0u, 0u, 1u))
+    fun `hash is uniform-ish and pinned to stable vectors`() {
+        // Exact Float bits: changing any LCG/mix literal fails loudly.
+        assertEquals(0x3f282e38, GlobalField.hash(0u, 0u, 1u).toBits())
+        assertEquals(0x3f435d2b, GlobalField.hash(1u, 2u, 3u).toBits())
+        assertEquals(0x3e21b7e8, GlobalField.hash(UInt.MAX_VALUE, 123456789u, 42u).toBits())
+        assertEquals(0x3f73eb3a, GlobalField.hash(17u, 29u, 2u).toBits())
         val values = (0 until 1000).map {
             GlobalField.hash((it % 37).toUInt(), (it / 37).toUInt(), 1u)
         }
