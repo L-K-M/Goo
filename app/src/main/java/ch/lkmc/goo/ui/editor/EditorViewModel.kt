@@ -286,6 +286,14 @@ class EditorViewModel @Inject constructor(
         liveStamps = mutableListOf()
         if (tool.pumped) {
             pumpPoint = Pair(u, v)
+            // Stamp once at touch-down, before the pump's first tick: a
+            // quick tap otherwise starts and ends the stroke between ticks
+            // and applies nothing at all (KPT applied one shot per click).
+            val first = emit(listOf(Stamp(u, v, 0f, 0f)))
+            if (first.isNotEmpty()) {
+                val params = liveParams ?: return
+                engineBridge?.invoke { stampBatch(params, first) }
+            }
             startPump()
         } else {
             resampler = StrokeResampler(radius = radius, aspect = aspect)
