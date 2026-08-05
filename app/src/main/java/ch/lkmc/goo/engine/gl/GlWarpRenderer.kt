@@ -381,10 +381,10 @@ class GlWarpRenderer(
         val vh = movieHeight.toFloat()
         drawWarpQuad(
             program = program,
-            // Full-frame flipped (negative height, same trick as before
-            // the pixel-space rework) at identity view: the movie renders
-            // the document, never the navigation.
-            rectX = 0f, rectY = vh, rectW = vw, rectH = -vh,
+            // MediaCodec is an EGL window surface like preview, so it uses
+            // the ordinary upright rectangle. Only still export flips for
+            // glReadPixels' bottom-up CPU row order.
+            rectX = 0f, rectY = 0f, rectW = vw, rectH = vh,
             viewportW = vw, viewportH = vh,
             viewA = 1f, viewB = 0f, viewTx = 0f, viewTy = 0f,
             imageTex = sourceTexture,
