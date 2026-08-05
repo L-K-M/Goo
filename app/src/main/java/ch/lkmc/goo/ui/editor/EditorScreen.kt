@@ -1,6 +1,9 @@
 package ch.lkmc.goo.ui.editor
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -32,12 +35,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Waves
@@ -156,6 +161,33 @@ private fun WarpEditor(
     LaunchedEffect(surface, state.globals) {
         val globals = state.globals
         surface?.engine { setGlobalParams(globals) }
+    }
+
+    // Fusion's photo B follows state like A does — including re-upload
+    // after a GL context recreation (the surface key).
+    LaunchedEffect(surface, state.bitmapB) {
+        val b = state.bitmapB
+        surface?.engine { setImageB(b) }
+    }
+
+    // Fusion needs a photo B: selecting the tool without one opens the
+    // picker; canceling with still-no-B falls back to Smear so the brush
+    // never paints an invisible mask.
+    val pickImageB = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importSecondImage(uri)
+        } else if (viewModel.uiState.value.bitmapB == null) {
+            viewModel.setTool(BrushTool.SMEAR)
+        }
+    }
+    LaunchedEffect(state.tool) {
+        if (state.tool == BrushTool.FUSE && viewModel.uiState.value.bitmapB == null) {
+            pickImageB.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+            )
+        }
     }
 
     // GOOvie scrub sync: every scrub/strip change re-derives the tween
@@ -414,10 +446,18 @@ private fun WarpEditor(
                     mirrored = state.mirrored,
                     radius = state.brushRadius,
                     strength = state.brushStrength,
+                    showFusionPick = state.tool == BrushTool.FUSE && state.bitmapB != null,
                     onToolChange = viewModel::setTool,
                     onMirrorToggle = viewModel::toggleMirror,
                     onRadiusChange = viewModel::setBrushRadius,
                     onStrengthChange = viewModel::setBrushStrength,
+                    onFusionPick = {
+                        pickImageB.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    },
                 )
             }
         }
@@ -549,10 +589,12 @@ private fun BrushRail(
     mirrored: Boolean,
     radius: Float,
     strength: Float,
+    showFusionPick: Boolean,
     onToolChange: (BrushTool) -> Unit,
     onMirrorToggle: () -> Unit,
     onRadiusChange: (Float) -> Unit,
     onStrengthChange: (Float) -> Unit,
+    onFusionPick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -584,6 +626,15 @@ private fun BrushRail(
                 selected = mirrored,
                 onClick = onMirrorToggle,
             )
+            if (showFusionPick) {
+                CandyToolChip(
+                    icon = Icons.Filled.Collections,
+                    label = stringResource(R.string.fusion_change_photo),
+                    color = CandyGrape,
+                    selected = false,
+                    onClick = onFusionPick,
+                )
+            }
         }
         LabeledSlider(
             label = stringResource(R.string.editor_brush_size),
@@ -645,6 +696,7 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.SHRINK -> R.string.tool_shrink
     BrushTool.SMOOTH -> R.string.tool_smooth
     BrushTool.UNGOO -> R.string.tool_ungoo
+    BrushTool.FUSE -> R.string.tool_fuse
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -656,6 +708,7 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.SHRINK -> Icons.Filled.ZoomOut
     BrushTool.SMOOTH -> Icons.Filled.Waves
     BrushTool.UNGOO -> Icons.Filled.AutoFixHigh
+    BrushTool.FUSE -> Icons.Filled.PhotoLibrary
 }
 
 /** Each tool wears its own candy — families share a flavor. */
@@ -668,6 +721,7 @@ private fun BrushTool.candyColor(): Color = when (this) {
     BrushTool.SHRINK -> CandyLemon
     BrushTool.SMOOTH -> CandyLime
     BrushTool.UNGOO -> CandyLime
+    BrushTool.FUSE -> CandyGrape
 }
 
 @Composable

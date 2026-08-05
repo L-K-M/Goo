@@ -26,6 +26,8 @@
     <string name="tool_shrink">Shrink</string>
     <string name="tool_smooth">Smooth</string>
     <string name="tool_ungoo">UnGoo</string>
+    <string name="tool_fuse">Fusion</string>
+    <string name="fusion_change_photo">Swap photo</string>
     <string name="tool_mirror">Mirror</string>
 
     <string name="editor_levers">Global effects</string>

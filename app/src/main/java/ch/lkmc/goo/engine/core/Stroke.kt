@@ -36,6 +36,14 @@ enum class StampMode(val shaderId: Int) {
 
     /** Local fade to identity: D' = D·(1 − w·BLEND_STEP). */
     ERASE(4),
+
+    /**
+     * Fusion (PLAN.md §3): accumulate the through-paint mask —
+     * M' = clamp(M + w·FUSE_STEP), displacement untouched. The mask is
+     * the field's z channel, so it warps, tweens, undoes, and exports
+     * with everything else for free.
+     */
+    FUSE(5),
 }
 
 /** Brush falloff curve over normalized distance; `u_profile` wire values. */
@@ -90,6 +98,9 @@ enum class BrushTool(
 
     /** Hold to locally erase the warp back to the original image. */
     UNGOO(StampMode.ERASE, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
+
+    /** Paint the second photo through — soft-edged reveal (Fusion room). */
+    FUSE(StampMode.FUSE, FalloffProfile.SMOOTHSTEP, 1f, pumped = false),
     ;
 
     /**
@@ -115,6 +126,9 @@ object BrushDynamics {
 
     /** Blend fraction per RELAX/ERASE stamp at strength 1. */
     const val BLEND_STEP = 0.22f
+
+    /** Mask flow added per FUSE stamp at full weight. */
+    const val FUSE_STEP = 0.30f
 
     /** Radial modes ramp in over [0, this] normalized distance so the
      *  direction singularity at the exact center contributes nothing. */

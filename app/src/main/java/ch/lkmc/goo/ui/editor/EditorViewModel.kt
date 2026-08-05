@@ -77,6 +77,8 @@ class EditorViewModel @Inject constructor(
         val exporting: Boolean = false,
         /** Aspect-space brush radius (fraction of image height). */
         val brushRadius: Float = DEFAULT_RADIUS,
+        /** Fusion's photo B, cover-cropped to A's UV space; null = none. */
+        val bitmapB: Bitmap? = null,
         val tool: BrushTool = BrushTool.SMEAR,
         /** User strength slider; scaled per tool at stroke creation. */
         val brushStrength: Float = DEFAULT_STRENGTH,
@@ -133,6 +135,7 @@ class EditorViewModel @Inject constructor(
     var engineBridge: ((GlWarpRenderer.() -> Unit) -> Unit)? = null
 
     private var sessionFile: File? = null
+    private var sessionFileB: File? = null
     private var exportJob: Job? = null
 
     private val log = StrokeLog()
@@ -174,10 +177,31 @@ class EditorViewModel @Inject constructor(
                     savedStateHandle[KEY_SESSION_FILE] = it.path
                 }
                 sessionFile = file
+                // A restored Fusion photo B must survive the sweep too.
+                val restoredB = savedStateHandle.get<String>(KEY_SESSION_B)
+                    ?.let(::File)
+                    ?.takeIf(File::exists)
                 // Previous sessions' copies are garbage now (REVIEW.md G-1).
-                imageLoader.sweepSessions(keep = file)
+                imageLoader.sweepSessions(keep = setOfNotNull(file, restoredB))
                 val bitmap = imageLoader.decodePreview(file)
                 _uiState.update { it.copy(loading = false, bitmap = bitmap) }
+                // Restore B after A: the cover-crop needs A's dimensions.
+                // The screen syncs bitmapB to the engine like it does A.
+                // A failed B decode degrades to no-B (key cleared so the
+                // next restore doesn't retry a bad file) — it must never
+                // take photo A's whole editor down with it.
+                if (restoredB != null) {
+                    try {
+                        val bitmapB =
+                            imageLoader.decodeCover(restoredB, bitmap.width, bitmap.height)
+                        sessionFileB = restoredB
+                        _uiState.update { it.copy(bitmapB = bitmapB) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        savedStateHandle.remove<String>(KEY_SESSION_B)
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -188,6 +212,44 @@ class EditorViewModel @Inject constructor(
 
     fun setBrushRadius(radius: Float) {
         _uiState.update { it.copy(brushRadius = radius.coerceIn(MIN_RADIUS, MAX_RADIUS)) }
+    }
+
+    /**
+     * Import Fusion's photo B: copy to a session file (picker grants are
+     * transient), cover-crop to A's UV space, hand to the screen via
+     * state. Replaces any previous B; the mask survives a swap.
+     */
+    fun importSecondImage(uri: Uri) {
+        val bitmap = _uiState.value.bitmap ?: return
+        viewModelScope.launch {
+            try {
+                val previousB = sessionFileB
+                val file = imageLoader.importImage(uri)
+                // Decode BEFORE committing the session pointer: an
+                // undecodable pick must fail this import only — never
+                // poison later exports/restores or evict a working B.
+                val bitmapB = try {
+                    imageLoader.decodeCover(file, bitmap.width, bitmap.height)
+                } catch (e: Exception) {
+                    // Deliberately includes cancellation: the just-copied
+                    // file has no owner yet (sessionFileB still points at
+                    // the old B, the key was never written), so deleting
+                    // here is orphan cleanup, not a stray side effect.
+                    file.delete()
+                    throw e
+                }
+                sessionFileB = file
+                savedStateHandle[KEY_SESSION_B] = file.path
+                previousB?.delete()
+                _uiState.update { it.copy(bitmapB = bitmapB) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _exportEvents.trySend(
+                    ExportEvent.Failed(e.message ?: "could not open second image"),
+                )
+            }
+        }
     }
 
     /** Engine-side failures (GL thread) surface as the screen's error state. */
@@ -579,6 +641,7 @@ class EditorViewModel @Inject constructor(
         exportJob = viewModelScope.launch {
             _uiState.update { it.copy(exporting = true) }
             var full: Bitmap? = null
+            var fullB: Bitmap? = null
             var warped: Bitmap? = null
             try {
                 val maxTex = suspendCancellableCoroutine { cont ->
@@ -587,9 +650,17 @@ class EditorViewModel @Inject constructor(
                 val cap = ExportSize.exportLongSideCap(maxTex)
                 val decoded = imageLoader.decodePreview(session, cap)
                 full = decoded
+                // Fusion's B at export size, cover-cropped to A's export
+                // dims — same UV space as the preview pair. Never recycled
+                // on the cancel path (a queued GL upload may still hold
+                // it, same as `full`); GC reclaims.
+                val decodedB = sessionFileB?.let {
+                    imageLoader.decodeCover(it, decoded.width, decoded.height)
+                }
+                fullB = decodedB
                 val rendered = suspendCancellableCoroutine { cont ->
                     bridge {
-                        exportBitmap(decoded, strokes) { out ->
+                        exportBitmap(decoded, decodedB, strokes) { out ->
                             // Cancelled mid-render: nobody will ever see
                             // this bitmap — free ~50 MB now, not at GC.
                             if (cont.isActive) cont.resume(out) else out?.recycle()
@@ -599,6 +670,8 @@ class EditorViewModel @Inject constructor(
                 warped = rendered ?: throw IllegalStateException("engine could not render the export")
                 full.recycle()
                 full = null
+                fullB?.recycle()
+                fullB = null
                 sink(rendered)
             } catch (e: CancellationException) {
                 throw e
@@ -610,6 +683,7 @@ class EditorViewModel @Inject constructor(
                 // rather than recycling under the GL thread's feet.
                 if (coroutineContext.isActive) {
                     full?.recycle()
+                    fullB?.recycle()
                     warped?.recycle()
                 }
                 _uiState.update { it.copy(exporting = false) }
@@ -661,6 +735,7 @@ class EditorViewModel @Inject constructor(
         const val DEFAULT_STRENGTH = 0.85f
 
         private const val KEY_SESSION_FILE = "sessionFile"
+        private const val KEY_SESSION_B = "sessionFileB"
         private const val KEY_GLOBALS = "globals"
 
         /** KPT Goo's strip held 64; so does ours. */

@@ -25,10 +25,15 @@ class BrushToolTest {
     }
 
     @Test
-    fun `pumped tools are exactly the non-directional ones`() {
+    fun `pumped tools are exactly the hold-in-place field tools`() {
+        // Drag tools (directional smears AND the Fusion through-paint)
+        // stamp along the path; hold-tools pump on a clock.
+        val pumpedModes = setOf(
+            StampMode.INFLATE, StampMode.DEFLATE, StampMode.RELAX, StampMode.ERASE,
+        )
         BrushTool.entries.forEach { tool ->
             assertEquals(
-                tool.mode != StampMode.DIRECTIONAL,
+                tool.mode in pumpedModes,
                 tool.pumped,
                 "pumped mismatch for $tool",
             )

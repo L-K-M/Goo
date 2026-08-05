@@ -7,8 +7,9 @@ import android.opengl.GLES30
  * swapped every stamp (the stamp shader reads the previous field while
  * writing the next — GL forbids sampling the texture being rendered).
  *
- * Format: RG16F when renderable (EXT_color_buffer_half_float — effectively
- * universal on GLES3 hardware), else RG32F via EXT_color_buffer_float.
+ * Format: RGBA16F when renderable (EXT_color_buffer_half_float —
+ * effectively universal on GLES3 hardware), else RGBA32F via
+ * EXT_color_buffer_float. xy = displacement, z = Fusion mask, w spare.
  * Devices with neither can't run the engine; the renderer surfaces that as
  * an error state rather than crashing (REVIEW.md tracks a packed-RGBA8
  * fallback should such hardware ever show up in practice).
@@ -25,7 +26,10 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
     private val writeFramebuffer: Int get() = framebuffers[1 - readIndex]
 
     init {
-        val internalFormat = if (halfFloatRenderable) GLES30.GL_RG16F else GLES30.GL_RG32F
+        // RGBA since Fusion: xy displacement + z mask (w spare). The same
+        // extensions that made RG renderable make RGBA renderable — RGBA16F
+        // is in fact the format EXT_color_buffer_half_float names first.
+        val internalFormat = if (halfFloatRenderable) GLES30.GL_RGBA16F else GLES30.GL_RGBA32F
         val type = if (halfFloatRenderable) GLES30.GL_HALF_FLOAT else GLES30.GL_FLOAT
         GLES30.glGenTextures(2, textures, 0)
         GLES30.glGenFramebuffers(2, framebuffers, 0)
@@ -33,7 +37,7 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[i])
             GLES30.glTexImage2D(
                 GLES30.GL_TEXTURE_2D, 0, internalFormat, width, height, 0,
-                GLES30.GL_RG, type, null,
+                GLES30.GL_RGBA, type, null,
             )
             // LINEAR + CLAMP_TO_EDGE mirror the CPU reference's bilinear
             // clamp sampling (DisplacementField.sample).
@@ -90,12 +94,12 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
     }
 
     companion object {
-        /** True when RG16F is color-renderable on this context. */
+        /** True when RGBA16F is color-renderable on this context. */
         fun hasHalfFloat(extensions: String): Boolean =
             "GL_EXT_color_buffer_half_float" in extensions
 
         /**
-         * True when the RG32F fallback is fully usable: renderable
+         * True when the RGBA32F fallback is fully usable: renderable
          * (EXT_color_buffer_float) AND filterable — unextended ES 3.0 does
          * not filter 32F textures, and our samplers rely on LINEAR; without
          * OES_texture_float_linear the texture would be incomplete and
