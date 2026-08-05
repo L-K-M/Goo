@@ -87,7 +87,10 @@ class MovieSaver(private val context: Context) {
 
     private fun saveToAppStorage(movie: File, format: MovieFormat): SaveResult {
         val dir = context.getExternalFilesDir(format.relativeDirectory)
-            ?: File(context.filesDir, "movies").apply { mkdirs() }
+            // The internal fallback follows the format too (GLM on PR #42):
+            // a GIF that lands here is still an image, and a debugger
+            // hunting for one should not have to know about this branch.
+            ?: File(context.filesDir, format.relativeDirectory).apply { mkdirs() }
         val file = File(dir, movie.name)
         try {
             movie.copyTo(file, overwrite = true)
