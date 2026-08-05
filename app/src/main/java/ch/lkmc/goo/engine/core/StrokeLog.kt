@@ -122,6 +122,30 @@ class StrokeLog {
         cursor++
     }
 
+    /**
+     * Erase the document AND its history. For document-space changes
+     * (crop) where every recorded stroke's UVs stop meaning what they
+     * meant: unlike [reset], nothing is reachable afterwards — undoing
+     * across a reframe would replay old-space strokes onto new-space
+     * pixels. The one sanctioned exception to "every state ever shown
+     * remains reachable" above.
+     */
+    fun clearHistory() {
+        // A fresh id, not a reused root: two distinct revisions must never
+        // share an id (endpoint caches and keyframe pins rely on it).
+        val fresh = StrokeRevision(
+            id = nextId(),
+            stateParent = null,
+            appendedStroke = null,
+            strokeCount = 0,
+        )
+        history.clear()
+        history.add(fresh)
+        cursor = 0
+        materializedRevision = fresh
+        materializedStrokes = emptyList()
+    }
+
     /** @return the restored strokes, or null if there was nothing to undo. */
     fun undo(): List<Stroke>? {
         if (!canUndo) return null

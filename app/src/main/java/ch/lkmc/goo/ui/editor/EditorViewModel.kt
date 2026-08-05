@@ -14,6 +14,7 @@ import ch.lkmc.goo.data.MovieSaver
 import ch.lkmc.goo.data.OnboardingPrefs
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
+import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
@@ -120,6 +121,8 @@ class EditorViewModel @Inject constructor(
         /** MP4 export in flight; [movieProgress] in [0,1] feeds the bar. */
         val exportingMovie: Boolean = false,
         val movieProgress: Float = 0f,
+        /** A crop is active (the overlay offers "full picture" only then). */
+        val cropped: Boolean = false,
     ) {
         /**
          * The selected pin is behind the live document: Punch and Update
@@ -170,6 +173,14 @@ class EditorViewModel @Inject constructor(
     private var secondImageJob: Job? = null
     private var secondImageRequestId = 0L
 
+    /**
+     * Active crop in ORIGINAL-image space (null = full frame). The
+     * session file always keeps the original bytes — the rect is applied
+     * at decode, so export quality never pays for a re-encode and
+     * "back to the full picture" is always possible.
+     */
+    private var cropRect: CropRect? = null
+
     private val log = StrokeLog()
     private var resampler: StrokeResampler? = null
     private var liveStamps = mutableListOf<Stamp>()
@@ -209,14 +220,20 @@ class EditorViewModel @Inject constructor(
                     savedStateHandle[KEY_SESSION_FILE] = it.path
                 }
                 sessionFile = file
+                // Restore the crop before the decode that uses it. A
+                // malformed rect restores as null (full frame) — the
+                // strokes it framed died with the process anyway.
+                cropRect = CropRect.fromArray(savedStateHandle.get<FloatArray>(KEY_CROP))
                 // A restored Fusion photo B must survive the sweep too.
                 val restoredB = savedStateHandle.get<String>(KEY_SESSION_B)
                     ?.let(::File)
                     ?.takeIf(File::exists)
                 // Previous sessions' copies are garbage now (REVIEW.md G-1).
                 imageLoader.sweepSessions(keep = setOfNotNull(file, restoredB))
-                val bitmap = imageLoader.decodePreview(file)
-                _uiState.update { it.copy(loading = false, bitmap = bitmap) }
+                val bitmap = imageLoader.decodePreview(file, crop = cropRect)
+                _uiState.update {
+                    it.copy(loading = false, bitmap = bitmap, cropped = cropRect != null)
+                }
                 // Restore B after A: the cover-crop needs A's dimensions.
                 // The screen syncs bitmapB to the engine like it does A.
                 // A failed B decode degrades to no-B (key cleared so the
@@ -316,6 +333,79 @@ class EditorViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_SESSION_B)
         _uiState.update {
             it.copy(bitmapB = null, importingPhotoB = false, tool = BrushTool.SMEAR)
+        }
+    }
+
+    /**
+     * Reframe the picture. [rect] is relative to the image currently on
+     * screen (itself possibly cropped) and composes into original space;
+     * null restores the full original frame.
+     *
+     * Crop is a document-space change: strokes and keyframes record UVs
+     * of the frame they were painted on, so the document restarts —
+     * history cleared hard (undoing across a reframe would replay
+     * old-space strokes onto new-space pixels), keyframes dropped,
+     * levers zeroed. Validate-then-commit like [importSecondImage]: a
+     * failed decode leaves the current document untouched. The screen's
+     * bitmap/bitmapB/globals sync effects carry the swap to the GL side.
+     */
+    fun applyCrop(rect: CropRect?) {
+        val s = _uiState.value
+        if (s.exporting || s.exportingMovie || s.bitmap == null) return
+        val file = sessionFile ?: return
+        val absolute = rect
+            ?.let { (cropRect ?: CropRect.FULL).compose(it) }
+            ?.takeIf { !it.isFullFrame }
+        if (absolute == null && cropRect == null) return
+        discardLiveStroke()
+        viewModelScope.launch {
+            try {
+                val bitmap = imageLoader.decodePreview(file, crop = absolute)
+                // B follows into the new frame; a failure degrades to
+                // no-B rather than blocking the crop (restore policy).
+                val fileB = sessionFileB
+                var bitmapB: Bitmap? = null
+                if (fileB != null) {
+                    try {
+                        bitmapB = imageLoader.decodeCover(fileB, bitmap.width, bitmap.height)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        clearSecondImage()
+                    }
+                }
+                cropRect = absolute
+                savedStateHandle[KEY_CROP] = absolute?.toArray()
+                savedStateHandle[KEY_GLOBALS] = GlobalParams().toArray()
+                log.clearHistory()
+                _uiState.update {
+                    it.copy(
+                        bitmap = bitmap,
+                        bitmapB = bitmapB,
+                        cropped = absolute != null,
+                        globals = GlobalParams(),
+                        keyframes = emptyList(),
+                        scrubPos = 0f,
+                        playing = false,
+                        selectedKeyframe = -1,
+                        goovieMode = false,
+                    )
+                }
+                refreshHistoryFlags()
+                // The old preview bitmap is NOT recycled here: a queued
+                // GL setImage may still be uploading it (same policy as
+                // the on-clear note at the bottom of this file).
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                // The point of validate-then-commit is that a failed decode
+                // leaves the document standing — and OOM is this path's
+                // likeliest failure, yet it's an Error that would sail past
+                // catch(Exception) and crash instead of degrading.
+                _exportEvents.send(ExportEvent.Failed("not enough memory to crop"))
+            } catch (e: Exception) {
+                _exportEvents.send(ExportEvent.Failed(e.message ?: "could not crop"))
+            }
         }
     }
 
@@ -854,7 +944,10 @@ class EditorViewModel @Inject constructor(
             return
         }
         // Main thread: the log is main-confined; snapshot before bridging.
+        // The crop rides along: strokes record UVs of the cropped frame,
+        // so the pair must stay consistent whatever happens mid-flight.
         val strokes = log.strokes
+        val crop = cropRect
         exportJob = viewModelScope.launch {
             _uiState.update { it.copy(exporting = true) }
             var full: Bitmap? = null
@@ -865,7 +958,7 @@ class EditorViewModel @Inject constructor(
                     bridge { if (cont.isActive) cont.resume(maxTextureSize) }
                 }
                 val cap = ExportSize.exportLongSideCap(maxTex)
-                val decoded = imageLoader.decodePreview(session, cap)
+                val decoded = imageLoader.decodePreview(session, cap, crop)
                 full = decoded
                 // Fusion's B at export size, cover-cropped to A's export
                 // dims — same UV space as the preview pair. Never recycled
@@ -959,6 +1052,7 @@ class EditorViewModel @Inject constructor(
         private const val KEY_SESSION_FILE = "sessionFile"
         private const val KEY_SESSION_B = "sessionFileB"
         private const val KEY_GLOBALS = "globals"
+        private const val KEY_CROP = "crop"
 
         /** KPT Goo's strip held 64; so does ours. */
         const val MAX_KEYFRAMES = 64

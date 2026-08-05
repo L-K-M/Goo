@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
@@ -102,6 +103,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.BrushTool
+import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
@@ -159,6 +161,11 @@ private fun WarpEditor(
     var showExportSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
     var adjustingBrush by remember { mutableStateOf(false) }
+    // Crop mode: the overlay owns the canvas; painting is gated off.
+    // pendingCrop holds an Apply awaiting the "start fresh" confirm
+    // (only asked when there is goo to lose).
+    var showCrop by remember { mutableStateOf(false) }
+    var pendingCrop by remember { mutableStateOf<CropAction?>(null) }
     // Pan/zoom/rotate of the preview. Ephemeral across process recreation;
     // viewport changes rebase it around the same source point below.
     var view by remember { mutableStateOf(ViewTransform()) }
@@ -341,14 +348,37 @@ private fun WarpEditor(
                 viewModel.redo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
             onReset = { confirmReset = true },
+            onCrop = {
+                if (showCrop) {
+                    showCrop = false
+                } else {
+                    // Same mid-gesture policy as setTool/toggleGoovie: a
+                    // second finger can tap the bead — commit, don't drop.
+                    viewModel.endStroke()?.let { s -> surface?.engine { commit(s) } }
+                    strokePos = null
+                    showLevers = false
+                    if (state.goovieMode) viewModel.toggleGoovie()
+                    // The overlay works in the fitted pose: snap the view
+                    // home (no spring — the crop UI needs it NOW).
+                    viewResetJob?.cancel()
+                    view = ViewTransform()
+                    showCrop = true
+                }
+            },
+            cropActive = showCrop,
+            cropEnabled = !state.exporting && !state.exportingMovie,
             onLevers = {
                 // From the strip, the levers bead OPENS levers (not a blind
                 // toggle — showLevers may already be true underneath).
+                showCrop = false
                 showLevers = if (state.goovieMode) true else !showLevers
                 if (state.goovieMode) viewModel.toggleGoovie()
             },
             leversActive = !state.goovieMode && (showLevers || !state.globals.isIdentity),
-            onGoovie = { viewModel.toggleGoovie() },
+            onGoovie = {
+                showCrop = false
+                viewModel.toggleGoovie()
+            },
             goovieActive = state.goovieMode,
             onExport = { showExportSheet = true },
         )
@@ -379,7 +409,12 @@ private fun WarpEditor(
                     }
                     canvasSize = newSize
                 }
-                .pointerInput(bitmap) {
+                .pointerInput(bitmap, showCrop) {
+                    // Crop mode: the overlay owns all input. Its own
+                    // pointerInput consumes first anyway (topmost child);
+                    // keying on showCrop makes the hand-off explicit and
+                    // cancels any in-flight gesture at the flip.
+                    if (showCrop) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         val fit = FitTransform(
@@ -619,6 +654,38 @@ private fun WarpEditor(
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                 )
             }
+
+            // Crop mode, topmost: dims the photo, owns all canvas input.
+            if (showCrop) {
+                // Applying restarts the goo — confirm only when there is
+                // goo to lose (strokes, levers, or keyframes).
+                val commitCrop: (CropRect?) -> Unit = { r ->
+                    viewModel.applyCrop(r)
+                    showCrop = false
+                }
+                val requestCrop: (CropRect?) -> Unit = { r ->
+                    if (state.canReset || state.keyframes.isNotEmpty()) {
+                        pendingCrop = CropAction(r)
+                    } else {
+                        commitCrop(r)
+                    }
+                }
+                CropOverlay(
+                    imageWidth = bitmap.width,
+                    imageHeight = bitmap.height,
+                    showFullFrame = state.cropped,
+                    onApply = { rect ->
+                        // A full rect applies nothing: ✓ just closes.
+                        // Uncropping belongs to the dedicated full-frame
+                        // bead — review: ✓ silently destroying an active
+                        // crop (not undoable, rect stored nowhere after)
+                        // was too easy to hit as "OK, done looking".
+                        if (rect.isFullFrame) showCrop = false else requestCrop(rect)
+                    },
+                    onFullFrame = { requestCrop(null) },
+                    onCancel = { showCrop = false },
+                )
+            }
         }
 
         val panel = when {
@@ -717,6 +784,29 @@ private fun WarpEditor(
         )
     }
 
+    pendingCrop?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingCrop = null },
+            title = { Text(stringResource(R.string.crop_confirm_title)) },
+            text = { Text(stringResource(R.string.crop_confirm_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingCrop = null
+                        viewModel.applyCrop(action.rect)
+                        showCrop = false
+                    },
+                ) { Text(stringResource(R.string.crop_confirm_go)) }
+            },
+            dismissButton = {
+                // Back to the overlay, rect intact — not a full cancel.
+                TextButton(onClick = { pendingCrop = null }) {
+                    Text(stringResource(R.string.editor_reset_cancel))
+                }
+            },
+        )
+    }
+
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
@@ -748,6 +838,9 @@ private fun TopRail(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onReset: () -> Unit,
+    onCrop: () -> Unit,
+    cropActive: Boolean,
+    cropEnabled: Boolean,
     onLevers: () -> Unit,
     leversActive: Boolean,
     onGoovie: () -> Unit,
@@ -770,9 +863,9 @@ private fun TopRail(
             haptic = false,
             onClick = onBack,
         )
-        // Scrollable: back + six 48dp beads + spacing is ~374dp — wider than
-        // a 360dp screen, so a plain Row would push the export bead off the
-        // right edge on exactly the phones Goo targets.
+        // Scrollable: back + seven 48dp beads + spacing is ~428dp — wider
+        // than a 360dp screen, so a plain Row would push the export bead
+        // off the right edge on exactly the phones Goo targets.
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -802,6 +895,15 @@ private fun TopRail(
                 selected = false,
                 enabled = canReset,
                 onClick = onReset,
+            )
+            CandyIconButton(
+                icon = Icons.Filled.Crop,
+                contentDescription = stringResource(R.string.editor_crop),
+                color = CandyGrape,
+                selected = cropActive,
+                selectable = true,
+                enabled = cropEnabled,
+                onClick = onCrop,
             )
             CandyIconButton(
                 icon = Icons.Filled.Tune,
@@ -999,6 +1101,12 @@ private fun LabeledSlider(
 
 /** Which bottom panel the editor shows; GOOVIE follows the ViewModel. */
 private enum class EditorPanel { BRUSH, LEVERS, GOOVIE }
+
+/**
+ * A crop request awaiting the "start fresh" confirm. rect is relative to
+ * the on-screen frame; null asks for the full original picture back.
+ */
+private data class CropAction(val rect: CropRect?)
 
 private const val DEGREES_TO_RADIANS = (Math.PI / 180.0).toFloat()
 

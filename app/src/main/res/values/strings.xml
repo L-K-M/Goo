@@ -44,6 +44,14 @@
     <string name="editor_hint_smear">Drag on the photo to goo it</string>
     <string name="editor_reset_view">Reset view</string>
 
+    <string name="editor_crop">Crop</string>
+    <string name="crop_apply">Crop to the frame</string>
+    <string name="crop_cancel">Leave crop mode</string>
+    <string name="crop_full_frame">Back to the full picture</string>
+    <string name="crop_confirm_title">Crop and start fresh?</string>
+    <string name="crop_confirm_body">A new frame means new goo: brush strokes, keyframes and levers start over. This can\'t be undone.</string>
+    <string name="crop_confirm_go">Crop</string>
+
     <string name="editor_goovies">GOOvies</string>
     <string name="goovie_capture">Punch a keyframe</string>
     <string name="goovie_punch">Punch</string>

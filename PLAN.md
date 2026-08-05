@@ -273,7 +273,15 @@ steady-state before merge (policy: [CLAUDE.md](CLAUDE.md)).
 Order may adapt (e.g. Fusion before keyframes) if review findings suggest it;
 the roadmap is a plan, not a contract.
 
-## Renaming
+### Post-v1 feedback features (as built)
+
+User-feedback PRs after the v1.0.0 tag, same one-PR-one-feature policy:
+
+| #  | PR                     | Contents |
+| -- | ---------------------- | -------- |
+| 11 | Brush preview overlay  | transparent size/strength circle while a slider is in hand, plus a live cursor ring during strokes |
+| 12 | View navigation        | two-finger pan/zoom/rotate of the preview (paint stays 1-finger), spring-back Reset View button |
+| 13 | Crop                   | freeform reframe from the editor rail. Document-space change, not an edit: strokes/keyframes record UVs of the frame they were painted on, so applying a crop restarts the goo (confirmed when there's goo to lose) and clears history hard ([StrokeLog.clearHistory]). The rect lives in normalized upright ORIGINAL-image space — session bytes stay original, decode applies the rect (preview and export alike), so quality never pays for a re-encode and "back to the full picture" always exists. Re-crops compose inward; the decode target scales up to a 4096 cap so cropped previews stay sharp. |
 
 The name "Goo" is preliminary. To rename later: `app_name` in
 `strings.xml` (single user-visible source), README title/badges, and

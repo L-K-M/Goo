@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.core.graphics.scale
 import androidx.exifinterface.media.ExifInterface
 import ch.lkmc.goo.engine.core.CoverCrop
+import ch.lkmc.goo.engine.core.CropRect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -60,8 +61,17 @@ class ImageLoader(private val context: Context) {
      * the long side (never below it, then scaled exactly to it), EXIF
      * orientation applied, ARGB_8888 (GL upload requires a software
      * bitmap — never Bitmap.Config.HARDWARE here).
+     *
+     * [crop] (normalized, upright space) is cut out after orientation;
+     * the subsample target is raised so the CROP lands near
+     * [maxDimension] — capped at [CROP_DECODE_CAP] so a sliver crop of
+     * a huge photo can't force an unbounded full-frame decode.
      */
-    suspend fun decodePreview(file: File, maxDimension: Int = PREVIEW_MAX_DIM): Bitmap =
+    suspend fun decodePreview(
+        file: File,
+        maxDimension: Int = PREVIEW_MAX_DIM,
+        crop: CropRect? = null,
+    ): Bitmap =
         withContext(Dispatchers.IO) {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.path, bounds)
@@ -69,15 +79,58 @@ class ImageLoader(private val context: Context) {
                 throw IllegalArgumentException("not a decodable image: ${file.name}")
             }
 
+            // The crop rect lives in UPRIGHT space; raw bounds are
+            // pre-rotation. A transposing EXIF orientation swaps which
+            // raw axis each crop fraction applies to — feed the target
+            // computation upright dims so the math never mixes spaces.
+            val rect = crop?.takeIf { !it.isFullFrame }
+            val target = if (rect == null) maxDimension else {
+                val transposed = isExifTransposed(file)
+                cropDecodeTarget(
+                    uprightWidth = if (transposed) bounds.outHeight else bounds.outWidth,
+                    uprightHeight = if (transposed) bounds.outWidth else bounds.outHeight,
+                    crop = rect,
+                    maxDimension = maxDimension,
+                )
+            }
+
             val options = BitmapFactory.Options().apply {
-                inSampleSize = SampleSizeCalculator.calculate(bounds.outWidth, bounds.outHeight, maxDimension)
+                inSampleSize = if (rect == null) {
+                    SampleSizeCalculator.calculate(bounds.outWidth, bounds.outHeight, target)
+                } else {
+                    cappedSampleSize(
+                        bounds.outWidth, bounds.outHeight, target,
+                        cap = maxOf(CROP_DECODE_CAP, maxDimension),
+                    )
+                }
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             val decoded = BitmapFactory.decodeFile(file.path, options)
                 ?: throw IllegalArgumentException("decode failed: ${file.name}")
 
             val upright = applyExifOrientation(decoded, file)
-            scaleLongSideTo(upright, maxDimension)
+            val framed = cropTo(upright, rect)
+            scaleLongSideTo(framed, maxDimension)
+        }
+
+    /** Cut [crop] out of [bitmap], recycling the source when distinct. */
+    private fun cropTo(bitmap: Bitmap, crop: CropRect?): Bitmap {
+        if (crop == null) return bitmap
+        val r = crop.pixelRect(bitmap.width, bitmap.height)
+        val out = Bitmap.createBitmap(bitmap, r[0], r[1], r[2], r[3])
+        if (out !== bitmap) bitmap.recycle()
+        return out
+    }
+
+    private fun isExifTransposed(file: File): Boolean =
+        when (ExifInterface(file.path)
+            .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+            ExifInterface.ORIENTATION_ROTATE_90,
+            ExifInterface.ORIENTATION_ROTATE_270,
+            ExifInterface.ORIENTATION_TRANSPOSE,
+            ExifInterface.ORIENTATION_TRANSVERSE,
+            -> true
+            else -> false
         }
 
     /**
@@ -165,5 +218,56 @@ class ImageLoader(private val context: Context) {
 
         /** file:// URI prefix meaning "stream from the APK's assets". */
         const val ASSET_PREFIX = "/android_asset/"
+
+        /**
+         * Ceiling for the crop-raised decode: a MIN_FRACTION sliver
+         * would otherwise ask for 10× the target (40960 px on an
+         * export — gigabytes). Enforced on the DECODED long side by
+         * [cappedSampleSize] — the request target alone can't bound
+         * anything, because subsampling is power-of-two and never
+         * undershoots, landing decodes anywhere in [target, 2·target).
+         * With enforcement, the crop path's transient full-frame
+         * bitmap stays ≤ 64 MB ARGB at the 4096 default. Never lowers
+         * an uncropped-size request: the effective cap is
+         * max(this, maxDimension) — export caps can legitimately
+         * exceed 4096 on big-GPU devices.
+         */
+        const val CROP_DECODE_CAP = 4096
+
+        /**
+         * Long-side decode target such that [crop] of an
+         * [uprightWidth] × [uprightHeight] image lands near
+         * [maxDimension] — clamped to [maxDimension, max(cap, maxDimension)].
+         * Pure math, unit-tested.
+         */
+        fun cropDecodeTarget(
+            uprightWidth: Int,
+            uprightHeight: Int,
+            crop: CropRect,
+            maxDimension: Int,
+        ): Int {
+            val croppedLong = maxOf(crop.width * uprightWidth, crop.height * uprightHeight)
+            if (croppedLong <= 0f) return maxDimension
+            val factor = maxOf(uprightWidth, uprightHeight) / croppedLong
+            val cap = maxOf(CROP_DECODE_CAP, maxDimension)
+            return (maxDimension * factor).toInt().coerceIn(maxDimension, cap)
+        }
+
+        /**
+         * Sample size for a cropped decode: the [SampleSizeCalculator]
+         * choice for [target], then doubled until the DECODED long side
+         * fits [cap]. The calculator never undershoots its target, so a
+         * 48 MP photo at target 4096 would otherwise decode FULL FRAME
+         * (~183 MB) — the cap must bind the decode, not the request.
+         * Undershooting the raised target only costs crop sharpness;
+         * blowing the cap costs the process. Long side is
+         * transpose-invariant, so raw (pre-EXIF) dims are fine here.
+         */
+        fun cappedSampleSize(rawWidth: Int, rawHeight: Int, target: Int, cap: Int): Int {
+            var sample = SampleSizeCalculator.calculate(rawWidth, rawHeight, target)
+            val long = maxOf(rawWidth, rawHeight)
+            while (long / sample > cap) sample *= 2
+            return sample
+        }
     }
 }
