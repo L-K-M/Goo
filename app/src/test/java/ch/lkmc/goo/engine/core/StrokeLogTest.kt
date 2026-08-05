@@ -72,6 +72,18 @@ class StrokeLogTest {
     }
 
     @Test
+    fun `repeated current-state reads reuse one materialized list`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+
+        val first = log.strokes
+
+        assertSame(first, log.strokes)
+        log.push(stroke(2))
+        assertTrue(first !== log.strokes)
+    }
+
+    @Test
     fun `revision ids are not reused after branch truncation`() {
         val log = StrokeLog()
         log.push(stroke(1))

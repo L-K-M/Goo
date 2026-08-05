@@ -59,6 +59,11 @@ class StrokeLog {
     private val history = mutableListOf(root)
     private var cursor = 0
     private var nextRevisionId = 1L
+    // Only the active state is cached. Caching every revision's full prefix
+    // would recreate the quadratic retained-reference problem this model
+    // removes, while repeated playback/export reads need a stable O(1) view.
+    private var materializedRevision = root
+    private var materializedStrokes: List<Stroke> = emptyList()
 
     /** Stable handle for the current field state. */
     val currentRevision: StrokeRevision
@@ -66,7 +71,14 @@ class StrokeLog {
 
     /** The strokes that currently make up the picture, oldest first. */
     val strokes: List<Stroke>
-        get() = currentRevision.materialize()
+        get() {
+            val revision = currentRevision
+            if (materializedRevision !== revision) {
+                materializedRevision = revision
+                materializedStrokes = revision.materialize()
+            }
+            return materializedStrokes
+        }
 
     val canUndo: Boolean get() = cursor > 0
     val canRedo: Boolean get() = cursor < history.lastIndex
