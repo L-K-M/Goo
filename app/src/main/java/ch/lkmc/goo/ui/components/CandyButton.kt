@@ -1,8 +1,14 @@
 package ch.lkmc.goo.ui.components
 
+import androidx.compose.animation.core.EaseInOutSine
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -12,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -38,6 +45,7 @@ fun CandyButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 96.dp,
+    breathe: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -49,13 +57,30 @@ fun CandyButton(
         ),
         label = "candySquish",
     )
+    // Idle breathing for hero buttons: alive, but slow enough not to nag.
+    // Kept as State and read only inside graphicsLayer — reading .value
+    // here would recompose the whole button every frame, forever.
+    val breatheAnim: State<Float>? = if (breathe) {
+        rememberInfiniteTransition(label = "candyBreathe").animateFloat(
+            initialValue = 1f,
+            targetValue = 1.05f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1600, easing = EaseInOutSine),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "candyBreatheScale",
+        )
+    } else {
+        null
+    }
 
     Box(
         modifier = modifier
             .size(size)
             .graphicsLayer {
-                scaleX = squish
-                scaleY = squish
+                val b = breatheAnim?.value ?: 1f
+                scaleX = squish * b
+                scaleY = squish * b
             }
             .clickable(
                 interactionSource = interaction,
@@ -99,16 +124,4 @@ fun CandyButton(
     }
 }
 
-private fun Color.lighten(amount: Float): Color = Color(
-    red = red + (1f - red) * amount,
-    green = green + (1f - green) * amount,
-    blue = blue + (1f - blue) * amount,
-    alpha = alpha,
-)
-
-private fun Color.darken(amount: Float): Color = Color(
-    red = red * (1f - amount),
-    green = green * (1f - amount),
-    blue = blue * (1f - amount),
-    alpha = alpha,
-)
+// lighten/darken shared with CandyIconButton (internal, CandyIconButton.kt).

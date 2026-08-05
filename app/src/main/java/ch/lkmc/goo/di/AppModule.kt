@@ -3,6 +3,7 @@ package ch.lkmc.goo.di
 import android.content.Context
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.data.OnboardingPrefs
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,4 +24,9 @@ object AppModule {
     @Singleton
     fun provideImageSaver(@ApplicationContext context: Context): ImageSaver =
         ImageSaver(context)
+
+    @Provides
+    @Singleton
+    fun provideOnboardingPrefs(@ApplicationContext context: Context): OnboardingPrefs =
+        OnboardingPrefs(context)
 }
