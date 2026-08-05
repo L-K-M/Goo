@@ -1,17 +1,92 @@
 package ch.lkmc.goo.engine.core
 
 /**
- * One GOOvie keyframe (PLAN.md §4.1): a stable revision pin plus the lever
- * values at capture, not a bitmap. The GPU materializes fields on demand by
- * replay. Reordering keyframes reorders playback; history branching cannot
- * change the immutable revision each frame points to.
+ * One GOOvie keyframe (PLAN.md §4.1): a pin into the document, not a
+ * bitmap — an immutable stroke revision plus the lever values at capture.
+ * The GPU materializes fields on demand by replay; reordering keyframes
+ * reorders playback, the pins stay put.
+ *
+ * **Each keyframe is its own thing.** It pins the exact [StrokeRevision]
+ * it was punched from, so the editor's undo cursor can move anywhere
+ * without disturbing it. That is the whole reason this is a revision and
+ * not the prefix COUNT it originally was: counts index into
+ * `StrokeLog.strokes`, which shrinks on undo, so undoing back toward the
+ * original photo silently collapsed every keyframe along with it.
+ * Punching the original photo as the closing frame — undo to it, punch,
+ * redo your goo — was therefore impossible.
+ *
+ * The revision is a pointer, not a copy: revisions are structurally
+ * shared nodes, so 64 keyframes cost 64 references. A revision the log's
+ * history has since truncated (the redo branch after a new stroke) stays
+ * alive and replayable here, which is exactly what independence means —
+ * and its [StrokeRevisionId] is never reused, so renderer caches keyed by
+ * it can never show a stale field for a fresh pin.
+ *
+ * A pin is still a bookmark, not a canvas: there is no "editing
+ * keyframe 2" in place. You goo the photo until it looks right, then
+ * re-punch the keyframe that should hold it
+ * (EditorViewModel.repunchSelectedKeyframe).
  */
 data class Keyframe(
+    /** The immutable document revision this pin replays. */
     val revision: StrokeRevision,
     val globals: GlobalParams,
 ) {
     val revisionId: StrokeRevisionId
         get() = revision.id
+}
+
+/**
+ * What the strip should say out loud under the beads.
+ *
+ * A GOOvie only moves when consecutive keyframes pin DIFFERENT document
+ * states, and a pin is taken at punch time — the two facts every
+ * first-time user has to discover, and the two that make "I punched two
+ * keyframes and nothing happens" the classic first bug report. The strip
+ * names the current situation instead of leaving them to guess.
+ */
+enum class GoovieHint {
+    /** No keyframes yet. */
+    EMPTY,
+
+    /** Gooing live with a keyframe selected: Punch adds, Update re-pins. */
+    LIVE_PINNED,
+
+    /** Gooing live with nothing selected: Punch pins what you see. */
+    LIVE,
+
+    /** One keyframe — a strip needs two to tween. */
+    NEEDS_SECOND,
+
+    /** Two or more, all pinning the same state: a movie that can't move. */
+    ALL_SAME,
+
+    /** The selected pin is behind the live document. */
+    STALE,
+
+    /** Nothing to say; scrub or play. */
+    READY,
+}
+
+/**
+ * Pick the strip's nudge. Pure so the wording logic is unit-testable and
+ * stays out of the composable (AGENTS.md).
+ */
+fun goovieHint(
+    keyframes: List<Keyframe>,
+    selected: Int,
+    selectedStale: Boolean,
+    live: Boolean,
+): GoovieHint = when {
+    keyframes.isEmpty() -> GoovieHint.EMPTY
+    live && selected in keyframes.indices -> GoovieHint.LIVE_PINNED
+    live -> GoovieHint.LIVE
+    keyframes.size == 1 -> GoovieHint.NEEDS_SECOND
+    // The user's punch-punch-nothing-moves case: identical pins tween to
+    // a still frame. Say so rather than exporting a dead loop.
+    keyframes.all { it == keyframes[0] } -> GoovieHint.ALL_SAME
+    selectedStale -> GoovieHint.STALE
+    else -> GoovieHint.READY
 }
 
 /**
@@ -54,6 +129,10 @@ object GoovieTimeline {
         return if (next >= span) next.mod(span) else next
     }
 
+    // No clampCount here any more: a keyframe pins its own immutable
+    // revision, so there is nothing left to clamp against a log that has
+    // since moved. Clamping was the mechanism by which undo flattened a
+    // whole strip.
 }
 
 /** Linear lever interpolation for tween scrubbing. */

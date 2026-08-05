@@ -113,7 +113,12 @@ class GlWarpRenderer(
 
     // ---- GOOvie tween state --------------------------------------------
     // Two endpoint fields materialized by replaying immutable revisions;
-    // the warp pass mixes them (PLAN.md §4.1). tweenT < 0 means live mode.
+    // the warp pass mixes them (PLAN.md §4.1). tweenT < 0 means live
+    // mode. The cache is keyed by revision ID: revisions are immutable
+    // and their ids are never reused, so the same id always replays to
+    // the same field — a soundness the old stroke-COUNT key never had (a
+    // count could name different strokes after an undo, which is why
+    // `rebuild` used to have to invalidate here).
     private var endpointA: PingPongField? = null
     private var endpointB: PingPongField? = null
     private var loadedRevisionA: StrokeRevisionId? = null
@@ -225,10 +230,13 @@ class GlWarpRenderer(
     /** Clear the field and replay [strokes] — undo/redo/reset path. */
     fun rebuild(strokes: List<Stroke>) {
         strokesToReplay = strokes
-        // A rebuild may recreate field storage or switch document state;
-        // force endpoint cache validation on the next scrub.
-        loadedRevisionA = null
-        loadedRevisionB = null
+        // Deliberately does NOT touch the endpoint cache: it is keyed by
+        // revision ID now, and a revision the log has moved away from (or
+        // truncated) is still the same immutable document state, so its
+        // materialized field stays correct. Keyframes pinning it must
+        // keep showing it — that independence is the point. Paths that
+        // recreate field STORAGE (context loss, new image) null the cache
+        // themselves in recreateGlObjects.
         val f = field ?: return
         f.clear()
         for (stroke in strokes) stampBatch(stroke, stroke.stamps)
@@ -332,12 +340,10 @@ class GlWarpRenderer(
                 // eglMakeCurrent below is deliberately re-asserted (near
                 // no-op when already current) so this loop never depends
                 // on a non-local "nothing changed the surface" invariant.
-                tweenTo(
-                    a.revision,
-                    b.revision,
-                    t,
-                    a.globals.lerp(b.globals, t),
-                )
+                // Each keyframe pins its own revision: the movie renders
+                // exactly what the strip shows, whatever the editor's undo
+                // cursor happens to be sitting on.
+                tweenTo(a.revision, b.revision, t, a.globals.lerp(b.globals, t))
                 if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) {
                     error("eglMakeCurrent(encoder) failed")
                 }
@@ -383,10 +389,10 @@ class GlWarpRenderer(
         val vh = movieHeight.toFloat()
         drawWarpQuad(
             program = program,
-            // Full-frame flipped (negative height, same trick as before
-            // the pixel-space rework) at identity view: the movie renders
-            // the document, never the navigation.
-            rectX = 0f, rectY = vh, rectW = vw, rectH = -vh,
+            // MediaCodec is an EGL window surface like preview, so it uses
+            // the ordinary upright rectangle. Only still export flips for
+            // glReadPixels' bottom-up CPU row order.
+            rectX = 0f, rectY = 0f, rectW = vw, rectH = vh,
             viewportW = vw, viewportH = vh,
             viewA = 1f, viewB = 0f, viewTx = 0f, viewTy = 0f,
             imageTex = sourceTexture,
@@ -681,7 +687,8 @@ class GlWarpRenderer(
             halfFloatRenderable = PingPongField.hasHalfFloat(extensions),
         )
         // Endpoint caches die with the image/context; they re-materialize
-        // on the next tweenTo (counts reset so the cache can't lie).
+        // on the next tweenTo (keys cleared so the cache can't lie about
+        // fields this context no longer owns).
         endpointA?.delete()
         endpointB?.delete()
         endpointA = null

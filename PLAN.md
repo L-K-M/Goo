@@ -76,13 +76,34 @@ Liquify works internally, and it buys us everything at once:
   stamping, milliseconds). Periodic field snapshots bound worst-case replay.
 - **Animation ≈ free**: a keyframe is a saved field state; tweening two
   fields is `mix(D₁, D₂, t)` in the shader. Refined at build time (#7):
-  keyframes pin immutable, structurally shared stroke revisions plus globals,
-  so later undo branches cannot change a captured frame. Only the active
-  segment's two endpoint fields are materialized (by replay, cached by stable
-  revision ID, slot-swapped for adjacent segments). Naive per-keyframe field
-  snapshots would cost hundreds of MB. Levers lerp on the CPU into the same
-  warp uniforms. Edits and history are paused while the strip is open;
-  keyframes live in session memory like the log.
+  keyframes are stored as document pins `(revision, globals)` — the
+  immutable, structurally shared `StrokeRevision` the punch was taken
+  from, so 64 of them cost 64 references — and only the active
+  segment's two endpoint fields are materialized (by replay, cached by
+  stable revision ID, slot-swapped for adjacent segments). Naive
+  per-keyframe *field* snapshots would cost hundreds of MB; revision
+  pins cost nothing. Levers lerp on the CPU into the same warp
+  uniforms.
+
+  Two revisions after user testing, both from the same report ("how do I
+  edit the second step?"):
+
+  1. **Editing stays live while the strip is open.** "The editor isn't
+     active in movie mode" read as a broken feature. The strip genuinely
+     can't paint *into* a tween — stamps land in the live field — so any
+     edit first drops the preview from the tween to live. A keyframe's
+     content is edited by re-punching it (Update), never by drawing
+     "inside" it.
+  2. **Each keyframe is its own thing.** Pins were prefix *counts* into
+     `StrokeLog.strokes`, which shrinks on undo — so rewinding the editor
+     toward the original photo collapsed the whole strip, and punching
+     the untouched photo as a closing frame was impossible. Pins hold an
+     immutable revision instead (ids never reused), and the log's cursor
+     no longer means anything to them: undo, redo, Reset, even a
+     truncated redo branch leave every keyframe exactly where it was
+     punched.
+
+  Keyframes live in session memory like the log.
 - **Crash/context-loss safety**: GPU state is a cache. The stroke log is the
   document; after EGL context loss the field is rebuilt by replay.
 
@@ -244,7 +265,7 @@ steady-state before merge (policy: [CLAUDE.md](CLAUDE.md)).
 | 4  | Full brush palette     | Grow/Shrink/Move/Smudge/Nudge/Smooth/UnGoo, Mirror, size/strength controls, confirmed Reset | all brushes behave per §4.1 table |
 | 5  | Global effects         | Bulge/Twirl/Squeeze/Stretch/Spike/Static + lever UI, composed with brush field | levers warp whole image live |
 | 6  | Candy UI               | full KPT-style theme, springy animations, haptics, optional sounds, app icon, samples, onboarding hint | it feels like funware |
-| 7  | Keyframes (GOOvies)    | keyframe strip: capture/reorder/delete, tween scrubbing, live playback | record and replay a warp dance |
+| 7  | Keyframes (GOOvies)    | keyframe strip: capture/re-punch/reorder/delete, tween scrubbing, live playback | record and replay a warp dance |
 | 8  | Movie export           | MP4 via MediaCodec/MediaMuxer (EGL encoder surface); GIF secondary | shareable MP4 of the animation |
 | 9  | Fusion                 | second image through-paint brush | brush one face onto another |
 | 10 | v1 polish + release    | settings, about, README screenshots, release v1.0.0 | tagged release with APK |
