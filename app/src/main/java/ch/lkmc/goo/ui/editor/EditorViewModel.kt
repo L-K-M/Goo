@@ -539,6 +539,8 @@ class EditorViewModel @Inject constructor(
             // exporting flag (GLM PR review): report like a render failure.
             val workFile = try {
                 movieSaver.createWorkFile()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update { it.copy(exportingMovie = false, movieProgress = 0f) }
                 _exportEvents.send(ExportEvent.Failed(e.message ?: "movie export failed"))
