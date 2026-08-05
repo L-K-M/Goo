@@ -71,7 +71,14 @@ class MovieEncoder(width: Int, height: Int, outputFile: File) {
                     muxerStarted = true
                 }
                 index >= 0 -> {
-                    val buffer = codec.getOutputBuffer(index) ?: continue
+                    val buffer = codec.getOutputBuffer(index)
+                    if (buffer == null) {
+                        // Contract says non-null for a valid index; if a
+                        // driver disagrees, give the buffer back rather
+                        // than draining the output pool.
+                        codec.releaseOutputBuffer(index, false)
+                        continue
+                    }
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                         // The muxer takes csd from the format; raw config
                         // buffers must not be written as samples.

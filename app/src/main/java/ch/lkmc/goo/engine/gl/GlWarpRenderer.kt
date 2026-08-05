@@ -315,7 +315,10 @@ class GlWarpRenderer(
 
     /** Full-frame warp draw of the current tween state (movie pass). */
     private fun drawTweenQuad(program: GlProgram) {
-        val f = field ?: return
+        // Throw, don't skip: a silent return here would swap-present
+        // uninitialized frames and report the export as a SUCCESS. The
+        // renderMovie catch turns this into onResult(false).
+        val f = checkNotNull(field) { "field lost during movie export" }
         // Defensive: every FBO user in this file unbinds after itself
         // (stampInto, PingPongField.clear), so 0 is already bound — but
         // this draw targets the encoder window surface, and depending on
@@ -361,7 +364,15 @@ class GlWarpRenderer(
         // device. The renderMovie gate on recordableConfig guarantees the
         // context's config carries EGL_RECORDABLE_ANDROID — the chooser
         // picked it under that constraint.
-        val config = contextConfig(display, context) ?: chooseRecordableConfig(display)
+        val config = contextConfig(display, context) ?: run {
+            // Attribute re-choose can only differ from the context's config
+            // on drivers where eglQueryContext just failed — log it so a
+            // field BAD_MATCH failure is diagnosable, and keep the attempt:
+            // it may still match, and failing fast would only lose exports
+            // that would have worked.
+            Log.w(TAG, "context config unqueryable; falling back to attribute choose")
+            chooseRecordableConfig(display)
+        }
         val egl = EGL14.eglCreateWindowSurface(
             display, config, surface, intArrayOf(EGL14.EGL_NONE), 0,
         )
