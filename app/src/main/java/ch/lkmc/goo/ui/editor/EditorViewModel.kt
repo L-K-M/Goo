@@ -300,19 +300,22 @@ class EditorViewModel @Inject constructor(
         liveStamps = mutableListOf()
         if (tool.pumped) {
             pumpPoint = Pair(u, v)
-            // Stamp once at touch-down, before the pump's first tick: a
-            // quick tap otherwise starts and ends the stroke between ticks
-            // and applies nothing at all (KPT applied one shot per click).
+        } else {
+            resampler = StrokeResampler(radius = radius, aspect = aspect)
+                .also { it.begin(u, v) }
+        }
+        if (tool.stampsOnDown) {
+            // Radial/field tools and Fusion all have useful stationary
+            // semantics. Directional brushes still wait for movement.
             val first = emit(listOf(Stamp(u, v, 0f, 0f)))
             if (first.isNotEmpty()) {
                 liveParams?.let { params ->
                     engineBridge?.invoke { stampBatch(params, first) }
                 }
             }
+        }
+        if (tool.pumped) {
             startPump()
-        } else {
-            resampler = StrokeResampler(radius = radius, aspect = aspect)
-                .also { it.begin(u, v) }
         }
     }
 
@@ -345,11 +348,13 @@ class EditorViewModel @Inject constructor(
         pumpJob?.cancel()
         pumpJob = viewModelScope.launch {
             while (true) {
+                // beginStroke already applied the one-shot click. Wait before
+                // repeating so a quick tap is exactly one application.
+                delay(BrushDynamics.PUMP_INTERVAL_MS)
                 val (u, v) = pumpPoint ?: break
                 val params = liveParams ?: break
                 val batch = emit(listOf(Stamp(u, v, 0f, 0f)))
                 engineBridge?.invoke { stampBatch(params, batch) }
-                delay(BrushDynamics.PUMP_INTERVAL_MS)
             }
         }
     }

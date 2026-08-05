@@ -61,7 +61,7 @@ enum class FalloffProfile(val shaderId: Int) {
 
 /**
  * The goo brush palette (PLAN.md §3). Each tool is a (mode, falloff,
- * strength-scale, pumped) row; the engine has no per-tool code paths
+ * strength-scale, cadence) row; the engine has no per-tool code paths
  * beyond these parameters.
  *
  * [pumped] tools apply continuously while the finger is held down (the
@@ -74,6 +74,8 @@ enum class BrushTool(
     val profile: FalloffProfile,
     val strengthScale: Float,
     val pumped: Boolean,
+    /** A stationary touch has useful semantics and applies one initial stamp. */
+    val stampsOnDown: Boolean = pumped,
 ) {
     /** Finger-through-wet-paint: content follows the drag. */
     SMEAR(StampMode.DIRECTIONAL, FalloffProfile.SMOOTHSTEP, 1f, pumped = false),
@@ -100,7 +102,13 @@ enum class BrushTool(
     UNGOO(StampMode.ERASE, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
 
     /** Paint the second photo through — soft-edged reveal (Fusion room). */
-    FUSE(StampMode.FUSE, FalloffProfile.SMOOTHSTEP, 1f, pumped = false),
+    FUSE(
+        StampMode.FUSE,
+        FalloffProfile.SMOOTHSTEP,
+        1f,
+        pumped = false,
+        stampsOnDown = true,
+    ),
     ;
 
     /**
