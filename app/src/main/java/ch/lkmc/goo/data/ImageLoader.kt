@@ -30,13 +30,17 @@ class ImageLoader(private val context: Context) {
      * Copy [uri]'s bytes to a private session file and return it. The copy
      * is written to a temp name and renamed on success, so a mid-copy
      * failure can never leave a truncated file that looks like a session.
+     *
+     * Bundled samples arrive as `file:///android_asset/<path>` (the WebView
+     * convention) and stream straight from the APK; everything else goes
+     * through the content resolver (Photo Picker grants).
      */
     suspend fun importImage(uri: Uri): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "sessions").apply { mkdirs() }
         val file = File(dir, "session-${UUID.randomUUID()}.img")
         val tmp = File(dir, "${file.name}.tmp")
         try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
+            openStream(uri)?.use { input ->
                 tmp.outputStream().use { output -> input.copyTo(output) }
             } ?: throw FileNotFoundException("cannot open $uri")
             check(tmp.renameTo(file)) { "could not finalize session file" }
@@ -45,6 +49,11 @@ class ImageLoader(private val context: Context) {
             tmp.delete()
         }
     }
+
+    private fun openStream(uri: Uri) =
+        uri.path?.takeIf { uri.scheme == "file" && it.startsWith(ASSET_PREFIX) }
+            ?.let { context.assets.open(it.removePrefix(ASSET_PREFIX)) }
+            ?: context.contentResolver.openInputStream(uri)
 
     /**
      * Decode [file] at preview scale: subsampled near [maxDimension] on
@@ -153,5 +162,8 @@ class ImageLoader(private val context: Context) {
     companion object {
         /** Preview long-side target (PLAN.md §4.1's edit-small resolution). */
         const val PREVIEW_MAX_DIM = 2048
+
+        /** file:// URI prefix meaning "stream from the APK's assets". */
+        const val ASSET_PREFIX = "/android_asset/"
     }
 }

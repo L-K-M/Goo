@@ -6,6 +6,9 @@
 
     <string name="home_tagline">Squish, smear and stretch your photos\nlike wet paint.</string>
     <string name="home_enter_goo">GOO!</string>
+    <string name="home_samples_label">No photo handy? Goo a sample:</string>
+    <string name="sample_goo_guy">Sample: Goo Guy</string>
+    <string name="sample_candy_blobs">Sample: Candy Blobs</string>
 
     <string name="editor_back">Back</string>
     <string name="editor_undo">Undo</string>
