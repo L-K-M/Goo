@@ -96,7 +96,7 @@ allocation on the touch path. Brush math: `b(p) = strength · falloff(|p−c|/r)
 | Nudge  | Smear with heavy damping — fine adjustments                   |
 | Smooth | blur/relax the field toward locally-averaged values           |
 | UnGoo  | lerp the field toward zero under the brush (localized eraser) |
-| Global effects | parametric analytic fields (bulge, twirl, …) composed over the stroke field |
+| Global effects | parametric analytic fields (bulge, twirl, …) composed additively over the stroke field, live in the warp pass as uniforms. Levers are document state, not history entries: center = identity, pulling back undoes exactly, Reset zeroes them; undo/redo stay stroke-only. Static uses integer-hash value noise (fixed seed) so CPU and GPU agree bit-for-bit — a sin-hash would drift per driver |
 
 **Export.** Decode the original (EXIF-rotated) at the export cap — the GL
 max texture size or the 4096 memory budget, whichever is tighter

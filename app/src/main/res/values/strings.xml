@@ -12,7 +12,7 @@
     <string name="editor_redo">Redo</string>
     <string name="editor_reset">Reset the goo</string>
     <string name="editor_reset_title">Ungoo everything?</string>
-    <string name="editor_reset_body">The picture goes back to how it started. (Unlike 1996, you can undo this.)</string>
+    <string name="editor_reset_body">The picture goes back to how it started. Brush strokes can be undone; the effect levers return to center.</string>
     <string name="editor_reset_confirm">Reset</string>
     <string name="editor_reset_cancel">Keep gooing</string>
     <string name="editor_brush_size">Size</string>
@@ -27,6 +27,15 @@
     <string name="tool_smooth">Smooth</string>
     <string name="tool_ungoo">UnGoo</string>
     <string name="tool_mirror">Mirror</string>
+
+    <string name="editor_levers">Global effects</string>
+    <string name="lever_bulge">Bulge</string>
+    <string name="lever_twirl">Twirl</string>
+    <string name="lever_squeeze">Squeeze</string>
+    <string name="lever_stretch">Stretch</string>
+    <string name="lever_spike">Spike</string>
+    <string name="lever_static">Static</string>
+    <string name="lever_zero_all">Zero all</string>
     <string name="editor_error_title">That didn\'t goo</string>
     <string name="editor_export">Save or share</string>
 

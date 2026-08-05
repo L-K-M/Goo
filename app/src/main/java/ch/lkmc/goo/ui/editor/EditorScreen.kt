@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AlertDialog
@@ -105,6 +106,7 @@ private fun WarpEditor(
     var surface by remember { mutableStateOf<WarpSurfaceView?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
+    var showLevers by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -120,6 +122,13 @@ private fun WarpEditor(
             // continuation would never resume — cancel instead of wedging.
             viewModel.cancelExport()
         }
+    }
+
+    // Levers are live uniforms: sync the renderer on every change and on
+    // surface (re)creation — a fresh GL context starts at identity.
+    LaunchedEffect(surface, state.globals) {
+        val globals = state.globals
+        surface?.engine { setGlobalParams(globals) }
     }
 
     // One-shot export outcomes: snackbars and the share chooser.
@@ -190,6 +199,8 @@ private fun WarpEditor(
                 viewModel.redo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
             onReset = { confirmReset = true },
+            onLevers = { showLevers = !showLevers },
+            leversActive = showLevers || !state.globals.isIdentity,
             onExport = { showExportSheet = true },
         )
 
@@ -267,16 +278,23 @@ private fun WarpEditor(
             )
         }
 
-        BrushRail(
-            tool = state.tool,
-            mirrored = state.mirrored,
-            radius = state.brushRadius,
-            strength = state.brushStrength,
-            onToolChange = viewModel::setTool,
-            onMirrorToggle = viewModel::toggleMirror,
-            onRadiusChange = viewModel::setBrushRadius,
-            onStrengthChange = viewModel::setBrushStrength,
-        )
+        if (showLevers) {
+            LeversPanel(
+                globals = state.globals,
+                onChange = viewModel::setGlobals,
+            )
+        } else {
+            BrushRail(
+                tool = state.tool,
+                mirrored = state.mirrored,
+                radius = state.brushRadius,
+                strength = state.brushStrength,
+                onToolChange = viewModel::setTool,
+                onMirrorToggle = viewModel::toggleMirror,
+                onRadiusChange = viewModel::setBrushRadius,
+                onStrengthChange = viewModel::setBrushStrength,
+            )
+        }
     }
     SnackbarHost(
         hostState = snackbarHostState,
@@ -324,6 +342,8 @@ private fun TopRail(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onReset: () -> Unit,
+    onLevers: () -> Unit,
+    leversActive: Boolean,
     onExport: () -> Unit,
 ) {
     Row(
@@ -361,6 +381,13 @@ private fun TopRail(
                     Icons.Filled.DeleteSweep,
                     contentDescription = stringResource(R.string.editor_reset),
                     tint = railTint(canReset),
+                )
+            }
+            IconButton(onClick = onLevers) {
+                Icon(
+                    Icons.Filled.Tune,
+                    contentDescription = stringResource(R.string.editor_levers),
+                    tint = if (leversActive) CandyCyan else railTint(true),
                 )
             }
             IconButton(onClick = onExport) {
