@@ -82,7 +82,7 @@ data class ViewTransform(
      * fold posture, and editor-panel height changes without stale pixel pan.
      */
     fun rebase(oldFit: FitTransform, newFit: FitTransform): ViewTransform {
-        if (isIdentity) return this
+        if (isIdentity || !scale.isFinite() || scale == 0f) return this
         val oldCenterX = oldFit.viewWidth / 2f
         val oldCenterY = oldFit.viewHeight / 2f
         val (oldCanvasX, oldCanvasY) = invert(oldCenterX, oldCenterY)

@@ -169,4 +169,13 @@ class ViewTransformTest {
 
         assertTrue(rebased.isIdentity, "got $rebased")
     }
+
+    @Test
+    fun `singular view does not gain NaN translation during rebase`() {
+        val oldFit = FitTransform(400f, 700f, 1200f, 800f)
+        val newFit = FitTransform(700f, 400f, 1200f, 800f)
+        val singular = ViewTransform(scale = 0f, tx = 12f, ty = 34f)
+
+        assertEquals(singular, singular.rebase(oldFit, newFit))
+    }
 }
