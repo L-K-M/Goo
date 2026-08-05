@@ -23,6 +23,14 @@ Terms of art in this repo — KPT heritage and engine internals.
 - **UnGoo** — KPT's localized distortion eraser: a stamp that lerps the
   field toward zero under the brush.
 - **GOOvie** — KPT Goo's exported keyframe animation; ours are MP4/GIF.
+- **Punch** — capturing a keyframe: pinning `(strokes, globals)` as they
+  stand right now, where `strokes` is the whole immutable stroke-log
+  snapshot. The authoring loop is goo → punch → goo → punch; the movie is
+  what happens *between* punches. Because a pin owns its snapshot, undo
+  in the editor never moves it.
+- **Re-punch (Update)** — re-pinning an existing keyframe to the current
+  document. The only way goo made after a punch reaches that keyframe,
+  since a pin is a bookmark rather than an editable canvas.
 - **Fusion** — painting a second image's pixels through onto the first
   (KPT's proto face-swap room); roadmap step 9.
 - **Candy button** — the family of big, round, glossy, springy controls

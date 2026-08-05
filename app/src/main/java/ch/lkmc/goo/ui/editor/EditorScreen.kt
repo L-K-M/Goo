@@ -42,6 +42,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -158,14 +159,28 @@ private fun WarpEditor(
     var showExportSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
     var adjustingBrush by remember { mutableStateOf(false) }
-    // Pan/zoom/rotate of the preview. Ephemeral by design: not saved
-    // across rotation (the viewport changes under it anyway) — the photo
-    // reappears fitted, which is also what Reset View promises.
+    // Pan/zoom/rotate of the preview. Ephemeral across process recreation;
+    // viewport changes rebase it around the same source point below.
     var view by remember { mutableStateOf(ViewTransform()) }
     // One reset spring at a time: re-clicks restart it, and new two-finger
     // input cancels it instead of fighting it frame-by-frame.
     val viewResetScope = rememberCoroutineScope()
     var viewResetJob by remember { mutableStateOf<Job?>(null) }
+    fun animateViewReset() {
+        viewResetJob?.cancel()
+        val start = view
+        viewResetJob = viewResetScope.launch {
+            Animatable(0f).animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            ) {
+                view = start.lerp(ViewTransform(), value)
+            }
+        }
+    }
     // Brush cursor: the touch point in view px while a stroke is down
     // (null = finger up / navigating), and the stroke's radius, frozen at
     // beginStroke — captured once at gesture start, so the overlay reads
@@ -231,11 +246,13 @@ private fun WarpEditor(
     }
 
     // GOOvie scrub sync: every scrub/strip change re-derives the tween
-    // payload; leaving the strip (or having < 2 keyframes) shows live.
-    LaunchedEffect(surface, state.goovieMode, state.scrubPos, state.keyframes) {
+    // payload; leaving the strip, gooing inside it, or having < 2
+    // keyframes shows live. (The ViewModel also clears the tween eagerly
+    // when a stroke starts — this effect is the steady-state sync.)
+    LaunchedEffect(surface, state.goovieMode, state.goovieLive, state.scrubPos, state.keyframes) {
         val req = viewModel.tweenRequest()
         if (req != null) {
-            surface?.engine { tweenTo(req.strokes, req.countA, req.countB, req.t, req.lerpedGlobals) }
+            surface?.engine { tweenTo(req.revisionA, req.revisionB, req.t, req.lerpedGlobals) }
         } else {
             surface?.engine { clearTween() }
         }
@@ -310,11 +327,12 @@ private fun WarpEditor(
     Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopRail(
-            // History is edit-mode territory; the strip pauses it so
-            // keyframe pins can't shift under a scrub.
-            canUndo = state.canUndo && !state.goovieMode,
-            canRedo = state.canRedo && !state.goovieMode,
-            canReset = state.canReset && !state.goovieMode,
+            // History works inside the strip too — it drops the preview to
+            // live like a stroke does. Only a movie render locks it out:
+            // that owns the GL thread and snapshots the log up front.
+            canUndo = state.canUndo && !state.exportingMovie,
+            canRedo = state.canRedo && !state.exportingMovie,
+            canReset = state.canReset && !state.exportingMovie,
             onBack = onBack,
             onUndo = {
                 viewModel.undo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
@@ -339,7 +357,28 @@ private fun WarpEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .onSizeChanged { canvasSize = it }
+                .onSizeChanged { newSize ->
+                    val oldSize = canvasSize
+                    if (oldSize.width > 0 && oldSize.height > 0 &&
+                        newSize.width > 0 && newSize.height > 0 &&
+                        oldSize != newSize
+                    ) {
+                        val resumeReset = viewResetJob?.isActive == true
+                        viewResetJob?.cancel()
+                        view = view.rebase(
+                            oldFit = FitTransform(
+                                oldSize.width.toFloat(), oldSize.height.toFloat(),
+                                bitmap.width.toFloat(), bitmap.height.toFloat(),
+                            ),
+                            newFit = FitTransform(
+                                newSize.width.toFloat(), newSize.height.toFloat(),
+                                bitmap.width.toFloat(), bitmap.height.toFloat(),
+                            ),
+                        )
+                        if (resumeReset) animateViewReset()
+                    }
+                    canvasSize = newSize
+                }
                 .pointerInput(bitmap) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
@@ -369,8 +408,11 @@ private fun WarpEditor(
                         val du = (u0.coerceIn(0f, 1f) - u0) * aspect
                         val dv = v0.coerceIn(0f, 1f) - v0
                         val outside = sqrt(du * du + dv * dv)
-                        var stroking = outside <= viewModel.uiState.value.brushRadius
-                        if (stroking) viewModel.beginStroke(u0, v0)
+                        // beginStroke has the final say: it refuses while a
+                        // movie render owns the GL thread, and a ring drawn
+                        // over a canvas that can't paint is a lie.
+                        var stroking = outside <= viewModel.uiState.value.brushRadius &&
+                            viewModel.beginStroke(u0, v0)
                         down.consume()
                         val params = if (stroking) viewModel.liveStrokeParams() else null
                         var navigating = false
@@ -504,21 +546,7 @@ private fun WarpEditor(
                     contentDescription = stringResource(R.string.editor_reset_view),
                     color = CandyCyan,
                     selected = false,
-                    onClick = {
-                        viewResetJob?.cancel()
-                        val start = view
-                        viewResetJob = viewResetScope.launch {
-                            Animatable(0f).animateTo(
-                                targetValue = 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                            ) {
-                                view = start.lerp(ViewTransform(), value)
-                            }
-                        }
-                    },
+                    onClick = ::animateViewReset,
                 )
             }
 
@@ -625,10 +653,13 @@ private fun WarpEditor(
                     scrubPos = state.scrubPos,
                     playing = state.playing,
                     selected = state.selectedKeyframe,
+                    live = state.goovieLive,
+                    stale = state.selectedKeyframeStale,
                     canCapture = state.keyframes.size < EditorViewModel.MAX_KEYFRAMES,
                     exporting = state.exportingMovie,
                     exportProgress = state.movieProgress,
                     onCapture = viewModel::captureKeyframe,
+                    onRepunch = viewModel::repunchSelectedKeyframe,
                     onSelect = viewModel::selectKeyframe,
                     onDelete = viewModel::deleteSelectedKeyframe,
                     onMove = viewModel::moveSelectedKeyframe,
@@ -642,13 +673,23 @@ private fun WarpEditor(
                     radius = state.brushRadius,
                     strength = state.brushStrength,
                     showFusionPick = state.tool == BrushTool.FUSE && state.bitmapB != null,
+                    fusionLoading = state.importingPhotoB,
                     keyframeCount = state.keyframes.size,
+                    // 1-based, or 0 to hide: the chip appears exactly while
+                    // the selected pin lags the goo on screen, which is the
+                    // moment "why didn't my keyframe change?" gets asked.
+                    updateKeyframe = if (state.selectedKeyframeStale) {
+                        state.selectedKeyframe + 1
+                    } else {
+                        0
+                    },
                     onToolChange = viewModel::setTool,
                     onMirrorToggle = viewModel::toggleMirror,
                     onRadiusChange = viewModel::setBrushRadius,
                     onStrengthChange = viewModel::setBrushStrength,
                     onAdjustingChange = { adjustingBrush = it },
                     onPunch = viewModel::captureKeyframe,
+                    onRepunch = viewModel::repunchSelectedKeyframe,
                     onFusionPick = {
                         pickImageB.launch(
                             PickVisualMediaRequest(
@@ -797,12 +838,16 @@ private fun BrushRail(
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,
+    fusionLoading: Boolean,
     keyframeCount: Int,
+    /** 1-based keyframe the Update chip would re-pin; 0 hides the chip. */
+    updateKeyframe: Int,
     onToolChange: (BrushTool) -> Unit,
     onMirrorToggle: () -> Unit,
     onRadiusChange: (Float) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onPunch: () -> Unit,
+    onRepunch: () -> Unit,
     onFusionPick: () -> Unit,
     onAdjustingChange: (Boolean) -> Unit,
     onFusionRemove: () -> Unit,
@@ -832,6 +877,7 @@ private fun BrushRail(
                     label = stringResource(entry.labelRes()),
                     color = entry.candyColor(),
                     selected = tool == entry,
+                    enabled = entry != BrushTool.FUSE || !fusionLoading,
                     onClick = { onToolChange(entry) },
                 )
             }
@@ -858,12 +904,26 @@ private fun BrushRail(
                 enabled = keyframeCount < EditorViewModel.MAX_KEYFRAMES,
                 onClick = onPunch,
             )
+            // Re-punch, on the rail for the same reason Punch is: taking a
+            // pin is just snapshotting the log, safe mid-edit, and the
+            // strip shouldn't have to be open. This is the only way goo
+            // made AFTER a punch reaches an existing keyframe.
+            if (updateKeyframe > 0) {
+                CandyToolChip(
+                    icon = Icons.Filled.Cached,
+                    label = stringResource(R.string.goovie_update_count, updateKeyframe),
+                    color = CandyLemon,
+                    selected = false,
+                    onClick = onRepunch,
+                )
+            }
             if (showFusionPick) {
                 CandyToolChip(
                     icon = Icons.Filled.Collections,
                     label = stringResource(R.string.fusion_change_photo),
                     color = CandyGrape,
                     selected = false,
+                    enabled = !fusionLoading,
                     onClick = onFusionPick,
                 )
                 CandyToolChip(
@@ -871,9 +931,17 @@ private fun BrushRail(
                     label = stringResource(R.string.fusion_remove_photo),
                     color = CandyOrange,
                     selected = false,
+                    enabled = !fusionLoading,
                     onClick = onFusionRemove,
                 )
             }
+        }
+        if (fusionLoading) {
+            Text(
+                text = stringResource(R.string.fusion_loading_photo),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         LabeledSlider(
             label = stringResource(R.string.editor_brush_size),

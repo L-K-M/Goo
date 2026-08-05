@@ -9,11 +9,11 @@ merge.
 IDs stay stable. `REVIEW.md` owns G-* findings, `k3.md` owns K3-*, and
 `sol.md` owns SOL-*. Do not renumber them.
 
-## In-flight implementation PRs
+## Landed implementation PRs (the Sol train)
 
-These changes are implemented in their own branches and under review, but are not
-present on `main` until their PRs merge. They are removed from the open backlog
-below without being mislabeled as done.
+These changes shipped alongside this review as their own reviewed PRs and
+are on `main`; they are recorded here and removed from the open backlog
+below.
 
 | Finding | Change | PR | Relationship |
 | --- | --- | --- | --- |
@@ -31,10 +31,10 @@ below without being mislabeled as done.
 | SOL-39 | SHA-pinned, two-job release trust boundary | #37 | Independent |
 | SOL-41 | CPU/GLSL wire IDs, hash vectors, and shader literal contracts | #38 | Independent |
 
-Upstream PR #25 also includes the SOL-4 movie-orientation fix alongside Crop.
-Upstream PR #26 proposes a different keyframe/history interaction model. Merge
-one coherent implementation for overlapping behavior; do not blindly combine
-both approaches.
+All of the above merged to `main` on 2026-08-05 (with #27 hand-ported over
+#26's snapshot-pin model — revision pins kept #26's re-punch, strip hints,
+and live strip editing). Upstream PR #25 (Crop) drops its duplicate SOL-4
+fix and continues as crop-only.
 
 ## Release blockers and document safety
 
@@ -72,6 +72,20 @@ both approaches.
   resume/discard. Build it after #24/#27 settle the revision model. Runtime
   `StrokeRevision` graphs must be serialized as a normalized ID table, never
   recursively.
+
+- **K3-28** ✨ **"Go to keyframe" — load a pin's state into the editor.**
+  A keyframe pins an immutable revision, so restoring the editor to it is
+  small: replay the pin's `revision.materialize()` as an ordinary
+  (undoable) history entry, rebuild, and you are gooing at that
+  keyframe's exact state — tweak, then Update. Today you get there the
+  long way round: undo/Reset back to the state you want, punch or update,
+  then redo. Note the one wrinkle: levers are live document state, not
+  history, so a jump would have to restore `keyframe.globals` explicitly
+  alongside the strokes.
+
+  Explicitly NOT wanted (confirmed with the user): making keyframes 2–5
+  inherit an edit made to keyframe 1. "Each keyframe should be its own
+  thing" — which is exactly what the revision-pin model now guarantees.
 
 ## Engine, lifecycle, and platform
 

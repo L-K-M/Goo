@@ -106,4 +106,50 @@ class StrokeResamplerTest {
             assertEquals(spacing / sqrt(2f), abs(s.dx), 1e-5f)
         }
     }
+
+    @Test
+    fun `stamp delta preserves both sides of a crossed corner`() {
+        val r = StrokeResampler(radius = radius, aspect = 1f)
+        r.begin(0.2f, 0.2f)
+        val out = mutableListOf<Stamp>()
+        // Leave 0.010 of the 0.025 interval after moving right, then cross
+        // the corner by moving down. The first stamp must carry both legs.
+        r.extend(0.215f, 0.2f, out)
+        r.extend(0.215f, 0.22f, out)
+
+        val first = out.single()
+        assertEquals(0.215f, first.cx, 1e-6f)
+        assertEquals(0.21f, first.cy, 1e-6f)
+        assertEquals(0.015f, first.dx, 1e-6f)
+        assertEquals(0.01f, first.dy, 1e-6f)
+    }
+
+    @Test
+    fun `corner path is invariant to chopping along its legs`() {
+        val simple = stampsFor(
+            1f,
+            listOf(0.2f to 0.2f, 0.215f to 0.2f, 0.215f to 0.3f),
+        )
+        val chopped = stampsFor(
+            1f,
+            listOf(
+                0.2f to 0.2f,
+                0.205f to 0.2f,
+                0.21f to 0.2f,
+                0.215f to 0.2f,
+                0.215f to 0.225f,
+                0.215f to 0.25f,
+                0.215f to 0.275f,
+                0.215f to 0.3f,
+            ),
+        )
+
+        assertEquals(simple.size, chopped.size)
+        simple.zip(chopped).forEach { (a, b) ->
+            assertEquals(a.cx, b.cx, 1e-5f)
+            assertEquals(a.cy, b.cy, 1e-5f)
+            assertEquals(a.dx, b.dx, 1e-5f)
+            assertEquals(a.dy, b.dy, 1e-5f)
+        }
+    }
 }

@@ -22,6 +22,10 @@ class BrushToolTest {
         assertEquals(2, StampMode.DEFLATE.shaderId)
         assertEquals(3, StampMode.RELAX.shaderId)
         assertEquals(4, StampMode.ERASE.shaderId)
+        assertEquals(5, StampMode.FUSE.shaderId)
+        assertEquals(0, FalloffProfile.SMOOTHSTEP.shaderId)
+        assertEquals(1, FalloffProfile.FEATHER.shaderId)
+        assertEquals(2, FalloffProfile.PLATEAU.shaderId)
     }
 
     @Test
@@ -36,6 +40,17 @@ class BrushToolTest {
                 tool.mode in pumpedModes,
                 tool.pumped,
                 "pumped mismatch for $tool",
+            )
+        }
+    }
+
+    @Test
+    fun `touch-down stamps include hold tools and Fusion but not directional drags`() {
+        BrushTool.entries.forEach { tool ->
+            assertEquals(
+                tool.pumped || tool == BrushTool.FUSE,
+                tool.stampsOnDown,
+                "touch-down mismatch for $tool",
             )
         }
     }
