@@ -535,7 +535,15 @@ class EditorViewModel @Inject constructor(
         val keyframes = s.keyframes
         // The work file's mkdirs/cleanup is disk I/O — off the main thread.
         viewModelScope.launch {
-            val workFile = movieSaver.createWorkFile()
+            // A failure here must not crash the coroutine or wedge the
+            // exporting flag (GLM PR review): report like a render failure.
+            val workFile = try {
+                movieSaver.createWorkFile()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(exportingMovie = false, movieProgress = 0f) }
+                _exportEvents.send(ExportEvent.Failed(e.message ?: "movie export failed"))
+                return@launch
+            }
             bridge.invoke {
                 renderMovie(
                     strokes = strokes,
