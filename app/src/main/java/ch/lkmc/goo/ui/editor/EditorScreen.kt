@@ -1,5 +1,6 @@
 package ch.lkmc.goo.ui.editor
 
+import android.content.Intent
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -16,12 +17,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,7 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -45,11 +49,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlin.math.sqrt
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.engine.gl.WarpSurfaceView
+import ch.lkmc.goo.ui.export.ExportSheet
 import ch.lkmc.goo.ui.theme.CandyCyan
 
 /**
@@ -89,7 +95,53 @@ private fun WarpEditor(
     val bitmap = state.bitmap ?: return
     var surface by remember { mutableStateOf<WarpSurfaceView?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    var showExportSheet by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Hand the ViewModel a way to reach the GL thread while (and only
+    // while) the surface exists — export orchestration needs it.
+    DisposableEffect(surface) {
+        val s = surface
+        viewModel.engineBridge = s?.let { view -> { command -> view.engine(command) } }
+        onDispose {
+            viewModel.engineBridge = null
+            // A dead surface drops queued events, so a bridged export
+            // continuation would never resume — cancel instead of wedging.
+            viewModel.cancelExport()
+        }
+    }
+
+    // One-shot export outcomes: snackbars and the share chooser.
+    val savedGallery = stringResource(R.string.export_saved_gallery)
+    val savedAppStorage = stringResource(R.string.export_saved_app_storage)
+    val failedPrefix = stringResource(R.string.export_failed)
+    LaunchedEffect(viewModel) {
+        viewModel.exportEvents.collect { event ->
+            when (event) {
+                is EditorViewModel.ExportEvent.Saved -> {
+                    showExportSheet = false
+                    snackbarHostState.showSnackbar(
+                        if (event.toGallery) savedGallery else savedAppStorage,
+                    )
+                }
+
+                is EditorViewModel.ExportEvent.ShareReady -> {
+                    showExportSheet = false
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = event.mimeType
+                        putExtra(Intent.EXTRA_STREAM, event.uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, null))
+                }
+
+                is EditorViewModel.ExportEvent.Failed ->
+                    snackbarHostState.showSnackbar("$failedPrefix ${event.message}")
+            }
+        }
+    }
 
     // GLSurfaceView must see activity pause/resume or its GL thread leaks.
     DisposableEffect(surface, lifecycleOwner) {
@@ -115,6 +167,7 @@ private fun WarpEditor(
         surface?.engine { setImage(bitmap, snapshot) }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopRail(
             canUndo = state.canUndo,
@@ -128,6 +181,7 @@ private fun WarpEditor(
                 viewModel.redo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
             onReset = { confirmReset = true },
+            onExport = { showExportSheet = true },
         )
 
         Box(
@@ -209,6 +263,20 @@ private fun WarpEditor(
             onRadiusChange = viewModel::setBrushRadius,
         )
     }
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter),
+    )
+    }
+
+    if (showExportSheet) {
+        ExportSheet(
+            exporting = state.exporting,
+            onSave = viewModel::export,
+            onShare = viewModel::share,
+            onDismiss = { if (!state.exporting) showExportSheet = false },
+        )
+    }
 
     if (confirmReset) {
         AlertDialog(
@@ -241,6 +309,7 @@ private fun TopRail(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onReset: () -> Unit,
+    onExport: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -277,6 +346,13 @@ private fun TopRail(
                     Icons.Filled.DeleteSweep,
                     contentDescription = stringResource(R.string.editor_reset),
                     tint = railTint(canReset),
+                )
+            }
+            IconButton(onClick = onExport) {
+                Icon(
+                    Icons.Filled.IosShare,
+                    contentDescription = stringResource(R.string.editor_export),
+                    tint = railTint(true),
                 )
             }
         }

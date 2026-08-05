@@ -17,4 +17,13 @@
     <string name="editor_reset_cancel">Keep gooing</string>
     <string name="editor_brush_size">Size</string>
     <string name="editor_error_title">That didn\'t goo</string>
+    <string name="editor_export">Save or share</string>
+
+    <string name="export_title">Out</string>
+    <string name="export_quality">Quality %1$d</string>
+    <string name="export_save">Save</string>
+    <string name="export_share">Share</string>
+    <string name="export_saved_gallery">Saved to Pictures/Goo</string>
+    <string name="export_saved_app_storage">Saved — use Share to move it to your gallery</string>
+    <string name="export_failed">Could not export:</string>
 </resources>

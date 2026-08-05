@@ -1,27 +1,40 @@
 package ch.lkmc.goo.ui.editor
 
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import ch.lkmc.goo.data.ExportFormat
 import ch.lkmc.goo.data.ImageLoader
+import ch.lkmc.goo.data.ImageSaver
 import ch.lkmc.goo.engine.core.BrushTool
+import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
 import ch.lkmc.goo.engine.core.StrokeResampler
+import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.ui.navigation.EditorRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
 
 /**
  * The Goo room's state holder.
@@ -41,6 +54,7 @@ import javax.inject.Inject
 class EditorViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val imageLoader: ImageLoader,
+    private val imageSaver: ImageSaver,
 ) : ViewModel() {
 
     data class UiState(
@@ -50,12 +64,35 @@ class EditorViewModel @Inject constructor(
         val canUndo: Boolean = false,
         val canRedo: Boolean = false,
         val canReset: Boolean = false,
+        val exporting: Boolean = false,
         /** Aspect-space brush radius (fraction of image height). */
         val brushRadius: Float = DEFAULT_RADIUS,
     )
 
+    /** One-shot outcomes of export/share runs, consumed by the screen. */
+    sealed interface ExportEvent {
+        /** Saved; [toGallery] false means the API 26–28 app-storage path. */
+        data class Saved(val toGallery: Boolean) : ExportEvent
+        data class ShareReady(val uri: Uri, val mimeType: String) : ExportEvent
+        data class Failed(val message: String) : ExportEvent
+    }
+
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+
+    private val _exportEvents = Channel<ExportEvent>(Channel.BUFFERED)
+    val exportEvents: Flow<ExportEvent> = _exportEvents.receiveAsFlow()
+
+    /**
+     * Bridge to the screen-owned GL renderer: runs a block on the GL
+     * thread and requests a redraw. Set while the surface exists; the
+     * ViewModel deliberately never owns the renderer (it outlives the
+     * surface).
+     */
+    var engineBridge: ((GlWarpRenderer.() -> Unit) -> Unit)? = null
+
+    private var sessionFile: File? = null
+    private var exportJob: Job? = null
 
     private val log = StrokeLog()
     private var resampler: StrokeResampler? = null
@@ -85,6 +122,9 @@ class EditorViewModel @Inject constructor(
                 val file = restored ?: imageLoader.importImage(route.imageUri.toUri()).also {
                     savedStateHandle[KEY_SESSION_FILE] = it.path
                 }
+                sessionFile = file
+                // Previous sessions' copies are garbage now (REVIEW.md G-1).
+                imageLoader.sweepSessions(keep = file)
                 val bitmap = imageLoader.decodePreview(file)
                 _uiState.update { it.copy(loading = false, bitmap = bitmap) }
             } catch (e: CancellationException) {
@@ -178,6 +218,85 @@ class EditorViewModel @Inject constructor(
         resampler = null
         liveParams = null
         liveStamps = mutableListOf()
+    }
+
+    // ---- Export --------------------------------------------------------
+
+    /** Render at export resolution and save to the gallery/app storage. */
+    fun export(format: ExportFormat, quality: Int) = runExport { bitmap ->
+        val result = imageSaver.save(bitmap, format, quality)
+        _exportEvents.send(ExportEvent.Saved(toGallery = result is ImageSaver.SaveResult.Gallery))
+    }
+
+    /** Render at export resolution into the share cache and announce it. */
+    fun share(format: ExportFormat, quality: Int) = runExport { bitmap ->
+        val uri = imageSaver.writeShareCache(bitmap, format, quality)
+        _exportEvents.send(ExportEvent.ShareReady(uri, format.mimeType))
+    }
+
+    /**
+     * The export spine: decode the session file at the capped export size
+     * (EXIF-rotated), have the GL thread replay the stroke log against it
+     * with the identical shaders, then hand the result to [sink].
+     */
+    private fun runExport(sink: suspend (Bitmap) -> Unit) {
+        if (_uiState.value.exporting) return
+        val bridge = engineBridge
+        val session = sessionFile
+        if (bridge == null || session == null) {
+            _exportEvents.trySend(ExportEvent.Failed("editor is not ready"))
+            return
+        }
+        // Main thread: the log is main-confined; snapshot before bridging.
+        val strokes = log.strokes
+        exportJob = viewModelScope.launch {
+            _uiState.update { it.copy(exporting = true) }
+            var full: Bitmap? = null
+            var warped: Bitmap? = null
+            try {
+                val maxTex = suspendCancellableCoroutine { cont ->
+                    bridge { if (cont.isActive) cont.resume(maxTextureSize) }
+                }
+                val cap = ExportSize.exportLongSideCap(maxTex)
+                val decoded = imageLoader.decodePreview(session, cap)
+                full = decoded
+                val rendered = suspendCancellableCoroutine { cont ->
+                    bridge {
+                        exportBitmap(decoded, strokes) { out ->
+                            if (cont.isActive) cont.resume(out)
+                        }
+                    }
+                }
+                warped = rendered ?: throw IllegalStateException("engine could not render the export")
+                full.recycle()
+                full = null
+                sink(rendered)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _exportEvents.send(ExportEvent.Failed(e.message ?: "export failed"))
+            } finally {
+                // On cancellation a queued GL upload may still hold the
+                // source bitmap — drop the references and let GC reclaim
+                // rather than recycling under the GL thread's feet.
+                if (coroutineContext.isActive) {
+                    full?.recycle()
+                    warped?.recycle()
+                }
+                _uiState.update { it.copy(exporting = false) }
+            }
+        }
+    }
+
+    /**
+     * Called when the GL surface goes away mid-export (rotation, error
+     * pane): the bridged continuations would otherwise never resume —
+     * the dead surface's queue drops events — leaving the export wedged
+     * with `exporting = true` forever.
+     */
+    fun cancelExport() {
+        exportJob?.cancel()
+        exportJob = null
     }
 
     private fun refreshHistoryFlags() {
