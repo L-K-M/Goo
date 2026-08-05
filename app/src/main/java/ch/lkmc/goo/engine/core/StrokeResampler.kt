@@ -34,6 +34,8 @@ class StrokeResampler(
 
     private var lastU = 0f
     private var lastV = 0f
+    private var lastStampU = 0f
+    private var lastStampV = 0f
     private var started = false
     /** Aspect-space distance still to travel before the next stamp drops. */
     private var toNext = 0f
@@ -41,6 +43,8 @@ class StrokeResampler(
     fun begin(u: Float, v: Float) {
         lastU = u
         lastV = v
+        lastStampU = u
+        lastStampV = v
         started = true
         // The first stamp drops after a full spacing of travel, not at the
         // touch-down point: a Smear with zero movement must not disturb the
@@ -61,22 +65,27 @@ class StrokeResampler(
         val segment = sqrt(stepU * stepU + dv * dv)
         if (segment <= 0f) return out
 
-        // Walk the segment, dropping a stamp every spacing interval. Each
-        // stamp displaces by the spacing's worth of movement so the summed
-        // displacement over the stroke matches the finger's travel.
+        // Walk the segment, dropping a stamp every spacing interval. Delta is
+        // measured from the previous emitted center, not inferred from this
+        // segment alone: one interval can straddle a path corner, and both
+        // sides of that corner must contribute to the displacement.
         val spacing = spacingFraction * radius
         var travelled = 0f
         while (travelled + toNext <= segment) {
             travelled += toNext
             val t = travelled / segment
+            val cx = lastU + du * t
+            val cy = lastV + dv * t
             out.add(
                 Stamp(
-                    cx = lastU + du * t,
-                    cy = lastV + dv * t,
-                    dx = du * (spacing / segment),
-                    dy = dv * (spacing / segment),
+                    cx = cx,
+                    cy = cy,
+                    dx = cx - lastStampU,
+                    dy = cy - lastStampV,
                 ),
             )
+            lastStampU = cx
+            lastStampV = cy
             toNext = spacing
         }
         toNext -= segment - travelled

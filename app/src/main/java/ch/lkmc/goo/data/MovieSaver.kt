@@ -46,10 +46,9 @@ class MovieSaver(private val context: Context) {
 
     /** Share-ready copy in the FileProvider cache; content:// uri. */
     suspend fun writeShareCache(movie: File): Uri = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "share").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
-        val file = File(dir, movie.name)
-        movie.copyTo(file, overwrite = true)
+        val dir = File(context.cacheDir, "share")
+        val file = ShareCache.destination(dir, movie.name)
+        movie.copyTo(file)
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
@@ -69,7 +68,9 @@ class MovieSaver(private val context: Context) {
             } ?: throw IOException("cannot open $uri for writing")
             values.clear()
             values.put(MediaStore.Video.Media.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
+            if (resolver.update(uri, values, null, null) != 1) {
+                throw IOException("MediaStore finalization failed")
+            }
             return SaveResult.Gallery(uri)
         } catch (e: Exception) {
             resolver.delete(uri, null, null)
@@ -93,7 +94,7 @@ class MovieSaver(private val context: Context) {
     }
 
     private fun fileName(timestamp: Long): String {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(timestamp)
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(timestamp)
         return "goovie_$stamp.mp4"
     }
 
