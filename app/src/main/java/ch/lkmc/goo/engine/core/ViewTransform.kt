@@ -65,7 +65,11 @@ data class ViewTransform(
         val relY = ty - centroidY
         return ViewTransform(
             scale = newScale,
-            rotation = rotation + rotationDelta,
+            // Wrapped to (-π, π]: keeps cos/sin arguments small over long
+            // sessions AND makes the reset lerp shortest-path by
+            // construction — a view rotated "350°" stores as -10°, so
+            // Reset springs 10° forward, never the long way around.
+            rotation = normalizeAngle(rotation + rotationDelta),
             tx = centroidX + panX + effectiveZoom * (c * relX - s * relY),
             ty = centroidY + panY + effectiveZoom * (s * relX + c * relY),
         )
@@ -82,5 +86,16 @@ data class ViewTransform(
     companion object {
         const val MIN_SCALE = 0.5f
         const val MAX_SCALE = 8f
+
+        private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
+
+        /** Wrap an angle to (-π, π]. Exact zero stays exact zero. */
+        fun normalizeAngle(a: Float): Float {
+            if (a == 0f) return 0f
+            var r = a % TWO_PI
+            if (r > kotlin.math.PI.toFloat()) r -= TWO_PI
+            if (r <= -kotlin.math.PI.toFloat()) r += TWO_PI
+            return r
+        }
     }
 }

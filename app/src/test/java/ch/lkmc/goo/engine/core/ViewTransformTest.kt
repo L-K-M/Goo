@@ -83,6 +83,38 @@ class ViewTransformTest {
     }
 
     @Test
+    fun `rotation stays wrapped over long spinning sessions`() {
+        var v = ViewTransform()
+        repeat(1000) {
+            v = v.gesture(100f, 100f, 0f, 0f, 1f, 0.37f)
+        }
+        assertTrue(
+            v.rotation > -PI.toFloat() && v.rotation <= PI.toFloat() + 1e-4f,
+            "rotation must stay in (-pi, pi], got ${v.rotation}",
+        )
+    }
+
+    @Test
+    fun `a near-full turn stores negative so reset takes the short way`() {
+        // 350° of accumulated rotation wraps to -10°: the reset lerp then
+        // springs 10° forward instead of 350° backward.
+        var v = ViewTransform()
+        repeat(35) {
+            v = v.gesture(0f, 0f, 0f, 0f, 1f, (10.0 * PI / 180.0).toFloat())
+        }
+        assertTrue(v.rotation < 0f, "350° should wrap negative, got ${v.rotation}")
+        assertClose((-10.0 * PI / 180.0).toFloat(), v.rotation, 1e-3f)
+        val mid = v.lerp(ViewTransform(), 0.5f)
+        assertClose((-5.0 * PI / 180.0).toFloat(), mid.rotation, 1e-3f)
+    }
+
+    @Test
+    fun `normalizeAngle keeps exact zero exact`() {
+        assertEquals(0f, ViewTransform.normalizeAngle(0f))
+        assertClose(-0.1f, ViewTransform.normalizeAngle((2.0 * PI).toFloat() - 0.1f), 1e-4f)
+    }
+
+    @Test
     fun `shader coefficients match the applied matrix`() {
         val v = ViewTransform(scale = 3f, rotation = 0.5f, tx = 7f, ty = 9f)
         // apply(1, 0) - t == (a, b) by construction.
