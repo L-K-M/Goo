@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
@@ -59,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.VisibilityThreshold
@@ -156,6 +158,29 @@ private fun WarpEditor(
         surface?.engine { setGlobalParams(globals) }
     }
 
+    // GOOvie scrub sync: every scrub/strip change re-derives the tween
+    // payload; leaving the strip (or having < 2 keyframes) shows live.
+    LaunchedEffect(surface, state.goovieMode, state.scrubPos, state.keyframes) {
+        val req = viewModel.tweenRequest()
+        if (req != null) {
+            surface?.engine { tweenTo(req.strokes, req.countA, req.countB, req.t, req.lerpedGlobals) }
+        } else {
+            surface?.engine { clearTween() }
+        }
+    }
+
+    // Playback: frame-locked advance while playing; loops via the timeline.
+    LaunchedEffect(state.playing) {
+        if (!state.playing) return@LaunchedEffect
+        var last = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (last != 0L) viewModel.advancePlayback((now - last) / 1_000_000_000f)
+                last = now
+            }
+        }
+    }
+
     // One-shot export outcomes: snackbars and the share chooser.
     val savedGallery = stringResource(R.string.export_saved_gallery)
     val savedAppStorage = stringResource(R.string.export_saved_app_storage)
@@ -213,9 +238,11 @@ private fun WarpEditor(
     Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopRail(
-            canUndo = state.canUndo,
-            canRedo = state.canRedo,
-            canReset = state.canReset,
+            // History is edit-mode territory; the strip pauses it so
+            // keyframe pins can't shift under a scrub.
+            canUndo = state.canUndo && !state.goovieMode,
+            canRedo = state.canRedo && !state.goovieMode,
+            canReset = state.canReset && !state.goovieMode,
             onBack = onBack,
             onUndo = {
                 viewModel.undo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
@@ -224,8 +251,15 @@ private fun WarpEditor(
                 viewModel.redo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
             onReset = { confirmReset = true },
-            onLevers = { showLevers = !showLevers },
-            leversActive = showLevers || !state.globals.isIdentity,
+            onLevers = {
+                // From the strip, the levers bead OPENS levers (not a blind
+                // toggle — showLevers may already be true underneath).
+                showLevers = if (state.goovieMode) true else !showLevers
+                if (state.goovieMode) viewModel.toggleGoovie()
+            },
+            leversActive = !state.goovieMode && (showLevers || !state.globals.isIdentity),
+            onGoovie = { viewModel.toggleGoovie() },
+            goovieActive = state.goovieMode,
             onExport = { showExportSheet = true },
         )
 
@@ -332,8 +366,13 @@ private fun WarpEditor(
             }
         }
 
+        val panel = when {
+            state.goovieMode -> EditorPanel.GOOVIE
+            showLevers -> EditorPanel.LEVERS
+            else -> EditorPanel.BRUSH
+        }
         AnimatedContent(
-            targetState = showLevers,
+            targetState = panel,
             transitionSpec = {
                 val springIn = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -348,14 +387,26 @@ private fun WarpEditor(
                     (slideOutVertically { it / 3 } + fadeOut()) using null
             },
             label = "panelSwap",
-        ) { levers ->
-            if (levers) {
-                LeversPanel(
+        ) { which ->
+            when (which) {
+                EditorPanel.LEVERS -> LeversPanel(
                     globals = state.globals,
                     onChange = viewModel::setGlobals,
                 )
-            } else {
-                BrushRail(
+                EditorPanel.GOOVIE -> GooviePanel(
+                    keyframes = state.keyframes,
+                    scrubPos = state.scrubPos,
+                    playing = state.playing,
+                    selected = state.selectedKeyframe,
+                    canCapture = state.keyframes.size < EditorViewModel.MAX_KEYFRAMES,
+                    onCapture = viewModel::captureKeyframe,
+                    onSelect = viewModel::selectKeyframe,
+                    onDelete = viewModel::deleteSelectedKeyframe,
+                    onMove = viewModel::moveSelectedKeyframe,
+                    onScrub = viewModel::scrubTo,
+                    onPlayToggle = { viewModel.setPlaying(!state.playing) },
+                )
+                EditorPanel.BRUSH -> BrushRail(
                     tool = state.tool,
                     mirrored = state.mirrored,
                     radius = state.brushRadius,
@@ -416,6 +467,8 @@ private fun TopRail(
     onReset: () -> Unit,
     onLevers: () -> Unit,
     leversActive: Boolean,
+    onGoovie: () -> Unit,
+    goovieActive: Boolean,
     onExport: () -> Unit,
 ) {
     Row(
@@ -466,6 +519,14 @@ private fun TopRail(
                 selected = leversActive,
                 selectable = true,
                 onClick = onLevers,
+            )
+            CandyIconButton(
+                icon = Icons.Filled.Movie,
+                contentDescription = stringResource(R.string.editor_goovies),
+                color = CandyLemon,
+                selected = goovieActive,
+                selectable = true,
+                onClick = onGoovie,
             )
             CandyIconButton(
                 icon = Icons.Filled.IosShare,
@@ -567,6 +628,9 @@ private fun LabeledSlider(
         )
     }
 }
+
+/** Which bottom panel the editor shows; GOOVIE follows the ViewModel. */
+private enum class EditorPanel { BRUSH, LEVERS, GOOVIE }
 
 @StringRes
 private fun BrushTool.labelRes(): Int = when (this) {

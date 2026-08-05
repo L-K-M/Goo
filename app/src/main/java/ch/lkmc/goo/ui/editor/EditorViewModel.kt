@@ -14,6 +14,9 @@ import ch.lkmc.goo.data.OnboardingPrefs
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.GoovieTimeline
+import ch.lkmc.goo.engine.core.Keyframe
+import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
@@ -81,6 +84,25 @@ class EditorViewModel @Inject constructor(
         val globals: GlobalParams = GlobalParams(),
         /** First-ever image: float the "drag to goo" hint until a stroke. */
         val showHint: Boolean = false,
+        /** GOOvie mode: the strip is open; canvas edits are paused. */
+        val goovieMode: Boolean = false,
+        /** Captured keyframes in playback order (pins into the log). */
+        val keyframes: List<Keyframe> = emptyList(),
+        /** Continuous strip position: [0, size-1]; ints sit on keyframes. */
+        val scrubPos: Float = 0f,
+        /** Looping playback is running. */
+        val playing: Boolean = false,
+        /** Strip selection for delete/reorder; -1 = none. */
+        val selectedKeyframe: Int = -1,
+    )
+
+    /** Everything the GL thread needs to show one scrub position. */
+    data class TweenRequest(
+        val strokes: List<Stroke>,
+        val countA: Int,
+        val countB: Int,
+        val t: Float,
+        val lerpedGlobals: GlobalParams,
     )
 
     /** One-shot outcomes of export/share runs, consumed by the screen. */
@@ -178,6 +200,8 @@ class EditorViewModel @Inject constructor(
     fun beginStroke(u: Float, v: Float) {
         val bitmap = _uiState.value.bitmap ?: return
         val state = _uiState.value
+        // The strip is playback territory; the canvas doesn't paint there.
+        if (state.goovieMode) return
         if (state.showHint) {
             onboardingPrefs.smearHintSeen = true
             _uiState.update { it.copy(showHint = false) }
@@ -326,6 +350,124 @@ class EditorViewModel @Inject constructor(
         refreshHistoryFlags()
     }
 
+    // ---- GOOvies -------------------------------------------------------
+    // A keyframe pins (strokeCount, globals) — the document stays the
+    // single source of truth and endpoints materialize by replay
+    // (PLAN.md §4.1). Canvas edits and history buttons are disabled while
+    // the strip is open, so pins can't go stale mid-scrub. Keyframes live
+    // in session memory only, like the stroke log they point into.
+
+    fun toggleGoovie() {
+        // A second finger can tap the Movie bead mid-gesture. Commit (not
+        // discard) the live stroke — same policy as setTool and gesture
+        // CANCEL: its stamps are already on the field, and committing
+        // keeps screen ≡ document. Entry then gates beginStroke, so no
+        // live stroke can exist inside goovie mode.
+        endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
+        _uiState.update {
+            if (it.goovieMode) {
+                it.copy(goovieMode = false, playing = false)
+            } else {
+                it.copy(goovieMode = true, scrubPos = GoovieTimeline.clamp(it.scrubPos, it.keyframes.size))
+            }
+        }
+    }
+
+    fun captureKeyframe() {
+        discardLiveStroke()
+        _uiState.update { s ->
+            if (s.keyframes.size >= MAX_KEYFRAMES) return@update s
+            val kf = Keyframe(strokeCount = log.strokes.size, globals = s.globals)
+            val list = s.keyframes + kf
+            s.copy(
+                keyframes = list,
+                selectedKeyframe = list.size - 1,
+                scrubPos = (list.size - 1).toFloat(),
+            )
+        }
+    }
+
+    fun selectKeyframe(index: Int) {
+        _uiState.update { s ->
+            if (index !in s.keyframes.indices) return@update s
+            s.copy(selectedKeyframe = index, scrubPos = index.toFloat(), playing = false)
+        }
+    }
+
+    fun deleteSelectedKeyframe() {
+        _uiState.update { s ->
+            val i = s.selectedKeyframe
+            if (i !in s.keyframes.indices) return@update s
+            val list = s.keyframes.toMutableList().apply { removeAt(i) }
+            val newSelected = if (list.isEmpty()) -1 else i.coerceAtMost(list.size - 1)
+            s.copy(
+                keyframes = list,
+                selectedKeyframe = newSelected,
+                scrubPos = GoovieTimeline.clamp(newSelected.toFloat(), list.size),
+                playing = false,
+            )
+        }
+    }
+
+    /** Move the selected keyframe one slot left/right in playback order. */
+    fun moveSelectedKeyframe(delta: Int) {
+        _uiState.update { s ->
+            val i = s.selectedKeyframe
+            val j = i + delta
+            if (i !in s.keyframes.indices || j !in s.keyframes.indices) return@update s
+            val list = s.keyframes.toMutableList().apply {
+                val tmp = this[i]
+                this[i] = this[j]
+                this[j] = tmp
+            }
+            s.copy(keyframes = list, selectedKeyframe = j, scrubPos = j.toFloat())
+        }
+    }
+
+    fun scrubTo(p: Float) {
+        _uiState.update {
+            it.copy(
+                scrubPos = GoovieTimeline.clamp(p, it.keyframes.size),
+                selectedKeyframe = -1,
+                playing = false,
+            )
+        }
+    }
+
+    fun setPlaying(playing: Boolean) {
+        _uiState.update { s ->
+            if (playing && s.keyframes.size < 2) s
+            else s.copy(playing = playing, selectedKeyframe = if (playing) -1 else s.selectedKeyframe)
+        }
+    }
+
+    /** Frame-loop tick from the screen while [UiState.playing]. */
+    fun advancePlayback(dtSeconds: Float) {
+        _uiState.update { s ->
+            if (!s.playing) s
+            else s.copy(scrubPos = GoovieTimeline.advance(s.scrubPos, dtSeconds, s.keyframes.size))
+        }
+    }
+
+    /** The engine payload for the current scrub position; null = live. */
+    fun tweenRequest(): TweenRequest? {
+        val s = _uiState.value
+        if (!s.goovieMode || s.keyframes.size < 2) return null
+        val strokes = log.strokes
+        val size = s.keyframes.size
+        val k = GoovieTimeline.segment(s.scrubPos, size)
+        val t = GoovieTimeline.fraction(s.scrubPos, size)
+        val a = s.keyframes[k]
+        val b = s.keyframes[k + 1]
+        return TweenRequest(
+            strokes = strokes,
+            countA = GoovieTimeline.clampCount(a, strokes.size),
+            countB = GoovieTimeline.clampCount(b, strokes.size),
+            t = t,
+            lerpedGlobals = a.globals.lerp(b.globals, t),
+        )
+    }
+
     private fun discardLiveStroke() {
         stopPump()
         resampler = null
@@ -445,5 +587,8 @@ class EditorViewModel @Inject constructor(
 
         private const val KEY_SESSION_FILE = "sessionFile"
         private const val KEY_GLOBALS = "globals"
+
+        /** KPT Goo's strip held 64; so does ours. */
+        const val MAX_KEYFRAMES = 64
     }
 }

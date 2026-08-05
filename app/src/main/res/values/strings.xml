@@ -30,6 +30,15 @@
 
     <string name="editor_levers">Global effects</string>
     <string name="editor_hint_smear">Drag on the photo to goo it</string>
+
+    <string name="editor_goovies">GOOvies</string>
+    <string name="goovie_capture">Punch a keyframe</string>
+    <string name="goovie_play">Play</string>
+    <string name="goovie_pause">Pause</string>
+    <string name="goovie_delete">Delete keyframe</string>
+    <string name="goovie_move_earlier">Move keyframe earlier</string>
+    <string name="goovie_move_later">Move keyframe later</string>
+    <string name="goovie_empty_hint">Goo the photo, then punch keyframes — scrub or play to watch it dance.</string>
     <string name="lever_bulge">Bulge</string>
     <string name="lever_twirl">Twirl</string>
     <string name="lever_squeeze">Squeeze</string>
