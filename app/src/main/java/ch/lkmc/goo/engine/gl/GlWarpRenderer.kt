@@ -278,10 +278,11 @@ class GlWarpRenderer(
                 val t = GoovieTimeline.fraction(p, keyframes.size)
                 val a = keyframes[k]
                 val b = keyframes[k + 1]
-                // Endpoint materialization must happen on the PREVIEW
-                // surface being current is irrelevant — FBO work — but
-                // must precede making the encoder surface current only
-                // for clarity; the cache makes repeats free.
+                // Endpoint materialization is FBO work — surface-agnostic,
+                // safe whichever window surface is current. The per-frame
+                // eglMakeCurrent below is deliberately re-asserted (near
+                // no-op when already current) so this loop never depends
+                // on a non-local "nothing changed the surface" invariant.
                 tweenTo(
                     strokes,
                     GoovieTimeline.clampCount(a, strokes.size),
@@ -300,6 +301,8 @@ class GlWarpRenderer(
                 if (frame % 6 == 0) onProgress(frame.toFloat() / total)
             }
             encoder.finish()
+            // The %6 throttle tops out ~98%; land the bar before dismissal.
+            onProgress(1f)
             ok = true
         } catch (t: Throwable) {
             Log.w(TAG, "movie export failed", t)

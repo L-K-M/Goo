@@ -39,11 +39,26 @@ class MovieEncoder(width: Int, height: Int, outputFile: File) {
             setInteger(MediaFormat.KEY_FRAME_RATE, MovieSpec.FPS)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, MovieSpec.I_FRAME_INTERVAL_SECONDS)
         }
-        codec = MediaCodec.createEncoderByType(MIME)
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        inputSurface = codec.createInputSurface()
-        codec.start()
-        muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        // Locals until every step succeeds: if the muxer ctor throws (bad
+        // path, disk full) after codec.start(), the half-built instance is
+        // dropped and release() is unreachable — leaking a HARDWARE codec,
+        // a scarce system resource that can pin the encoder until reboot.
+        var newCodec: MediaCodec? = null
+        var newSurface: Surface? = null
+        try {
+            newCodec = MediaCodec.createEncoderByType(MIME)
+            newCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            newSurface = newCodec.createInputSurface()
+            newCodec.start()
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        } catch (e: Exception) {
+            runCatching { newSurface?.release() }
+            runCatching { newCodec?.stop() }
+            runCatching { newCodec?.release() }
+            throw e
+        }
+        codec = newCodec
+        inputSurface = checkNotNull(newSurface)
     }
 
     /**
