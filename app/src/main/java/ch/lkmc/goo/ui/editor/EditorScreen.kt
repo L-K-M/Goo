@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenWith
@@ -591,6 +592,7 @@ private fun WarpEditor(
                             ),
                         )
                     },
+                    onFusionRemove = viewModel::clearSecondImage,
                 )
             }
         }
@@ -737,6 +739,7 @@ private fun BrushRail(
     onStrengthChange: (Float) -> Unit,
     onFusionPick: () -> Unit,
     onAdjustingChange: (Boolean) -> Unit,
+    onFusionRemove: () -> Unit,
 ) {
     // A slider dragged off-screen (panel swap) never delivers its
     // onValueChangeFinished — clear the adjusting flag on the way out.
@@ -780,6 +783,13 @@ private fun BrushRail(
                     color = CandyGrape,
                     selected = false,
                     onClick = onFusionPick,
+                )
+                CandyToolChip(
+                    icon = Icons.Filled.HideImage,
+                    label = stringResource(R.string.fusion_remove_photo),
+                    color = CandyOrange,
+                    selected = false,
+                    onClick = onFusionRemove,
                 )
             }
         }

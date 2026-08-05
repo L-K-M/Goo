@@ -33,6 +33,7 @@
     <string name="about_body">Squish, smear and stretch your photos like wet paint — a loving homage to Kai\'s Power Goo (1996). Fully offline: no permissions, no network, nothing leaves your device.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense). Unaffiliated with the rights holders of Kai\'s Power Goo or KPT.</string>
     <string name="about_close">Close</string>
     <string name="fusion_change_photo">Swap photo</string>
+    <string name="fusion_remove_photo">Remove photo</string>
     <string name="tool_mirror">Mirror</string>
 
     <string name="editor_levers">Global effects</string>
