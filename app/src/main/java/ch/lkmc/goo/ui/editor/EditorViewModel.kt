@@ -349,10 +349,6 @@ class EditorViewModel @Inject constructor(
         // next keyframe. What isn't possible is painting into a tween: the
         // stamps go to the live field, so drop the preview to live first.
         goLive()
-        if (state.showHint) {
-            onboardingPrefs.smearHintSeen = true
-            _uiState.update { it.copy(showHint = false) }
-        }
         val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
         val tool = state.tool
@@ -442,6 +438,12 @@ class EditorViewModel @Inject constructor(
         val stroke = params.copy(stamps = liveStamps.toList())
         liveStamps = mutableListOf()
         log.push(stroke)
+        if (_uiState.value.showHint) {
+            // A touch-down or sub-spacing directional drag is not a
+            // successful edit. Retire onboarding only after real work lands.
+            onboardingPrefs.smearHintSeen = true
+            _uiState.update { it.copy(showHint = false) }
+        }
         refreshHistoryFlags()
         return stroke
     }
