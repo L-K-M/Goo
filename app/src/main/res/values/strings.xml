@@ -60,8 +60,8 @@
     <string name="goovie_empty_hint">Goo the photo, then punch keyframes — scrub or play to watch it dance.</string>
     <string name="goovie_hint_live_pinned">Gooing live. Punch pins this as a new keyframe; Update re-pins #%1$d to it.</string>
     <string name="goovie_hint_live">Gooing live. Punch to pin what you see as the next keyframe.</string>
-    <string name="goovie_hint_needs_second">One keyframe so far. Goo some more, then punch again — the movie is what happens between punches.</string>
-    <string name="goovie_hint_all_same">Every keyframe pins the same goo, so nothing moves. Goo the photo, then punch again or Update one.</string>
+    <string name="goovie_hint_needs_second">One keyframe. Goo some more, then punch again — the movie is what\'s between punches.</string>
+    <string name="goovie_hint_all_same">Every keyframe holds the same goo, so nothing moves. Goo more, then punch or Update.</string>
     <string name="goovie_hint_stale">Your goo is ahead of keyframe %1$d. Punch a new one, or Update to re-pin it.</string>
     <string name="goovie_hint_ready">Scrub or play to watch it dance.</string>
     <string name="goovie_save_movie">Save GOOvie as video</string>

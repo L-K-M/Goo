@@ -273,9 +273,15 @@ fun GooviePanel(
 }
 
 /**
- * The line under the strip that says what to do next. Two lines tall
- * whatever it says, so swapping hints never re-measures the canvas (and
- * with it the GLSurfaceView).
+ * The line under the strip that says what to do next.
+ *
+ * `minLines = 2` is a floor, not a cap: it stops the panel bouncing when
+ * a one-line hint follows a two-line one, which is the swap that actually
+ * happens at default text size (every hint string is written to fit two
+ * lines at `bodySmall` on a 360dp screen). At large accessibility font
+ * scales a hint can still take a third line and nudge the canvas — that's
+ * the right trade, because the alternative is a fixed height that clips
+ * the text for exactly the users who most need to read it.
  */
 @Composable
 private fun StripHint(

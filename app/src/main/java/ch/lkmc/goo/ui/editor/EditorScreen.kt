@@ -880,10 +880,10 @@ private fun BrushRail(
                 enabled = keyframeCount < EditorViewModel.MAX_KEYFRAMES,
                 onClick = onPunch,
             )
-            // Re-punch, on the rail for the same reason Punch is: a pin is
-            // a stroke count, safe to re-take mid-edit, and the strip
-            // shouldn't have to be open. This is the only way goo made
-            // AFTER a punch reaches an existing keyframe.
+            // Re-punch, on the rail for the same reason Punch is: taking a
+            // pin is just snapshotting the log, safe mid-edit, and the
+            // strip shouldn't have to be open. This is the only way goo
+            // made AFTER a punch reaches an existing keyframe.
             if (updateKeyframe > 0) {
                 CandyToolChip(
                     icon = Icons.Filled.Cached,

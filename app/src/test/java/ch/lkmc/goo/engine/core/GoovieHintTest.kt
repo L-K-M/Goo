@@ -28,6 +28,11 @@ class GoovieHintTest {
     fun `gooing live names the keyframe Update would re-pin`() {
         val strip = listOf(pin(1), pin(4))
         assertEquals(GoovieHint.LIVE_PINNED, goovieHint(strip, 1, true, live = true))
+        // Selected but not yet stale — the instant between dropping to
+        // live and the first stamp landing. Still LIVE_PINNED: naming the
+        // Update target is what makes the hint useful, and staleness is
+        // one stroke away by definition. Deliberately not a third state.
+        assertEquals(GoovieHint.LIVE_PINNED, goovieHint(strip, 1, false, live = true))
         // Nothing selected: Punch is the only verb on offer.
         assertEquals(GoovieHint.LIVE, goovieHint(strip, -1, false, live = true))
         // A selection past the end can't be re-pinned either.

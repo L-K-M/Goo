@@ -506,12 +506,14 @@ class EditorViewModel @Inject constructor(
     // no pin moves with it. Counts indexed into the CURRENT snapshot, so
     // undo used to flatten the entire strip.
     //
-    // Editing stays LIVE while the strip is open. A pin is a prefix count
-    // into an append-only log, so gooing on top of a keyframe cannot move
-    // it; only undo/redo/reset can, and those already funnel a rebuild
-    // through the renderer that drops the count-keyed endpoint cache. What
-    // the strip really can't do is paint into a tween — stamps land in the
-    // live field, which a tween isn't showing — hence [goLive].
+    // Editing stays LIVE while the strip is open, and nothing an edit can
+    // do disturbs a pin: the snapshot a keyframe holds is immutable, so
+    // gooing, undo, redo, Reset and a truncated redo branch all leave it
+    // exactly where it was punched. (The renderer's endpoint cache is
+    // keyed by that same snapshot identity, which is why `rebuild` no
+    // longer invalidates it.) What the strip really can't do is paint
+    // into a tween — stamps land in the live field, which a tween isn't
+    // showing — hence [goLive].
 
     /**
      * Drop the strip's preview from the tween to the live document, so the
