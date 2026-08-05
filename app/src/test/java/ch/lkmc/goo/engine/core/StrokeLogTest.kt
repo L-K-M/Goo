@@ -3,7 +3,9 @@ package ch.lkmc.goo.engine.core
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class StrokeLogTest {
@@ -57,12 +59,56 @@ class StrokeLogTest {
     }
 
     @Test
+    fun `revisions share their prefix and materialize oldest first`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        val first = log.currentRevision
+        log.push(stroke(2))
+        val second = log.currentRevision
+
+        assertSame(first, second.stateParent)
+        assertEquals(2, second.strokeCount)
+        assertEquals(listOf(0.1f, 0.2f), second.materialize().map { it.stamps[0].cx })
+    }
+
+    @Test
+    fun `revision ids are not reused after branch truncation`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        log.push(stroke(2))
+        val abandoned = log.currentRevision
+
+        log.undo()
+        log.push(stroke(3))
+        val replacement = log.currentRevision
+
+        assertEquals(abandoned.strokeCount, replacement.strokeCount)
+        assertNotEquals(abandoned.id, replacement.id)
+        assertEquals(listOf(0.1f, 0.2f), abandoned.materialize().map { it.stamps[0].cx })
+        assertEquals(listOf(0.1f, 0.3f), replacement.materialize().map { it.stamps[0].cx })
+    }
+
+    @Test
+    fun `committed stamps cannot be mutated through the caller list`() {
+        val stamps = mutableListOf(Stamp(0.1f, 0.5f, 0.01f, 0f))
+        val log = StrokeLog()
+        log.push(Stroke(BrushTool.SMEAR, 0.1f, 1f, stamps))
+
+        stamps += Stamp(0.2f, 0.5f, 0.01f, 0f)
+
+        assertEquals(1, log.strokes.single().stamps.size)
+    }
+
+    @Test
     fun `reset empties the picture but stays undoable`() {
         val log = StrokeLog()
         log.push(stroke(1))
         log.push(stroke(2))
         log.reset()
+        val reset = log.currentRevision
         assertTrue(log.isEmpty)
+        assertNull(reset.stateParent)
+        assertEquals(0, reset.strokeCount)
         assertTrue(log.canUndo)
         assertEquals(2, log.undo()!!.size)
     }
