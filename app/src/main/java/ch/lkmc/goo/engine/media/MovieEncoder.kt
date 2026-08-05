@@ -28,6 +28,7 @@ class MovieEncoder(width: Int, height: Int, outputFile: File) {
     private val bufferInfo = MediaCodec.BufferInfo()
     private var trackIndex = -1
     private var muxerStarted = false
+    private var muxerStopped = false
 
     init {
         val format = MediaFormat.createVideoFormat(MIME, width, height).apply {
@@ -114,10 +115,17 @@ class MovieEncoder(width: Int, height: Int, outputFile: File) {
         }
     }
 
-    /** Signal EOS and drain the tail. Call exactly once, before [release]. */
+    /**
+     * Signal EOS, drain the tail, and finalize the MP4 container. A successful
+     * return means MediaMuxer.stop() also succeeded; callers must not report a
+     * playable result before that final index/metadata write completes.
+     */
     fun finish() {
         codec.signalEndOfInputStream()
         drain(endOfStream = true)
+        check(muxerStarted) { "encoder produced no output format" }
+        muxer.stop()
+        muxerStopped = true
     }
 
     /** Release everything; safe after failures (best-effort teardown). */
@@ -125,7 +133,9 @@ class MovieEncoder(width: Int, height: Int, outputFile: File) {
         runCatching { codec.stop() }
         runCatching { codec.release() }
         runCatching { inputSurface.release() }
-        runCatching { if (muxerStarted) muxer.stop() }
+        // Failure/abort path only. finish() performs the throwing stop used
+        // to decide success; teardown must not mask the original exception.
+        runCatching { if (muxerStarted && !muxerStopped) muxer.stop() }
         runCatching { muxer.release() }
     }
 
