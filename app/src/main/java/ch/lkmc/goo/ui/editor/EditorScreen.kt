@@ -179,6 +179,10 @@ private fun WarpEditor(
     // rail a fresh lambda would drag all eight of its beads into every
     // one of those frames. rememberUpdatedState keeps the guard reading
     // the current state without making the lambda itself unstable.
+    // The check lives inside the lambda, not only in the BackHandler's
+    // `enabled`: the rail's Back bead calls this directly and has no such
+    // gate, so this is the only thing standing between a tap and a lost
+    // session on that path.
     val latestState by rememberUpdatedState(state)
     val leaveEditor: () -> Unit = remember(onBack) {
         { if (latestState.hasUnsavedWork) confirmExit = true else onBack() }
@@ -187,6 +191,12 @@ private fun WarpEditor(
     // would dismiss any other modal, instead of leaving the room. Enabled
     // only when there is something to intercept — a disabled BackHandler
     // lets the system run its own (predictive) animation for the pop.
+    //
+    // Deliberately still enabled during a movie export: leaving tears the
+    // surface down, which cancels the export (the engineBridge
+    // DisposableEffect above), so that is exactly when the user most
+    // needs to be asked first. Gating this off would drop back through to
+    // the NavHost and pop the editor with NO dialog at all.
     BackHandler(enabled = showCrop || state.hasUnsavedWork) {
         if (showCrop) showCrop = false else leaveEditor()
     }
