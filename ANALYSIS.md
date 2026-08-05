@@ -333,4 +333,4 @@ fix and continues as crop-only.
 | K3-13 | Brush cursor ring while painting | #21 |
 | K3-12 | Bundled generated sample images | #22 |
 | K3-22 | Pinch/pan/zoom/rotate canvas | upstream #12 |
-| K3-17 | GIF export (looping) + GOOvie export speed | #TBD |
+| K3-17 | GIF export (looping) + GOOvie export speed | #42 |
