@@ -252,6 +252,20 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Remove Fusion's photo B: delete its session copy, clear state, and
+     * fall back to Smear — a FUSE brush with no B paints an invisible mask
+     * (u_hasB gates the display, not the accumulation), which reads as a
+     * dead tool. The painted mask itself stays in the field: UnGoo erases
+     * it, and a later B reveals it again (same policy as a swap).
+     */
+    fun clearSecondImage() {
+        sessionFileB?.delete()
+        sessionFileB = null
+        savedStateHandle.remove<String>(KEY_SESSION_B)
+        _uiState.update { it.copy(bitmapB = null, tool = BrushTool.SMEAR) }
+    }
+
     /** Engine-side failures (GL thread) surface as the screen's error state. */
     fun reportEngineError(message: String) {
         _uiState.update { it.copy(loading = false, error = message) }
