@@ -70,6 +70,19 @@ class ImageLoader(private val context: Context) {
             scaleLongSideTo(upright, maxDimension)
         }
 
+    /**
+     * Delete session files except [keep] (REVIEW.md G-1): the previous
+     * session's copy is garbage the moment a new image is imported, and
+     * relying on the OS cache eviction alone lets tens of full-size copies
+     * pile up first.
+     */
+    suspend fun sweepSessions(keep: File?) = withContext(Dispatchers.IO) {
+        val keepPath = keep?.path
+        File(context.cacheDir, "sessions").listFiles()
+            ?.filter { it.path != keepPath }
+            ?.forEach { it.delete() }
+    }
+
     private fun applyExifOrientation(bitmap: Bitmap, file: File): Bitmap {
         val orientation = ExifInterface(file.path)
             .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)

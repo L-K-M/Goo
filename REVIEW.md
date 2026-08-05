@@ -9,9 +9,9 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
-- **G-1** 🔧 ⬜ Session files under `cacheDir/sessions` are never pruned.
-  Android may clear cache under pressure, but a tidy LRU sweep (keep last
-  N) belongs in the export/persistence step (roadmap #3).
+- **G-1** 🔧 🟢 Session files under `cacheDir/sessions` are never pruned.
+  Resolved in roadmap #3: `ImageLoader.sweepSessions` deletes everything
+  but the live session on each import.
 - **G-2** 🔧 ⬜ Strokes are lost on process death (the log lives only in
   the ViewModel). Fine for the MVP; project persistence (serialized stroke
   log — the types are already `@Serializable`) is planned alongside
@@ -25,6 +25,13 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   boundary, so per-batch ownership is inherent; eliminating allocation for
   real means a pooled ring buffer of primitive arrays. Revisit if frame
   traces on a low-end device show GC pressure during fast drags.
+
+- **G-5** ✨ ⬜ True full-resolution export above the 4096 budget cap
+  (`ExportSize.EXPORT_MAX_DIM`). Needs tiled rendering with
+  displacement-bounded source tiles — the output tile must sample source
+  up to max|D| beyond its edges, so the tiler needs a field-magnitude
+  bound first. Today >12 MP sources export at ~12 MP; revisit when a real
+  user asks for native 48 MP output.
 
 ## Won't do (for now)
 

@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
+import android.util.Log
+import androidx.core.graphics.createBitmap
+import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
@@ -12,7 +15,6 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
-import kotlin.math.roundToInt
 
 /**
  * The GL side of the engine: owns the source texture, the ping-pong
@@ -54,6 +56,10 @@ class GlWarpRenderer(
     /** Extension list of the current context; set once per onSurfaceCreated. */
     private var extensions = ""
 
+    /** GL_MAX_TEXTURE_SIZE of the current context; export sizing input. */
+    var maxTextureSize = 2048
+        private set
+
     /** Aspect (w/h) of the current image; 1 until an image is set. */
     private var aspect = 1f
 
@@ -81,9 +87,18 @@ class GlWarpRenderer(
         if (contextReady) rebuildImageState()
     }
 
-    /** Stamp a batch from the live stroke into the field. */
+    /** Stamp a batch from the live stroke into the preview field. */
     fun stampBatch(stroke: Stroke, stamps: List<Stamp>) {
         val f = field ?: return
+        stampInto(f, aspect, stroke, stamps)
+    }
+
+    /**
+     * Stamp [stamps] of [stroke] into [target] — shared by the live
+     * preview path and the export replay (the whole point: both fields are
+     * built by literally the same code).
+     */
+    private fun stampInto(target: PingPongField, imageAspect: Float, stroke: Stroke, stamps: List<Stamp>) {
         val program = stampProgram ?: return
         program.use()
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
@@ -91,11 +106,11 @@ class GlWarpRenderer(
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
         GLES30.glUniform1f(uRadius, stroke.radius)
         GLES30.glUniform1f(uStrength, stroke.strength)
-        GLES30.glUniform1f(uAspect, aspect)
+        GLES30.glUniform1f(uAspect, imageAspect)
         GLES30.glUniform1i(uField, 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         for (stamp in stamps) {
-            f.renderPass { readTexture ->
+            target.renderPass { readTexture ->
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, readTexture)
                 GLES30.glUniform2f(uCenter, stamp.cx, stamp.cy)
                 GLES30.glUniform2f(uDelta, stamp.dx, stamp.dy)
@@ -128,6 +143,9 @@ class GlWarpRenderer(
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         extensions = GLES30.glGetString(GLES30.GL_EXTENSIONS).orEmpty()
+        val maxTex = IntArray(1)
+        GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, maxTex, 0)
+        if (maxTex[0] > 0) maxTextureSize = maxTex[0]
         if (!PingPongField.supported(extensions)) {
             contextReady = false
             onUnsupported("This device's GPU can't render goo (no float render targets).")
@@ -235,14 +253,141 @@ class GlWarpRenderer(
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
 
         field?.delete()
-        val long = maxOf(bitmap.width, bitmap.height).toFloat()
-        val scale = (FIELD_MAX_DIM / long).coerceAtMost(1f)
+        val (fieldW, fieldH) = ExportSize.fieldDimensions(bitmap.width, bitmap.height)
         field = PingPongField(
-            width = (bitmap.width * scale).roundToInt().coerceAtLeast(2),
-            height = (bitmap.height * scale).roundToInt().coerceAtLeast(2),
+            width = fieldW,
+            height = fieldH,
             halfFloatRenderable = PingPongField.hasHalfFloat(extensions),
         )
         rebuild(strokesToReplay)
+    }
+
+    /**
+     * Render [strokes] applied to [source] at [source]'s full size into an
+     * offscreen buffer and hand the resulting bitmap to [onResult] (GL
+     * thread). Same shaders, same stamp code, fresh field at the standard
+     * field density — the preview-parity path (PLAN.md §5.4). [onResult]
+     * receives null when the context isn't ready.
+     *
+     * All temporary GL objects are released before returning; the preview
+     * field and source texture are untouched.
+     */
+    fun exportBitmap(source: Bitmap, strokes: List<Stroke>, onResult: (Bitmap?) -> Unit) {
+        if (!contextReady || warpProgram == null) {
+            onResult(null)
+            return
+        }
+        // Fail soft, never crash the GL thread: export is the app's
+        // allocation peak, and a paused surface (Home pressed while the
+        // export decode ran) no-ops GL calls — both make the setup below
+        // throwable. An uncaught throw here kills the process.
+        var tex: IntArray? = null
+        var exportField: PingPongField? = null
+        var outTex: IntArray? = null
+        var outFbo: IntArray? = null
+        try {
+            onResult(renderExport(source, strokes,
+                allocTex = { tex = it },
+                allocField = { exportField = it },
+                allocOutTex = { outTex = it },
+                allocOutFbo = { outFbo = it }))
+        } catch (e: Exception) {
+            Log.e(TAG, "export render failed", e)
+            onResult(null)
+        } finally {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            outFbo?.let { GLES30.glDeleteFramebuffers(1, it, 0) }
+            outTex?.let { GLES30.glDeleteTextures(1, it, 0) }
+            tex?.let { GLES30.glDeleteTextures(1, it, 0) }
+            exportField?.delete()
+        }
+    }
+
+    private inline fun renderExport(
+        source: Bitmap,
+        strokes: List<Stroke>,
+        allocTex: (IntArray) -> Unit,
+        allocField: (PingPongField) -> Unit,
+        allocOutTex: (IntArray) -> Unit,
+        allocOutFbo: (IntArray) -> Unit,
+    ): Bitmap? {
+        val exportAspect = source.width.toFloat() / source.height
+
+        // Temporary source texture.
+        val tex = IntArray(1)
+        GLES30.glGenTextures(1, tex, 0)
+        allocTex(tex)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex[0])
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, source, 0)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+
+        // Fresh field, replayed from the log (never the preview field: its
+        // texel grid belongs to the preview bitmap).
+        val (fieldW, fieldH) = ExportSize.fieldDimensions(source.width, source.height)
+        val exportField = PingPongField(
+            width = fieldW,
+            height = fieldH,
+            halfFloatRenderable = PingPongField.hasHalfFloat(extensions),
+        )
+        allocField(exportField)
+        for (stroke in strokes) stampInto(exportField, exportAspect, stroke, stroke.stamps)
+
+        // Offscreen color buffer at export size.
+        val outTex = IntArray(1)
+        GLES30.glGenTextures(1, outTex, 0)
+        allocOutTex(outTex)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, outTex[0])
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, source.width, source.height, 0,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null,
+        )
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        val outFbo = IntArray(1)
+        GLES30.glGenFramebuffers(1, outFbo, 0)
+        allocOutFbo(outFbo)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, outFbo[0])
+        GLES30.glFramebufferTexture2D(
+            GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, outTex[0], 0,
+        )
+        val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+        if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) return null
+
+        // Warp pass into the offscreen buffer. u_rect with negative height
+        // flips vertically so glReadPixels' bottom-up rows come out as a
+        // top-down bitmap — no CPU row flip needed.
+        val program = warpProgram!!
+        GLES30.glViewport(0, 0, source.width, source.height)
+        GLES30.glClearColor(0f, 0f, 0f, 0f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        program.use()
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glUniform4f(uRect, -1f, 1f, 2f, -2f)
+        GLES30.glUniform1i(uImage, 0)
+        GLES30.glUniform1i(uFieldWarp, 1)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex[0])
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, exportField.readTexture)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        GLES30.glDisableVertexAttribArray(0)
+
+        // Read back and package.
+        val buffer = ByteBuffer.allocateDirect(source.width * source.height * 4)
+            .order(ByteOrder.nativeOrder())
+        GLES30.glReadPixels(
+            0, 0, source.width, source.height,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer,
+        )
+        val result = createBitmap(source.width, source.height)
+        buffer.rewind()
+        result.copyPixelsFromBuffer(buffer)
+        return result
     }
 
     private fun createQuadBuffer(): FloatBuffer {
@@ -258,10 +403,6 @@ class GlWarpRenderer(
     }
 
     private companion object {
-        /**
-         * Field long-side cap. Displacement is smooth; a ≤1024 field under
-         * a ≤2048 preview keeps stamp fill cheap with no visible loss.
-         */
-        const val FIELD_MAX_DIM = 1024f
+        const val TAG = "GlWarpRenderer"
     }
 }

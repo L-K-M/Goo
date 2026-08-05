@@ -2,6 +2,7 @@ package ch.lkmc.goo.di
 
 import android.content.Context
 import ch.lkmc.goo.data.ImageLoader
+import ch.lkmc.goo.data.ImageSaver
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,4 +18,9 @@ object AppModule {
     @Singleton
     fun provideImageLoader(@ApplicationContext context: Context): ImageLoader =
         ImageLoader(context)
+
+    @Provides
+    @Singleton
+    fun provideImageSaver(@ApplicationContext context: Context): ImageSaver =
+        ImageSaver(context)
 }

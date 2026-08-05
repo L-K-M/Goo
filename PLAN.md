@@ -98,12 +98,18 @@ allocation on the touch path. Brush math: `b(p) = strength · falloff(|p−c|/r)
 | UnGoo  | lerp the field toward zero under the brush (localized eraser) |
 | Global effects | parametric analytic fields (bulge, twirl, …) composed over the stroke field |
 
-**Export.** Decode the original at full resolution (EXIF-rotated), upload,
-bilinearly upsample the field, run the same warp shader into an offscreen
-FBO, `glReadPixels`, save. Images exceeding `GL_MAX_TEXTURE_SIZE` render in
-tiles (same shader, per-tile UV window). Movie export renders each tweened
-frame into a MediaCodec input surface (shared EGL context) and muxes H.264
-into MP4; GIF uses a bounded-size palette encoder.
+**Export.** Decode the original (EXIF-rotated) at the export cap — the GL
+max texture size or the 4096 memory budget, whichever is tighter
+(`ExportSize`; five export-sized allocations coexist at the readback peak
+— source bitmap, two GL textures, readback buffer, result bitmap: ~320 MB
+at the 4096² worst case, so uncapped 48 MP would OOM mid-range devices). Upload, replay the stroke
+log into a fresh field with the identical stamp code, run the same warp
+shader into an offscreen FBO, `glReadPixels`, save. Sources beyond the cap
+downscale (~12 MP output); true full-resolution tiled export
+(displacement-bounded source tiles) is tracked as REVIEW.md G-5. Movie
+export renders each tweened frame into a MediaCodec input surface (shared
+EGL context) and muxes H.264 into MP4; GIF uses a bounded-size palette
+encoder.
 
 ### 4.2 Package layout
 
