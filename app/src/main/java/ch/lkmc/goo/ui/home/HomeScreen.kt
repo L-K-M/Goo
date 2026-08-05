@@ -167,13 +167,20 @@ private fun SampleThumb(
     val context = LocalContext.current
     val thumb by produceState<ImageBitmap?>(initialValue = null, assetPath) {
         value = withContext(Dispatchers.IO) {
-            context.assets.open(assetPath).use { stream ->
-                BitmapFactory.decodeStream(
-                    stream,
-                    null,
-                    BitmapFactory.Options().apply { inSampleSize = 4 },
-                )
-            }?.asImageBitmap()
+            // A missing/unreadable asset degrades to the placeholder disc,
+            // never a crash (the paths are hardcoded next to the assets,
+            // but a rename shouldn't take the In room down).
+            try {
+                context.assets.open(assetPath).use { stream ->
+                    BitmapFactory.decodeStream(
+                        stream,
+                        null,
+                        BitmapFactory.Options().apply { inSampleSize = 4 },
+                    )
+                }?.asImageBitmap()
+            } catch (e: java.io.IOException) {
+                null
+            }
         }
     }
     val label = stringResource(labelRes)
