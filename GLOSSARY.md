@@ -2,8 +2,16 @@
 
 Terms of art in this repo — KPT heritage and engine internals.
 
+- **Meltorama 2000** — the app. "Meltorama" alone where length matters
+  (launcher label). The claim is *Goo Your Photos*: the product got a
+  retro-future name, the verb stayed.
 - **Goo / gooing** — dragging pixels around like wet paint; the app's whole
   point. From Kai's Power Goo (MetaTools, 1996).
+- **Deck / panel** — the console the UI is built from: `MeltDeck` is the
+  dark backdrop, `MeltPanel` the raised plates the rails sit on
+  (`Modifier.chromePanel`). Lit from above, always.
+- **Bezel / rim** — the swept-chrome ring around a control
+  (`chromeSweep()`); the neon dome inside it is the button proper.
 - **Room** — KPT Goo's full-screen single-task spaces (In, Goo, Fusion,
   Out). We keep the metaphor: Home = In, Editor = Goo, Export = Out.
 - **Displacement field** — texture `D` of UV offsets; rendering samples the

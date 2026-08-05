@@ -4,31 +4,31 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
-// Always dark: the editor is a lit table in a dark room, in both system
-// themes — photos and candy buttons pop against it, and there is no "light
-// mode" of a 90s funware table. (KPT Goo had exactly one look, too.)
-private val GooColorScheme = darkColorScheme(
-    primary = CandyPink,
-    onPrimary = GooTableShadow,
-    secondary = CandyCyan,
-    onSecondary = GooTableShadow,
-    tertiary = CandyLime,
-    onTertiary = GooTableShadow,
-    background = GooTable,
-    onBackground = GooOnDark,
-    surface = GooTableRaised,
-    onSurface = GooOnDark,
-    surfaceVariant = GooTableRaised,
-    onSurfaceVariant = GooOnDarkDim,
-    error = CandyOrange,
-    onError = GooTableShadow,
+// Always dark: the editor is a lit console in a dark room, in both system
+// themes — photos and neon controls pop against gunmetal, and there is no
+// "light mode" of a 90s funware deck. (KPT Goo had exactly one look, too.)
+private val MeltoramaColorScheme = darkColorScheme(
+    primary = NeonMagenta,
+    onPrimary = MeltVoid,
+    secondary = NeonCyan,
+    onSecondary = MeltVoid,
+    tertiary = NeonLime,
+    onTertiary = MeltVoid,
+    background = MeltDeck,
+    onBackground = MeltOnDark,
+    surface = MeltPanel,
+    onSurface = MeltOnDark,
+    surfaceVariant = MeltPanel,
+    onSurfaceVariant = MeltOnDarkDim,
+    error = NeonTangerine,
+    onError = MeltVoid,
 )
 
 @Composable
-fun GooTheme(content: @Composable () -> Unit) {
+fun MeltoramaTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = GooColorScheme,
-        typography = GooTypography,
+        colorScheme = MeltoramaColorScheme,
+        typography = MeltoramaTypography,
         content = content,
     )
 }

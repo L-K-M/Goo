@@ -2,6 +2,7 @@ package ch.lkmc.goo.ui.editor
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -18,18 +19,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.GlobalParams
-import ch.lkmc.goo.ui.components.CandyLever
-import ch.lkmc.goo.ui.theme.CandyCyan
-import ch.lkmc.goo.ui.theme.CandyGrape
-import ch.lkmc.goo.ui.theme.CandyLemon
-import ch.lkmc.goo.ui.theme.CandyLime
-import ch.lkmc.goo.ui.theme.CandyOrange
-import ch.lkmc.goo.ui.theme.CandyPink
+import ch.lkmc.goo.ui.components.chromePanel
+import ch.lkmc.goo.ui.components.ChromeLever
+import ch.lkmc.goo.ui.theme.NeonCyan
+import ch.lkmc.goo.ui.theme.NeonViolet
+import ch.lkmc.goo.ui.theme.NeonAmber
+import ch.lkmc.goo.ui.theme.NeonLime
+import ch.lkmc.goo.ui.theme.NeonTangerine
+import ch.lkmc.goo.ui.theme.NeonMagenta
 
 /**
- * The global-effects rig (PLAN.md §4.1): six bipolar candy levers, live
+ * The global-effects rig (PLAN.md §4.1): six bipolar levers, live
  * on the whole image, composed over the painted goo. Center = identity;
- * each lever wears its own candy color and snaps to the center detent.
+ * each lever wears its own neon and snaps to the center detent.
  */
 @Composable
 fun LeversPanel(
@@ -39,26 +41,27 @@ fun LeversPanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .chromePanel(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        Lever(R.string.lever_bulge, globals.bulge, CandyPink) {
+        Lever(R.string.lever_bulge, globals.bulge, NeonMagenta) {
             onChange(globals.copy(bulge = it))
         }
-        Lever(R.string.lever_twirl, globals.twirl, CandyCyan) {
+        Lever(R.string.lever_twirl, globals.twirl, NeonCyan) {
             onChange(globals.copy(twirl = it))
         }
-        Lever(R.string.lever_squeeze, globals.squeeze, CandyOrange) {
+        Lever(R.string.lever_squeeze, globals.squeeze, NeonTangerine) {
             onChange(globals.copy(squeeze = it))
         }
-        Lever(R.string.lever_stretch, globals.stretch, CandyLime) {
+        Lever(R.string.lever_stretch, globals.stretch, NeonLime) {
             onChange(globals.copy(stretch = it))
         }
-        Lever(R.string.lever_spike, globals.spike, CandyLemon) {
+        Lever(R.string.lever_spike, globals.spike, NeonAmber) {
             onChange(globals.copy(spike = it))
         }
-        Lever(R.string.lever_static, globals.static, CandyGrape) {
+        Lever(R.string.lever_static, globals.static, NeonViolet) {
             onChange(globals.copy(static = it))
         }
         Row(
@@ -87,7 +90,7 @@ private fun Lever(labelRes: Int, value: Float, color: Color, onChange: (Float) -
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        CandyLever(
+        ChromeLever(
             modifier = Modifier.weight(1f),
             value = value,
             color = color,

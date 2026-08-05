@@ -1,7 +1,7 @@
 package ch.lkmc.goo.ui.components
 
 /**
- * Detent logic for [CandyLever], kept as pure math so it's unit-testable
+ * Detent logic for [ChromeLever], kept as pure math so it's unit-testable
  * without Compose. Levers live in [-1, 1] with a magnetic center: values
  * released inside the detent snap to exact 0 (identity), and dragging
  * across the center ticks the haptics like a real switch.

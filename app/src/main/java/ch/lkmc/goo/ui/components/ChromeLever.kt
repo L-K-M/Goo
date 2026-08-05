@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -32,20 +33,24 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.unit.dp
-import ch.lkmc.goo.ui.theme.GooTableShadow
+import ch.lkmc.goo.ui.theme.ChromeHi
+import ch.lkmc.goo.ui.theme.ChromeLo
+import ch.lkmc.goo.ui.theme.MeltVoid
+import ch.lkmc.goo.ui.theme.chromeSweep
 import kotlinx.coroutines.launch
 
 /**
- * A bipolar candy lever: glossy ball thumb on a grooved track with a
- * magnetic center detent. Center = identity; releasing inside the detent
- * springs the ball to exact 0 (so "off" is honest), and crossing the
- * center ticks the haptics like a physical switch.
+ * A bipolar console lever: a neon thumb in a milled ring, riding a slot
+ * machined into the panel, with a magnetic center detent. Center =
+ * identity; releasing inside the detent springs the thumb to exact 0 (so
+ * "off" is honest), and crossing the center ticks the haptics like a
+ * physical switch.
  *
  * The drag calls [onChange] continuously — the levers drive live warp
  * uniforms, so per-frame updates are the point (see PLAN.md §4.1).
  */
 @Composable
-fun CandyLever(
+fun ChromeLever(
     value: Float,
     color: Color,
     contentDescription: String,
@@ -129,50 +134,71 @@ fun CandyLever(
             val trackRight = size.width - thumbRadiusPx
             val trackH = 8.dp.toPx()
 
-            // Groove: a recessed slot in the table.
+            // Groove: a slot milled into the panel — dark inside, with a
+            // bright hairline along the top lip where the light catches
+            // the machined edge (the whole console is lit from above).
             drawRoundRect(
-                color = GooTableShadow,
+                color = MeltVoid,
                 topLeft = Offset(trackLeft, cy - trackH / 2f),
                 size = Size(trackRight - trackLeft, trackH),
                 cornerRadius = CornerRadius(trackH / 2f),
             )
-            // Center detent notch.
+            drawRoundRect(
+                color = ChromeLo.copy(alpha = 0.9f),
+                topLeft = Offset(trackLeft, cy - trackH / 2f),
+                size = Size(trackRight - trackLeft, trackH),
+                cornerRadius = CornerRadius(trackH / 2f),
+                style = Stroke(width = 1.dp.toPx()),
+            )
+            // Center detent notch: a scored index mark on the slot.
             val cx = (trackLeft + trackRight) / 2f
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.18f),
+                color = ChromeHi.copy(alpha = 0.55f),
                 topLeft = Offset(cx - 1.5.dp.toPx(), cy - trackH),
                 size = Size(3.dp.toPx(), trackH * 2f),
                 cornerRadius = CornerRadius(1.5.dp.toPx()),
             )
-            // Fill from center to the ball, in the lever's candy color.
+            // Fill from center to the ball: the lever's neon tube lighting
+            // up the length of travel.
             val ballX = cx + (ball.value * (trackRight - trackLeft) / 2f)
             if (ball.value != 0f) {
                 drawRoundRect(
-                    color = color.copy(alpha = 0.55f),
+                    color = color.copy(alpha = 0.75f),
                     topLeft = Offset(minOf(cx, ballX), cy - trackH / 2f),
                     size = Size(kotlin.math.abs(ballX - cx), trackH),
                     cornerRadius = CornerRadius(trackH / 2f),
                 )
             }
-            // The ball: a mini candy sphere, swelling slightly in hand.
+            // The thumb: a neon core in a milled ring, swelling in hand.
             val r = thumbRadiusPx * if (dragging) 1.15f else 1f
+            val ringWidth = r * 0.22f
             drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(color.lighten(0.35f), color, color.darken(0.35f)),
-                    center = Offset(ballX - r * 0.3f, cy - r * 0.35f),
-                    radius = r * 1.6f,
-                ),
-                radius = r,
+                brush = chromeSweep(),
+                radius = r - ringWidth / 2f,
                 center = Offset(ballX, cy),
+                style = Stroke(width = ringWidth),
             )
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.55f), Color.Transparent),
-                    center = Offset(ballX - r * 0.30f, cy - r * 0.35f),
-                    radius = r * 0.5f,
+                    colors = listOf(color.lighten(0.40f), color, color.darken(0.45f)),
+                    center = Offset(ballX - r * 0.3f, cy - r * 0.35f),
+                    radius = r * 1.6f,
                 ),
-                radius = r * 0.5f,
-                center = Offset(ballX - r * 0.30f, cy - r * 0.35f),
+                radius = r - ringWidth,
+                center = Offset(ballX, cy),
+            )
+            // Gloss sized against the CORE, not the outer radius: at the
+            // outer radius the haze would spill onto the milled ring.
+            val core = r - ringWidth
+            val gloss = Offset(ballX - core * 0.30f, cy - core * 0.35f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.60f), Color.Transparent),
+                    center = gloss,
+                    radius = core * 0.5f,
+                ),
+                radius = core * 0.5f,
+                center = gloss,
             )
         }
     }

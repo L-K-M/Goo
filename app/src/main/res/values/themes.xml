@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Pre-Compose window chrome only; everything visible is Compose-drawn.
-         The window background matches ui/theme/Color.kt GooTable so the
+         The window background matches ui/theme/Color.kt MeltDeck so the
          launch frame doesn't flash a foreign color. -->
-    <style name="Theme.Goo" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/goo_table</item>
+    <style name="Theme.Meltorama" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/melt_deck</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>

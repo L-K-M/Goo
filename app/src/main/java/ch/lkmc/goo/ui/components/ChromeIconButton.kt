@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -28,20 +29,21 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import ch.lkmc.goo.ui.theme.GooTableRaised
-import ch.lkmc.goo.ui.theme.GooTableShadow
+import ch.lkmc.goo.ui.theme.MeltPanel
+import ch.lkmc.goo.ui.theme.MeltVoid
+import ch.lkmc.goo.ui.theme.chromeSweep
 
 /**
- * A small candy sphere with an icon — the editor's working control.
+ * A chrome-rimmed bead with an icon — the editor's working control.
  *
- * Three visual states: enabled+selected glows in its candy [color],
- * enabled+unselected sits as a dimmer glass bead, disabled recedes into
- * the table. Press squishes with the same spring as [CandyButton];
- * selecting ticks the haptics, because buttons that feel like gummies
- * should also click like them.
+ * Three visual states: enabled+selected burns in its neon [color] and
+ * spills glow onto the deck, enabled+unselected sits as a dark bead
+ * behind the same rim, disabled lets the rim go dull and recedes into the
+ * panel. Press squishes with the same spring as [ChromeButton]; selecting
+ * ticks the haptics, because a console this shiny should also click.
  */
 @Composable
-fun CandyIconButton(
+fun ChromeIconButton(
     icon: ImageVector,
     contentDescription: String,
     color: Color,
@@ -63,7 +65,7 @@ fun CandyIconButton(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium,
         ),
-        label = "candyIconSquish",
+        label = "chromeIconSquish",
     )
     // Selection pops the whole bead slightly proud of its neighbors.
     val pop by animateFloatAsState(
@@ -72,17 +74,17 @@ fun CandyIconButton(
             dampingRatio = Spring.DampingRatioLowBouncy,
             stiffness = Spring.StiffnessMediumLow,
         ),
-        label = "candyIconPop",
+        label = "chromeIconPop",
     )
 
     val body = when {
-        !enabled -> GooTableRaised
+        !enabled -> MeltPanel
         selected -> color
-        else -> color.copy(alpha = 0.30f).compositeOverTable()
+        else -> color.copy(alpha = 0.30f).compositeOverPanel()
     }
     val iconTint = when {
         !enabled -> Color.White.copy(alpha = 0.22f)
-        selected -> GooTableShadow
+        selected -> MeltVoid
         else -> Color.White.copy(alpha = 0.75f)
     }
 
@@ -110,11 +112,34 @@ fun CandyIconButton(
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(size)) {
-            val r = this.size.minDimension / 2f
+            val outer = this.size.minDimension / 2f
             val c = Offset(this.size.width / 2f, this.size.height / 2f)
+            // A selected tool lights its own patch of the deck.
+            if (enabled && selected) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(color.copy(alpha = 0.40f), Color.Transparent),
+                        center = c,
+                        radius = outer,
+                    ),
+                    radius = outer,
+                    center = c,
+                )
+            }
+            // Milled rim: thin, so the bead still reads as the subject.
+            val rimWidth = outer * 0.12f
+            val rimRadius = outer * 0.92f - rimWidth / 2f
+            drawCircle(
+                brush = chromeSweep(),
+                radius = rimRadius,
+                center = c,
+                style = Stroke(width = rimWidth),
+                alpha = if (enabled) 1f else 0.35f,
+            )
+            val r = rimRadius - rimWidth / 2f
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(body.lighten(0.30f), body, body.darken(0.35f)),
+                    colors = listOf(body.lighten(0.30f), body, body.darken(0.40f)),
                     center = c + Offset(-r * 0.3f, -r * 0.35f),
                     radius = r * 1.6f,
                 ),
@@ -146,9 +171,9 @@ fun CandyIconButton(
     }
 }
 
-/** Flatten a translucent candy onto the table color for the bead look. */
-private fun Color.compositeOverTable(): Color {
-    val bg = GooTableRaised
+/** Flatten a translucent neon onto the panel color for the bead look. */
+private fun Color.compositeOverPanel(): Color {
+    val bg = MeltPanel
     val a = alpha
     return Color(
         red = red * a + bg.red * (1 - a),

@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The single user-visible source of the app name (PLAN.md "Renaming"):
-         change it here and the launcher, home screen, and window all follow. -->
-    <string name="app_name">Goo</string>
+    <!-- The single user-visible source of the app name (PLAN.md "Renaming").
+         SHORT form on purpose: this is the launcher label, where Android
+         gives about 12 characters before it ellipsizes. The full name is
+         [app_name_full] + [app_model], set as a lockup on the In screen. -->
+    <string name="app_name">Meltorama</string>
+    <string name="app_name_full">MELTORAMA</string>
+    <string name="app_model">2000</string>
 
-    <string name="home_tagline">Squish, smear and stretch your photos\nlike wet paint.</string>
+    <string name="home_tagline">GOO YOUR PHOTOS</string>
+    <string name="home_subtagline">Squish, smear and stretch your photos\nlike wet paint.</string>
     <string name="home_enter_goo">GOO!</string>
     <string name="home_samples_label">No photo handy? Goo a sample:</string>
     <string name="sample_goo_guy">Sample: Goo Guy</string>
@@ -32,8 +37,8 @@
     <string name="tool_fuse">Fusion</string>
 
     <string name="home_about">About</string>
-    <string name="about_title">Goo %1$s</string>
-    <string name="about_body">Squish, smear and stretch your photos like wet paint — a loving homage to Kai\'s Power Goo (1996). Fully offline: no permissions, no network, nothing leaves your device.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense). Unaffiliated with the rights holders of Kai\'s Power Goo or KPT.</string>
+    <string name="about_title">Meltorama 2000 %1$s</string>
+    <string name="about_body">Squish, smear and stretch your photos like wet paint — a loving homage to Kai\'s Power Goo (1996), in the retro-future livery it always deserved. Fully offline: no permissions, no network, nothing leaves your device.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense). Unaffiliated with the rights holders of Kai\'s Power Goo or KPT.</string>
     <string name="about_close">Close</string>
     <string name="fusion_change_photo">Swap photo</string>
     <string name="fusion_remove_photo">Remove photo</string>
@@ -90,7 +95,7 @@
     <string name="export_quality">Quality %1$d</string>
     <string name="export_save">Save</string>
     <string name="export_share">Share</string>
-    <string name="export_saved_gallery">Saved to Pictures/Goo</string>
+    <string name="export_saved_gallery">Saved to Pictures/Meltorama</string>
     <string name="export_saved_app_storage">Saved — use Share to move it to your gallery</string>
     <!-- Generic: the Failed event carries import failures too (photo B). -->
     <string name="export_failed">That didn\'t work:</string>

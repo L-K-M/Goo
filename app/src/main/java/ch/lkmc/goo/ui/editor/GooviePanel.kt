@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,21 +51,22 @@ import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.GoovieHint
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.goovieHint
-import ch.lkmc.goo.ui.components.CandyIconButton
+import ch.lkmc.goo.ui.components.chromePanel
+import ch.lkmc.goo.ui.components.ChromeIconButton
 import ch.lkmc.goo.ui.components.darken
 import ch.lkmc.goo.ui.components.lighten
-import ch.lkmc.goo.ui.theme.CandyCyan
-import ch.lkmc.goo.ui.theme.CandyGrape
-import ch.lkmc.goo.ui.theme.CandyLemon
-import ch.lkmc.goo.ui.theme.CandyLime
-import ch.lkmc.goo.ui.theme.CandyOrange
-import ch.lkmc.goo.ui.theme.CandyPink
-import ch.lkmc.goo.ui.theme.GooTableRaised
-import ch.lkmc.goo.ui.theme.GooTableShadow
+import ch.lkmc.goo.ui.theme.NeonCyan
+import ch.lkmc.goo.ui.theme.NeonViolet
+import ch.lkmc.goo.ui.theme.NeonAmber
+import ch.lkmc.goo.ui.theme.NeonLime
+import ch.lkmc.goo.ui.theme.NeonTangerine
+import ch.lkmc.goo.ui.theme.NeonMagenta
+import ch.lkmc.goo.ui.theme.MeltPanel
+import ch.lkmc.goo.ui.theme.MeltVoid
 
 /**
  * The GOOvie strip (PLAN.md §10 step 7): punch keyframes as you goo,
- * scrub the tweens, play the loop. Numbered candy beads stand in for
+ * scrub the tweens, play the loop. Numbered neon beads stand in for
  * thumbnails until the polish pass (#10) — the numbers are the KPT way
  * anyway.
  *
@@ -99,8 +101,9 @@ fun GooviePanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .chromePanel(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
@@ -108,12 +111,12 @@ fun GooviePanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CandyIconButton(
+            ChromeIconButton(
                 icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = stringResource(
                     if (playing) R.string.goovie_pause else R.string.goovie_play,
                 ),
-                color = CandyLime,
+                color = NeonLime,
                 selected = playing,
                 // Playing during an export would advance a preview the
                 // busy GL thread can't draw — a frozen image and a queue
@@ -147,10 +150,10 @@ fun GooviePanel(
                     )
                 }
             }
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.Add,
                 contentDescription = stringResource(R.string.goovie_capture),
-                color = CandyPink,
+                color = NeonMagenta,
                 selected = false,
                 enabled = canCapture && !exporting,
                 onClick = onCapture,
@@ -171,8 +174,8 @@ fun GooviePanel(
                 LinearProgressIndicator(
                     progress = { exportProgress },
                     modifier = Modifier.weight(1f),
-                    color = CandyLime,
-                    trackColor = GooTableShadow,
+                    color = NeonLime,
+                    trackColor = MeltVoid,
                 )
             }
         } else {
@@ -192,9 +195,9 @@ fun GooviePanel(
                         // marks where a scrub would land (and scrubbing is
                         // how you get back), but it is NOT what's on
                         // screen — so dim it instead of implying it is.
-                        thumbColor = if (live) CandyLemon.copy(alpha = 0.45f) else CandyLemon,
-                        activeTrackColor = CandyLemon.copy(alpha = if (live) 0.25f else 0.6f),
-                        inactiveTrackColor = GooTableShadow,
+                        thumbColor = if (live) NeonAmber.copy(alpha = 0.45f) else NeonAmber,
+                        activeTrackColor = NeonAmber.copy(alpha = if (live) 0.25f else 0.6f),
+                        inactiveTrackColor = MeltVoid,
                     ),
                 )
                 // Scrollable for the same reason the top rail is (K3-1):
@@ -206,19 +209,19 @@ fun GooviePanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    CandyIconButton(
+                    ChromeIconButton(
                         icon = Icons.Filled.ChevronLeft,
                         contentDescription = stringResource(R.string.goovie_move_earlier),
-                        color = CandyCyan,
+                        color = NeonCyan,
                         selected = false,
                         enabled = selected > 0,
                         onClick = { onMove(-1) },
                         size = 38.dp,
                     )
-                    CandyIconButton(
+                    ChromeIconButton(
                         icon = Icons.Filled.ChevronRight,
                         contentDescription = stringResource(R.string.goovie_move_later),
-                        color = CandyCyan,
+                        color = NeonCyan,
                         selected = false,
                         enabled = selected in 0 until keyframes.size - 1,
                         onClick = { onMove(1) },
@@ -227,38 +230,38 @@ fun GooviePanel(
                     // Re-punch: the "edit this step" verb. Lit while the
                     // pin lags the live goo, so it reads as the answer to
                     // "my edits didn't land in the keyframe".
-                    CandyIconButton(
+                    ChromeIconButton(
                         icon = Icons.Filled.Cached,
                         contentDescription = stringResource(R.string.goovie_update),
-                        color = CandyLemon,
+                        color = NeonAmber,
                         selected = stale,
                         enabled = selected >= 0,
                         onClick = onRepunch,
                         size = 38.dp,
                     )
-                    CandyIconButton(
+                    ChromeIconButton(
                         icon = Icons.Filled.Close,
                         contentDescription = stringResource(R.string.goovie_delete),
-                        color = CandyOrange,
+                        color = NeonTangerine,
                         selected = false,
                         enabled = selected >= 0,
                         onClick = onDelete,
                         size = 38.dp,
                     )
-                    CandyIconButton(
+                    ChromeIconButton(
                         icon = Icons.Filled.Download,
                         contentDescription = stringResource(R.string.goovie_save_movie),
-                        color = CandyGrape,
+                        color = NeonViolet,
                         selected = false,
                         enabled = keyframes.size >= 2,
                         haptic = false,
                         onClick = { onExport(false) },
                         size = 38.dp,
                     )
-                    CandyIconButton(
+                    ChromeIconButton(
                         icon = Icons.Filled.IosShare,
                         contentDescription = stringResource(R.string.goovie_share_movie),
-                        color = CandyGrape,
+                        color = NeonViolet,
                         selected = false,
                         enabled = keyframes.size >= 2,
                         haptic = false,
@@ -315,14 +318,14 @@ private fun StripHint(
     )
 }
 
-/** A numbered candy bead — the strip's stand-in for a thumbnail. */
+/** A numbered neon bead — the strip's stand-in for a thumbnail. */
 @Composable
 private fun KeyframeBead(
     number: Int,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val body = if (selected) CandyLemon else GooTableRaised
+    val body = if (selected) NeonAmber else MeltPanel
     Box(
         modifier = Modifier
             .minimumInteractiveComponentSize()
@@ -352,7 +355,7 @@ private fun KeyframeBead(
         Text(
             text = number.toString(),
             style = MaterialTheme.typography.labelMedium,
-            color = if (selected) GooTableShadow else Color.White.copy(alpha = 0.75f),
+            color = if (selected) MeltVoid else Color.White.copy(alpha = 0.75f),
         )
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -110,22 +111,22 @@ import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import ch.lkmc.goo.engine.gl.WarpSurfaceView
-import ch.lkmc.goo.ui.components.CandyIconButton
-import ch.lkmc.goo.ui.components.CandyToolChip
+import ch.lkmc.goo.ui.components.ChromeIconButton
+import ch.lkmc.goo.ui.components.chromePanel
+import ch.lkmc.goo.ui.components.ChromeToolChip
 import ch.lkmc.goo.ui.export.ExportSheet
-import ch.lkmc.goo.ui.theme.CandyCyan
-import ch.lkmc.goo.ui.theme.CandyGrape
-import ch.lkmc.goo.ui.theme.CandyLemon
-import ch.lkmc.goo.ui.theme.CandyLime
-import ch.lkmc.goo.ui.theme.CandyOrange
-import ch.lkmc.goo.ui.theme.CandyPink
-import ch.lkmc.goo.ui.theme.GooTableShadow
+import ch.lkmc.goo.ui.theme.NeonCyan
+import ch.lkmc.goo.ui.theme.NeonViolet
+import ch.lkmc.goo.ui.theme.NeonAmber
+import ch.lkmc.goo.ui.theme.NeonLime
+import ch.lkmc.goo.ui.theme.NeonTangerine
+import ch.lkmc.goo.ui.theme.NeonMagenta
+import ch.lkmc.goo.ui.theme.MeltVoid
 
 /**
  * The Goo room: the GL canvas with the brush pipeline wired through the
  * ViewModel (touch → resampler → stamps → GPU), a minimal control rail
- * (undo/redo/reset/brush size). Candy-fication of these controls comes
- * with the UI-polish roadmap step; the goal here is a correct, fast MVP.
+ * (undo/redo/reset/brush size), mounted on milled console plates.
  */
 @Composable
 fun EditorScreen(
@@ -576,10 +577,10 @@ private fun WarpEditor(
                 enter = fadeIn(),
                 exit = fadeOut(),
             ) {
-                CandyIconButton(
+                ChromeIconButton(
                     icon = Icons.Filled.CenterFocusStrong,
                     contentDescription = stringResource(R.string.editor_reset_view),
-                    color = CandyCyan,
+                    color = NeonCyan,
                     selected = false,
                     onClick = ::animateViewReset,
                 )
@@ -648,9 +649,9 @@ private fun WarpEditor(
                 Text(
                     text = stringResource(R.string.editor_hint_smear),
                     style = MaterialTheme.typography.labelLarge,
-                    color = GooTableShadow,
+                    color = MeltVoid,
                     modifier = Modifier
-                        .background(CandyLemon, CircleShape)
+                        .background(NeonAmber, CircleShape)
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                 )
             }
@@ -850,15 +851,18 @@ private fun TopRail(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Plate first, insets after: the milled panel runs up behind
+            // the status bar instead of floating below a bare strip.
+            .chromePanel(RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp))
             .statusBarsPadding()
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CandyIconButton(
+        ChromeIconButton(
             icon = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = stringResource(R.string.editor_back),
-            color = CandyCyan,
+            color = NeonCyan,
             selected = false,
             haptic = false,
             onClick = onBack,
@@ -872,59 +876,59 @@ private fun TopRail(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.AutoMirrored.Filled.Undo,
                 contentDescription = stringResource(R.string.editor_undo),
-                color = CandyLime,
+                color = NeonLime,
                 selected = false,
                 enabled = canUndo,
                 onClick = onUndo,
             )
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.AutoMirrored.Filled.Redo,
                 contentDescription = stringResource(R.string.editor_redo),
-                color = CandyLime,
+                color = NeonLime,
                 selected = false,
                 enabled = canRedo,
                 onClick = onRedo,
             )
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.DeleteSweep,
                 contentDescription = stringResource(R.string.editor_reset),
-                color = CandyOrange,
+                color = NeonTangerine,
                 selected = false,
                 enabled = canReset,
                 onClick = onReset,
             )
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.Crop,
                 contentDescription = stringResource(R.string.editor_crop),
-                color = CandyGrape,
+                color = NeonViolet,
                 selected = cropActive,
                 selectable = true,
                 enabled = cropEnabled,
                 onClick = onCrop,
             )
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.Tune,
                 contentDescription = stringResource(R.string.editor_levers),
-                color = CandyCyan,
+                color = NeonCyan,
                 selected = leversActive,
                 selectable = true,
                 onClick = onLevers,
             )
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.Movie,
                 contentDescription = stringResource(R.string.editor_goovies),
-                color = CandyLemon,
+                color = NeonAmber,
                 selected = goovieActive,
                 selectable = true,
                 onClick = onGoovie,
             )
-            CandyIconButton(
+            ChromeIconButton(
                 icon = Icons.Filled.IosShare,
                 contentDescription = stringResource(R.string.editor_export),
-                color = CandyPink,
+                color = NeonMagenta,
                 selected = false,
                 haptic = false,
                 onClick = onExport,
@@ -962,8 +966,9 @@ private fun BrushRail(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .chromePanel(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
@@ -974,19 +979,19 @@ private fun BrushRail(
             verticalAlignment = Alignment.Top,
         ) {
             BrushTool.entries.forEach { entry ->
-                CandyToolChip(
+                ChromeToolChip(
                     icon = entry.icon(),
                     label = stringResource(entry.labelRes()),
-                    color = entry.candyColor(),
+                    color = entry.neonColor(),
                     selected = tool == entry,
                     enabled = entry != BrushTool.FUSE || !fusionLoading,
                     onClick = { onToolChange(entry) },
                 )
             }
-            CandyToolChip(
+            ChromeToolChip(
                 icon = Icons.Filled.Flip,
                 label = stringResource(R.string.tool_mirror),
-                color = CandyGrape,
+                color = NeonViolet,
                 selected = mirrored,
                 onClick = onMirrorToggle,
             )
@@ -994,14 +999,14 @@ private fun BrushRail(
             // needed the strip open (pins are stroke counts, safe to grab
             // mid-edit), so the bead lives on the rail. The count in the
             // label is the punch confirmation.
-            CandyToolChip(
+            ChromeToolChip(
                 icon = Icons.Filled.AddAPhoto,
                 label = if (keyframeCount > 0) {
                     stringResource(R.string.goovie_punch_count, keyframeCount)
                 } else {
                     stringResource(R.string.goovie_punch)
                 },
-                color = CandyLemon,
+                color = NeonAmber,
                 selected = false,
                 enabled = keyframeCount < EditorViewModel.MAX_KEYFRAMES,
                 onClick = onPunch,
@@ -1011,27 +1016,27 @@ private fun BrushRail(
             // strip shouldn't have to be open. This is the only way goo
             // made AFTER a punch reaches an existing keyframe.
             if (updateKeyframe > 0) {
-                CandyToolChip(
+                ChromeToolChip(
                     icon = Icons.Filled.Cached,
                     label = stringResource(R.string.goovie_update_count, updateKeyframe),
-                    color = CandyLemon,
+                    color = NeonAmber,
                     selected = false,
                     onClick = onRepunch,
                 )
             }
             if (showFusionPick) {
-                CandyToolChip(
+                ChromeToolChip(
                     icon = Icons.Filled.Collections,
                     label = stringResource(R.string.fusion_change_photo),
-                    color = CandyGrape,
+                    color = NeonViolet,
                     selected = false,
                     enabled = !fusionLoading,
                     onClick = onFusionPick,
                 )
-                CandyToolChip(
+                ChromeToolChip(
                     icon = Icons.Filled.HideImage,
                     label = stringResource(R.string.fusion_remove_photo),
-                    color = CandyOrange,
+                    color = NeonTangerine,
                     selected = false,
                     enabled = !fusionLoading,
                     onClick = onFusionRemove,
@@ -1091,9 +1096,9 @@ private fun LabeledSlider(
             onValueChangeFinished = { onAdjustingChange(false) },
             valueRange = valueRange,
             colors = SliderDefaults.colors(
-                thumbColor = CandyPink,
-                activeTrackColor = CandyPink.copy(alpha = 0.6f),
-                inactiveTrackColor = GooTableShadow,
+                thumbColor = NeonMagenta,
+                activeTrackColor = NeonMagenta.copy(alpha = 0.6f),
+                inactiveTrackColor = MeltVoid,
             ),
         )
     }
@@ -1135,17 +1140,17 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.FUSE -> Icons.Filled.PhotoLibrary
 }
 
-/** Each tool wears its own candy — families share a flavor. */
-private fun BrushTool.candyColor(): Color = when (this) {
-    BrushTool.SMEAR -> CandyPink
-    BrushTool.MOVE -> CandyCyan
-    BrushTool.SMUDGE -> CandyPink
-    BrushTool.NUDGE -> CandyCyan
-    BrushTool.GROW -> CandyOrange
-    BrushTool.SHRINK -> CandyLemon
-    BrushTool.SMOOTH -> CandyLime
-    BrushTool.UNGOO -> CandyLime
-    BrushTool.FUSE -> CandyGrape
+/** Each tool wears its own tube of neon — families share a color. */
+private fun BrushTool.neonColor(): Color = when (this) {
+    BrushTool.SMEAR -> NeonMagenta
+    BrushTool.MOVE -> NeonCyan
+    BrushTool.SMUDGE -> NeonMagenta
+    BrushTool.NUDGE -> NeonCyan
+    BrushTool.GROW -> NeonTangerine
+    BrushTool.SHRINK -> NeonAmber
+    BrushTool.SMOOTH -> NeonLime
+    BrushTool.UNGOO -> NeonLime
+    BrushTool.FUSE -> NeonViolet
 }
 
 @Composable
@@ -1169,7 +1174,7 @@ private fun ErrorPane(message: String, onBack: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         TextButton(onClick = onBack) {
-            Text(stringResource(R.string.editor_back), color = CandyCyan)
+            Text(stringResource(R.string.editor_back), color = NeonCyan)
         }
     }
 }
