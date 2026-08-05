@@ -91,6 +91,8 @@ void main() {
     vec3 cur = texture(u_field, v_uv).xyz;
     vec3 next;
     if (u_mode == 5) {              // FUSE: mask flow, displacement as-is
+        // 0.30 = BrushDynamics.FUSE_STEP (0.22 below = BLEND_STEP) —
+        // documented-duplication convention, keep in sync.
         next = vec3(cur.xy, clamp(cur.z + w * 0.30, 0.0, 1.0));
     } else if (u_mode == 3) {       // RELAX
         vec3 blur = 0.25 * (

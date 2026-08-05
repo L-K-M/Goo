@@ -231,6 +231,10 @@ class EditorViewModel @Inject constructor(
                 val bitmapB = try {
                     imageLoader.decodeCover(file, bitmap.width, bitmap.height)
                 } catch (e: Exception) {
+                    // Deliberately includes cancellation: the just-copied
+                    // file has no owner yet (sessionFileB still points at
+                    // the old B, the key was never written), so deleting
+                    // here is orphan cleanup, not a stray side effect.
                     file.delete()
                     throw e
                 }
