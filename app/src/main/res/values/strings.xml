@@ -27,6 +27,11 @@
     <string name="tool_smooth">Smooth</string>
     <string name="tool_ungoo">UnGoo</string>
     <string name="tool_fuse">Fusion</string>
+
+    <string name="home_about">About</string>
+    <string name="about_title">Goo %1$s</string>
+    <string name="about_body">Squish, smear and stretch your photos like wet paint — a loving homage to Kai\'s Power Goo (1996). Fully offline: no permissions, no network, nothing leaves your device.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense). Unaffiliated with the rights holders of Kai\'s Power Goo or KPT.</string>
+    <string name="about_close">Close</string>
     <string name="fusion_change_photo">Swap photo</string>
     <string name="tool_mirror">Mirror</string>
 
@@ -60,5 +65,6 @@
     <string name="export_share">Share</string>
     <string name="export_saved_gallery">Saved to Pictures/Goo</string>
     <string name="export_saved_app_storage">Saved — use Share to move it to your gallery</string>
-    <string name="export_failed">Could not export:</string>
+    <!-- Generic: the Failed event carries import failures too (photo B). -->
+    <string name="export_failed">That didn\'t work:</string>
 </resources>

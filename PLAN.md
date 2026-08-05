@@ -110,7 +110,8 @@ allocation on the touch path. Brush math: `b(p) = strength · falloff(|p−c|/r)
 max texture size or the 4096 memory budget, whichever is tighter
 (`ExportSize`; five export-sized allocations coexist at the readback peak
 — source bitmap, two GL textures, readback buffer, result bitmap: ~320 MB
-at the 4096² worst case, so uncapped 48 MP would OOM mid-range devices). Upload, replay the stroke
+at the 4096² worst case, ~450 MB with a Fusion photo B loaded (B bitmap +
+B texture), so uncapped 48 MP would OOM mid-range devices). Upload, replay the stroke
 log into a fresh field with the identical stamp code, run the same warp
 shader into an offscreen FBO, `glReadPixels`, save. Sources beyond the cap
 downscale (~12 MP output); true full-resolution tiled export
