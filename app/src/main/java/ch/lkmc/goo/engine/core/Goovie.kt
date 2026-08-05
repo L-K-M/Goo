@@ -1,39 +1,40 @@
 package ch.lkmc.goo.engine.core
 
-import kotlinx.serialization.Serializable
-
 /**
  * One GOOvie keyframe (PLAN.md §4.1): a pin into the document, not a
- * bitmap — the stroke-log snapshot plus the lever values at capture. The
- * GPU materializes fields on demand by replay; reordering keyframes
+ * bitmap — an immutable stroke revision plus the lever values at capture.
+ * The GPU materializes fields on demand by replay; reordering keyframes
  * reorders playback, the pins stay put.
  *
- * **Each keyframe is its own thing.** It holds the exact stroke list it
- * was punched from, so the editor's undo cursor can move anywhere without
- * disturbing it. That is the whole reason this is a snapshot and not the
- * prefix COUNT it used to be: counts index into `StrokeLog.strokes`,
- * which shrinks on undo, so undoing back toward the original photo
- * silently collapsed every keyframe along with it. Punching the original
- * photo as the closing frame — undo to it, punch, redo your goo — was
- * therefore impossible.
+ * **Each keyframe is its own thing.** It pins the exact [StrokeRevision]
+ * it was punched from, so the editor's undo cursor can move anywhere
+ * without disturbing it. That is the whole reason this is a revision and
+ * not the prefix COUNT it originally was: counts index into
+ * `StrokeLog.strokes`, which shrinks on undo, so undoing back toward the
+ * original photo silently collapsed every keyframe along with it.
+ * Punching the original photo as the closing frame — undo to it, punch,
+ * redo your goo — was therefore impossible.
  *
- * The snapshot is a pointer, not a copy: `StrokeLog` history entries are
- * immutable and share their `Stroke` instances, so 64 keyframes cost 64
- * list references. A snapshot the log itself has since discarded (the
- * redo branch after a new stroke) stays alive and replayable here, which
- * is exactly what independence means.
+ * The revision is a pointer, not a copy: revisions are structurally
+ * shared nodes, so 64 keyframes cost 64 references. A revision the log's
+ * history has since truncated (the redo branch after a new stroke) stays
+ * alive and replayable here, which is exactly what independence means —
+ * and its [StrokeRevisionId] is never reused, so renderer caches keyed by
+ * it can never show a stale field for a fresh pin.
  *
  * A pin is still a bookmark, not a canvas: there is no "editing
  * keyframe 2" in place. You goo the photo until it looks right, then
  * re-punch the keyframe that should hold it
  * (EditorViewModel.repunchSelectedKeyframe).
  */
-@Serializable
 data class Keyframe(
-    /** The stroke-log snapshot this pin replays. Shared, never copied. */
-    val strokes: List<Stroke>,
+    /** The immutable document revision this pin replays. */
+    val revision: StrokeRevision,
     val globals: GlobalParams,
-)
+) {
+    val revisionId: StrokeRevisionId
+        get() = revision.id
+}
 
 /**
  * What the strip should say out loud under the beads.
@@ -128,8 +129,8 @@ object GoovieTimeline {
         return if (next >= span) next.mod(span) else next
     }
 
-    // No clampCount here any more: a keyframe carries its own stroke
-    // snapshot, so there is nothing left to clamp against a log that has
+    // No clampCount here any more: a keyframe pins its own immutable
+    // revision, so there is nothing left to clamp against a log that has
     // since moved. Clamping was the mechanism by which undo flattened a
     // whole strip.
 }

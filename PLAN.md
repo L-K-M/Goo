@@ -76,13 +76,13 @@ Liquify works internally, and it buys us everything at once:
   stamping, milliseconds). Periodic field snapshots bound worst-case replay.
 - **Animation ≈ free**: a keyframe is a saved field state; tweening two
   fields is `mix(D₁, D₂, t)` in the shader. Refined at build time (#7):
-  keyframes are stored as document pins `(strokes, globals)` — the
-  immutable `StrokeLog` snapshot the punch was taken from, shared not
-  copied, so 64 of them cost 64 list references — and only the active
+  keyframes are stored as document pins `(revision, globals)` — the
+  immutable, structurally shared `StrokeRevision` the punch was taken
+  from, so 64 of them cost 64 references — and only the active
   segment's two endpoint fields are materialized (by replay, cached by
-  snapshot identity, slot-swapped for adjacent segments). Naive
-  per-keyframe *field* snapshots would cost hundreds of MB; stroke
-  snapshots cost nothing. Levers lerp on the CPU into the same warp
+  stable revision ID, slot-swapped for adjacent segments). Naive
+  per-keyframe *field* snapshots would cost hundreds of MB; revision
+  pins cost nothing. Levers lerp on the CPU into the same warp
   uniforms.
 
   Two revisions after user testing, both from the same report ("how do I
@@ -97,10 +97,11 @@ Liquify works internally, and it buys us everything at once:
   2. **Each keyframe is its own thing.** Pins were prefix *counts* into
      `StrokeLog.strokes`, which shrinks on undo — so rewinding the editor
      toward the original photo collapsed the whole strip, and punching
-     the untouched photo as a closing frame was impossible. Pins hold
-     their snapshot instead, and the log's cursor no longer means
-     anything to them: undo, redo, Reset, even a truncated redo branch
-     leave every keyframe exactly where it was punched.
+     the untouched photo as a closing frame was impossible. Pins hold an
+     immutable revision instead (ids never reused), and the log's cursor
+     no longer means anything to them: undo, redo, Reset, even a
+     truncated redo branch leave every keyframe exactly where it was
+     punched.
 
   Keyframes live in session memory like the log.
 - **Crash/context-loss safety**: GPU state is a cache. The stroke log is the

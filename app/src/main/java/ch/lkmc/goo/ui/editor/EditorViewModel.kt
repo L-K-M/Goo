@@ -23,6 +23,8 @@ import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
 import ch.lkmc.goo.engine.core.StrokeResampler
+import ch.lkmc.goo.engine.core.StrokeRevision
+import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.ui.navigation.EditorRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -101,13 +103,12 @@ class EditorViewModel @Inject constructor(
          */
         val goovieLive: Boolean = false,
         /**
-         * The live stroke-log snapshot — exactly what a punch would pin.
-         * Held as the list, not a count: keyframes now carry snapshots, so
-         * this is what they get compared against. Cheap to compare (the
-         * same instance until the log moves, and List.equals short-circuits
-         * on identity).
+         * The live document revision's id — exactly what a punch would
+         * pin. Ids are never reused, so id equality IS document-state
+         * equality; this is what keyframes get compared against. Null
+         * only until the first refresh.
          */
-        val strokes: List<Stroke> = emptyList(),
+        val revisionId: StrokeRevisionId? = null,
         /** Captured keyframes in playback order (pins into the log). */
         val keyframes: List<Keyframe> = emptyList(),
         /** Continuous strip position: [0, size-1]; ints sit on keyframes. */
@@ -129,14 +130,14 @@ class EditorViewModel @Inject constructor(
         val selectedKeyframeStale: Boolean
             get() {
                 val kf = keyframes.getOrNull(selectedKeyframe) ?: return false
-                return kf.strokes != strokes || kf.globals != globals
+                return kf.revisionId != revisionId || kf.globals != globals
             }
     }
 
     /** Everything the GL thread needs to show one scrub position. */
     data class TweenRequest(
-        val strokesA: List<Stroke>,
-        val strokesB: List<Stroke>,
+        val revisionA: StrokeRevision,
+        val revisionB: StrokeRevision,
         val t: Float,
         val lerpedGlobals: GlobalParams,
     )
@@ -534,23 +535,23 @@ class EditorViewModel @Inject constructor(
     }
 
     // ---- GOOvies -------------------------------------------------------
-    // A keyframe pins (strokes, globals): the immutable StrokeLog snapshot
+    // A keyframe pins (revision, globals): the immutable StrokeRevision
     // it was punched from, plus the levers. Endpoints materialize by
     // replay (PLAN.md §4.1). Keyframes live in session memory only, like
-    // the stroke log they snapshot.
+    // the stroke log whose revisions they pin.
     //
-    // Snapshots, not prefix counts, are what make each keyframe its own
+    // Revisions, not prefix counts, are what make each keyframe its own
     // thing: the editor's undo cursor moves freely — all the way back to
     // the untouched photo, which is how you punch a closing frame — and
-    // no pin moves with it. Counts indexed into the CURRENT snapshot, so
+    // no pin moves with it. Counts indexed into the CURRENT state, so
     // undo used to flatten the entire strip.
     //
     // Editing stays LIVE while the strip is open, and nothing an edit can
-    // do disturbs a pin: the snapshot a keyframe holds is immutable, so
+    // do disturbs a pin: the revision a keyframe holds is immutable, so
     // gooing, undo, redo, Reset and a truncated redo branch all leave it
     // exactly where it was punched. (The renderer's endpoint cache is
-    // keyed by that same snapshot identity, which is why `rebuild` no
-    // longer invalidates it.) What the strip really can't do is paint
+    // keyed by the same never-reused revision ids, which is why `rebuild`
+    // no longer invalidates it.) What the strip really can't do is paint
     // into a tween — stamps land in the live field, which a tween isn't
     // showing — hence [goLive].
 
@@ -599,7 +600,7 @@ class EditorViewModel @Inject constructor(
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
         _uiState.update { s ->
             if (s.keyframes.size >= MAX_KEYFRAMES) return@update s
-            val kf = Keyframe(strokes = log.strokes, globals = s.globals)
+            val kf = Keyframe(revision = log.currentRevision, globals = s.globals)
             val list = s.keyframes + kf
             s.copy(
                 keyframes = list,
@@ -625,7 +626,7 @@ class EditorViewModel @Inject constructor(
             val i = s.selectedKeyframe
             if (i !in s.keyframes.indices) return@update s
             val list = s.keyframes.toMutableList().apply {
-                this[i] = Keyframe(strokes = log.strokes, globals = s.globals)
+                this[i] = Keyframe(revision = log.currentRevision, globals = s.globals)
             }
             s.copy(
                 keyframes = list,
@@ -725,7 +726,7 @@ class EditorViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(exportingMovie = true, movieProgress = 0f, playing = false) }
-        // The keyframes carry their own snapshots, so this is the whole
+        // The keyframes pin their own revisions, so this is the whole
         // document the render needs — the log's cursor doesn't come into it.
         val keyframes = s.keyframes
         // The work file's mkdirs/cleanup is disk I/O — off the main thread.
@@ -786,7 +787,7 @@ class EditorViewModel @Inject constructor(
                 val r = tweenRequest()
                 engineBridge?.invoke {
                     if (r == null) clearTween()
-                    else tweenTo(r.strokesA, r.strokesB, r.t, r.lerpedGlobals)
+                    else tweenTo(r.revisionA, r.revisionB, r.t, r.lerpedGlobals)
                 }
             }
         }
@@ -804,8 +805,8 @@ class EditorViewModel @Inject constructor(
         // Straight from the pins: the log's current cursor is irrelevant
         // to what the strip shows.
         return TweenRequest(
-            strokesA = a.strokes,
-            strokesB = b.strokes,
+            revisionA = a.revision,
+            revisionB = b.revision,
             t = t,
             lerpedGlobals = a.globals.lerp(b.globals, t),
         )
@@ -934,7 +935,7 @@ class EditorViewModel @Inject constructor(
                 canRedo = log.canRedo,
                 // Feeds UiState.selectedKeyframeStale — every path that
                 // moves the log or the levers already lands here.
-                strokes = log.strokes,
+                revisionId = log.currentRevision.id,
                 // Levers count: an image warped only by levers must still
                 // offer "back to the photo".
                 canReset = !log.isEmpty || !it.globals.isIdentity,

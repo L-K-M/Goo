@@ -12,9 +12,19 @@ class GoovieHintTest {
         stamps = listOf(Stamp(cx, 0.5f, 0.01f, 0f)),
     )
 
-    /** [strokes] distinct strokes — a snapshot of that document length. */
+    /**
+     * One shared revision per document length: revision identity IS
+     * document identity, so pins of the same state share the instance —
+     * exactly what two punches at one log position produce in the app.
+     */
+    private val revisions = mutableMapOf<Int, StrokeRevision>()
+
+    private fun revisionOf(strokes: Int): StrokeRevision = revisions.getOrPut(strokes) {
+        StrokeLog().apply { repeat(strokes) { i -> push(stroke(i * 0.1f)) } }.currentRevision
+    }
+
     private fun pin(strokes: Int, bulge: Float = 0f) = Keyframe(
-        strokes = List(strokes) { stroke(it * 0.1f) },
+        revision = revisionOf(strokes),
         globals = GlobalParams(bulge = bulge),
     )
 

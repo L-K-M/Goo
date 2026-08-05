@@ -252,7 +252,7 @@ private fun WarpEditor(
     LaunchedEffect(surface, state.goovieMode, state.goovieLive, state.scrubPos, state.keyframes) {
         val req = viewModel.tweenRequest()
         if (req != null) {
-            surface?.engine { tweenTo(req.strokesA, req.strokesB, req.t, req.lerpedGlobals) }
+            surface?.engine { tweenTo(req.revisionA, req.revisionB, req.t, req.lerpedGlobals) }
         } else {
             surface?.engine { clearTween() }
         }

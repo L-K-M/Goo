@@ -16,6 +16,8 @@ import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
+import ch.lkmc.goo.engine.core.StrokeRevision
+import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.media.MovieEncoder
@@ -110,17 +112,17 @@ class GlWarpRenderer(
     private var sourceTextureB = 0
 
     // ---- GOOvie tween state --------------------------------------------
-    // Two endpoint fields materialized by replaying keyframe stroke
-    // snapshots; the warp pass mixes them (PLAN.md §4.1). tweenT < 0 means
-    // live mode. The cache is keyed by snapshot IDENTITY: history entries
-    // are immutable, so the same list object always replays to the same
-    // field — a soundness the old stroke-COUNT key never had (a count
-    // could name different strokes after an undo, which is why `rebuild`
-    // used to have to invalidate here).
+    // Two endpoint fields materialized by replaying immutable revisions;
+    // the warp pass mixes them (PLAN.md §4.1). tweenT < 0 means live
+    // mode. The cache is keyed by revision ID: revisions are immutable
+    // and their ids are never reused, so the same id always replays to
+    // the same field — a soundness the old stroke-COUNT key never had (a
+    // count could name different strokes after an undo, which is why
+    // `rebuild` used to have to invalidate here).
     private var endpointA: PingPongField? = null
     private var endpointB: PingPongField? = null
-    private var loadedA: List<Stroke>? = null
-    private var loadedB: List<Stroke>? = null
+    private var loadedRevisionA: StrokeRevisionId? = null
+    private var loadedRevisionB: StrokeRevisionId? = null
     private var tweenT = -1f
     private var tweenGlobals = GlobalParams()
 
@@ -229,10 +231,12 @@ class GlWarpRenderer(
     fun rebuild(strokes: List<Stroke>) {
         strokesToReplay = strokes
         // Deliberately does NOT touch the endpoint cache: it is keyed by
-        // snapshot identity now, and a snapshot the log has moved away
-        // from (or truncated) is still the same immutable list of strokes,
-        // so its materialized field stays correct. Keyframes holding it
-        // must keep showing it — that independence is the point.
+        // revision ID now, and a revision the log has moved away from (or
+        // truncated) is still the same immutable document state, so its
+        // materialized field stays correct. Keyframes pinning it must
+        // keep showing it — that independence is the point. Paths that
+        // recreate field STORAGE (context loss, new image) null the cache
+        // themselves in recreateGlObjects.
         val f = field ?: return
         f.clear()
         for (stroke in strokes) stampBatch(stroke, stroke.stamps)
@@ -240,38 +244,38 @@ class GlWarpRenderer(
 
     /**
      * Enter/refresh a GOOvie tween: materialize the segment's endpoint
-     * fields (the two keyframes' stroke snapshots) and mix them at [t]
-     * with [lerpedGlobals] on the levers. Endpoint replays are cached by
-     * snapshot identity — scrubbing within a segment is uniform-only, and
-     * stepping to a neighboring segment reuses the shared endpoint by
-     * swapping slots instead of replaying it.
+     * fields for [revisionA]/[revisionB] and mix them at [t] with
+     * [lerpedGlobals] on the levers. Endpoint replays are cached by stable
+     * revision ID — scrubbing within a segment is uniform-only, and stepping
+     * to a neighboring segment reuses the shared endpoint by swapping
+     * slots instead of replaying it.
      */
     fun tweenTo(
-        strokesA: List<Stroke>,
-        strokesB: List<Stroke>,
+        revisionA: StrokeRevision,
+        revisionB: StrokeRevision,
         t: Float,
         lerpedGlobals: GlobalParams,
     ) {
         val f = field ?: return
         // Adjacent-segment moves: the endpoint we need may already be
         // loaded in the other slot.
-        if (strokesA !== loadedA && strokesA === loadedB ||
-            strokesB !== loadedB && strokesB === loadedA
+        if (revisionA.id != loadedRevisionA && revisionA.id == loadedRevisionB ||
+            revisionB.id != loadedRevisionB && revisionB.id == loadedRevisionA
         ) {
             val tmpField = endpointA
             endpointA = endpointB
             endpointB = tmpField
-            val tmpLoaded = loadedA
-            loadedA = loadedB
-            loadedB = tmpLoaded
+            val tmpRevision = loadedRevisionA
+            loadedRevisionA = loadedRevisionB
+            loadedRevisionB = tmpRevision
         }
-        if (loadedA !== strokesA) {
-            loadedA = strokesA
-            materializeInto(ensureEndpointA(f), strokesA)
+        if (loadedRevisionA != revisionA.id) {
+            loadedRevisionA = revisionA.id
+            materializeInto(ensureEndpointA(f), revisionA)
         }
-        if (loadedB !== strokesB) {
-            loadedB = strokesB
-            materializeInto(ensureEndpointB(f), strokesB)
+        if (loadedRevisionB != revisionB.id) {
+            loadedRevisionB = revisionB.id
+            materializeInto(ensureEndpointB(f), revisionB)
         }
         tweenT = t.coerceIn(0f, 1f)
         tweenGlobals = lerpedGlobals
@@ -336,10 +340,10 @@ class GlWarpRenderer(
                 // eglMakeCurrent below is deliberately re-asserted (near
                 // no-op when already current) so this loop never depends
                 // on a non-local "nothing changed the surface" invariant.
-                // Each keyframe brings its own snapshot: the movie renders
+                // Each keyframe pins its own revision: the movie renders
                 // exactly what the strip shows, whatever the editor's undo
                 // cursor happens to be sitting on.
-                tweenTo(a.strokes, b.strokes, t, a.globals.lerp(b.globals, t))
+                tweenTo(a.revision, b.revision, t, a.globals.lerp(b.globals, t))
                 if (!EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) {
                     error("eglMakeCurrent(encoder) failed")
                 }
@@ -476,9 +480,11 @@ class GlWarpRenderer(
             ?: PingPongField(like.width, like.height, PingPongField.hasHalfFloat(extensions))
                 .also { endpointB?.delete(); endpointB = it }
 
-    private fun materializeInto(target: PingPongField, strokes: List<Stroke>) {
+    private fun materializeInto(target: PingPongField, revision: StrokeRevision) {
         target.clear()
-        for (stroke in strokes) stampInto(target, aspect, stroke, stroke.stamps)
+        for (stroke in revision.materialize()) {
+            stampInto(target, aspect, stroke, stroke.stamps)
+        }
     }
 
     // ---- GLSurfaceView.Renderer ----------------------------------------
@@ -537,8 +543,8 @@ class GlWarpRenderer(
         field = null
         endpointA = null
         endpointB = null
-        loadedA = null
-        loadedB = null
+        loadedRevisionA = null
+        loadedRevisionB = null
         rebuildImageState()
     }
 
@@ -687,8 +693,8 @@ class GlWarpRenderer(
         endpointB?.delete()
         endpointA = null
         endpointB = null
-        loadedA = null
-        loadedB = null
+        loadedRevisionA = null
+        loadedRevisionB = null
         uploadImageB()
         rebuild(strokesToReplay)
     }
