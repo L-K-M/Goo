@@ -135,6 +135,31 @@ class EditorViewModel @Inject constructor(
                 val kf = keyframes.getOrNull(selectedKeyframe) ?: return false
                 return kf.revisionId != revisionId || kf.globals != globals
             }
+
+        /**
+         * There is work in this session that leaving would destroy.
+         *
+         * The document lives in this ViewModel and nowhere else until
+         * SOL-34 lands project persistence, so Back is as destructive as
+         * Reset — and unlike Reset it isn't undoable. Everything a user
+         * would call "my work" counts:
+         *
+         * - [canReset]: committed strokes, or levers off identity;
+         * - [keyframes]: a punched GOOvie strip, even over an unwarped
+         *   photo (pins carry lever values too);
+         * - [bitmapB]: a Fusion photo picked and cover-cropped — chosen
+         *   work, even before a mask stroke lands on it;
+         * - [cropped]: a reframe, which *clears* strokes and levers, so
+         *   canReset says "nothing to lose" precisely when a crop is the
+         *   only thing left to lose.
+         *
+         * Deliberately NOT cleared by exporting: a saved JPEG is a
+         * picture, not a document — leaving still forfeits every stroke
+         * behind it. One extra tap beats silently ending a session the
+         * user could have kept editing.
+         */
+        val hasUnsavedWork: Boolean
+            get() = canReset || keyframes.isNotEmpty() || bitmapB != null || cropped
     }
 
     /** Everything the GL thread needs to show one scrub position. */

@@ -60,10 +60,12 @@ fix and continues as crop-only.
   or retain an explicit undo token for destructive lever resets. `Zero all`
   needs the same guardrail.
 
-- **SOL-7: Back destroys an unpersisted edit without warning.** Toolbar and
-  system Back immediately pop the editor. Until SOL-34 lands, intercept dirty
-  Back and offer Keep gooing / Discard. Dirty includes strokes, globals,
-  Fusion, and keyframes. Do not mistake this interim dialog for persistence.
+- **SOL-7: Back destroys an unpersisted edit without warning.** *Interim
+  guard landed (PR 15, user-reported):* both Back paths now route through
+  `UiState.hasUnsavedWork` — strokes/levers (`canReset`), keyframes, a picked
+  Fusion photo, or a crop — and stop to ask; Back inside crop mode leaves the
+  overlay instead of the room. This is a seatbelt, NOT persistence: process
+  death, a crash, or Leave still take the document. SOL-34 remains the fix.
 
 - **SOL-34 / G-2 / K3-7 / K3-27: Persist the document and add Recent Goo.**
   This remains the highest-value feature. Write source identities, normalized
