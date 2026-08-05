@@ -41,6 +41,17 @@ class BrushToolTest {
     }
 
     @Test
+    fun `touch-down stamps include hold tools and Fusion but not directional drags`() {
+        BrushTool.entries.forEach { tool ->
+            assertEquals(
+                tool.pumped || tool == BrushTool.FUSE,
+                tool.stampsOnDown,
+                "touch-down mismatch for $tool",
+            )
+        }
+    }
+
+    @Test
     fun `strength scales stay in a sane range`() {
         BrushTool.entries.forEach { tool ->
             assertTrue(tool.strengthScale > 0f && tool.strengthScale <= 1f, "$tool")

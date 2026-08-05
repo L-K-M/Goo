@@ -58,14 +58,6 @@ class GoovieTimelineTest {
     }
 
     @Test
-    fun `clampCount survives redo-branch truncation`() {
-        val kf = Keyframe(strokeCount = 10, globals = GlobalParams())
-        assertEquals(10, GoovieTimeline.clampCount(kf, 12))
-        assertEquals(7, GoovieTimeline.clampCount(kf, 7))
-        assertEquals(0, GoovieTimeline.clampCount(kf, 0))
-    }
-
-    @Test
     fun `lerp interpolates every lever and hits endpoints exactly`() {
         val a = GlobalParams(bulge = 1f, twirl = -1f, squeeze = 0.5f)
         val b = GlobalParams(stretch = 1f, spike = -0.5f, static = 0.25f)

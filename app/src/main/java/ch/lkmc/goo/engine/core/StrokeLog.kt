@@ -1,12 +1,50 @@
 package ch.lkmc.goo.engine.core
 
+import kotlinx.serialization.Serializable
+
+/** Stable identity for one immutable painted-field revision. */
+@JvmInline
+@Serializable
+value class StrokeRevisionId(val value: Long)
+
+/**
+ * One immutable, structurally shared stroke-list state.
+ *
+ * [stateParent] is field ancestry, not undo chronology: Reset deliberately
+ * cuts it to null, while [StrokeLog]'s history list still remembers the state
+ * before Reset so the operation remains undoable.
+ */
+class StrokeRevision internal constructor(
+    val id: StrokeRevisionId,
+    internal val stateParent: StrokeRevision?,
+    internal val appendedStroke: Stroke?,
+    val strokeCount: Int,
+) {
+    /**
+     * Materialize oldest-first strokes for renderer/export boundaries.
+     * Each call walks this revision's parent chain; repeated reads of the
+     * current state should use [StrokeLog.strokes], which caches one result.
+     */
+    fun materialize(): List<Stroke> {
+        if (strokeCount == 0) return emptyList()
+        return buildList(strokeCount) {
+            var revision: StrokeRevision? = this@StrokeRevision
+            while (revision != null) {
+                revision.appendedStroke?.let(::add)
+                revision = revision.stateParent
+            }
+            reverse()
+        }
+    }
+}
+
 /**
  * The document (PLAN.md §5.5): an undoable history of committed strokes.
  *
- * History is a list of immutable log snapshots with a cursor — undo/redo
- * just move the cursor, so their semantics are trivially correct and every
- * state ever shown remains reachable. Snapshots share `Stroke` instances,
- * so memory cost is one list cell per entry, not a copy of the strokes.
+ * History is a list of immutable, structurally shared revisions with a cursor
+ * — undo/redo just move the cursor, so their semantics are trivially correct
+ * and every state still in history remains reachable. A normal commit retains
+ * one revision node and one `Stroke`, rather than copying the whole prefix.
  *
  * Reset is an ordinary entry (an empty snapshot): undo brings the goo
  * back. KPT Goo's one-click irreversible Reset was its most-criticized
@@ -16,12 +54,35 @@ package ch.lkmc.goo.engine.core
  */
 class StrokeLog {
 
-    private val history = mutableListOf<List<Stroke>>(emptyList())
+    private val root = StrokeRevision(
+        id = StrokeRevisionId(0),
+        stateParent = null,
+        appendedStroke = null,
+        strokeCount = 0,
+    )
+    private val history = mutableListOf(root)
     private var cursor = 0
+    private var nextRevisionId = 1L
+    // Only the active state is cached. Caching every revision's full prefix
+    // would recreate the quadratic retained-reference problem this model
+    // removes, while repeated playback/export reads need a stable O(1) view.
+    private var materializedRevision = root
+    private var materializedStrokes: List<Stroke> = emptyList()
+
+    /** Stable handle for the current field state. */
+    val currentRevision: StrokeRevision
+        get() = history[cursor]
 
     /** The strokes that currently make up the picture, oldest first. */
     val strokes: List<Stroke>
-        get() = history[cursor]
+        get() {
+            val revision = currentRevision
+            if (materializedRevision !== revision) {
+                materializedRevision = revision
+                materializedStrokes = revision.materialize()
+            }
+            return materializedStrokes
+        }
 
     val canUndo: Boolean get() = cursor > 0
     val canRedo: Boolean get() = cursor < history.lastIndex
@@ -31,15 +92,33 @@ class StrokeLog {
     fun push(stroke: Stroke) {
         if (stroke.stamps.isEmpty()) return
         truncateFuture()
-        history.add(strokes + stroke)
+        // Read-only List does not guarantee immutable ownership. Freeze the
+        // stamp batch at the document boundary so a caller cannot mutate a
+        // committed revision through a retained MutableList reference.
+        val ownedStroke = stroke.copy(stamps = stroke.stamps.toList())
+        history.add(
+            StrokeRevision(
+                id = nextId(),
+                stateParent = currentRevision,
+                appendedStroke = ownedStroke,
+                strokeCount = currentRevision.strokeCount + 1,
+            ),
+        )
         cursor++
     }
 
     /** Clear the picture as an undoable step. No-op when already empty. */
     fun reset() {
-        if (strokes.isEmpty()) return
+        if (currentRevision.strokeCount == 0) return
         truncateFuture()
-        history.add(emptyList())
+        history.add(
+            StrokeRevision(
+                id = nextId(),
+                stateParent = null,
+                appendedStroke = null,
+                strokeCount = 0,
+            ),
+        )
         cursor++
     }
 
@@ -60,4 +139,6 @@ class StrokeLog {
     private fun truncateFuture() {
         while (history.lastIndex > cursor) history.removeAt(history.lastIndex)
     }
+
+    private fun nextId(): StrokeRevisionId = StrokeRevisionId(nextRevisionId++)
 }
