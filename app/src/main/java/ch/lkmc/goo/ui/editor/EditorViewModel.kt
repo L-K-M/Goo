@@ -381,26 +381,36 @@ class EditorViewModel @Inject constructor(
 
     // ---- History -------------------------------------------------------
     // A history action while a second finger is mid-stroke first discards
-    // the live stroke (its stamped head is wiped by the rebuild anyway);
-    // the rest of that gesture then produces no stamps, so the screen and
-    // the document can never diverge.
+    // the live stroke. Its stamps are already on the GPU field, so the
+    // caller MUST rebuild even when the log op itself was a no-op (null) —
+    // otherwise the discarded head stays visible while the document says
+    // it never happened, and undo/export silently disagree with the
+    // screen. Hence: null only when nothing was discarded AND the log
+    // didn't move.
 
-    fun undo(): List<Stroke>? {
-        discardLiveStroke()
-        return log.undo().also { refreshHistoryFlags() }
-    }
+    fun undo(): List<Stroke>? = withDiscardGuard { log.undo() }
 
-    fun redo(): List<Stroke>? {
-        discardLiveStroke()
-        return log.redo().also { refreshHistoryFlags() }
+    fun redo(): List<Stroke>? = withDiscardGuard { log.redo() }
+
+    /**
+     * Shared spine of undo/redo: discard any live stroke (its stamps are
+     * on the GPU field), run the log op, and when the op was a no-op but
+     * a stroke WAS in flight, return the current list anyway so the
+     * caller still rebuilds (wiping the orphaned head).
+     */
+    private inline fun withDiscardGuard(op: () -> List<Stroke>?): List<Stroke>? {
+        val discarded = discardLiveStroke()
+        val restored = op()
+        refreshHistoryFlags()
+        return restored ?: log.strokes.takeIf { discarded }
     }
 
     /** @return the (empty) stroke list to rebuild with, or null if no-op. */
     fun reset(): List<Stroke>? {
-        discardLiveStroke()
+        val discarded = discardLiveStroke()
         // Reset means "back to the photo": levers zero too.
         setGlobals(GlobalParams())
-        if (log.isEmpty) return null
+        if (log.isEmpty) return log.strokes.takeIf { discarded }
         log.reset()
         refreshHistoryFlags()
         return log.strokes
@@ -602,11 +612,18 @@ class EditorViewModel @Inject constructor(
         )
     }
 
-    private fun discardLiveStroke() {
+    /**
+     * Drop the in-flight stroke without committing. @return true when
+     * there was one — callers then owe the engine a rebuild, because the
+     * stroke's stamped head is on the GPU field already.
+     */
+    private fun discardLiveStroke(): Boolean {
+        val hadLive = liveParams != null
         stopPump()
         resampler = null
         liveParams = null
         liveStamps = mutableListOf()
+        return hadLive
     }
 
     // ---- Export --------------------------------------------------------
