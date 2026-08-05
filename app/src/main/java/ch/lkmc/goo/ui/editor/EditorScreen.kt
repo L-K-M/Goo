@@ -2,6 +2,7 @@ package ch.lkmc.goo.ui.editor
 
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -303,7 +304,7 @@ private fun WarpEditor(
             )
 
             // First-run hint: floats until the first stroke lands, ever.
-            androidx.compose.animation.AnimatedVisibility(
+            AnimatedVisibility(
                 visible = state.showHint && state.bitmap != null,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

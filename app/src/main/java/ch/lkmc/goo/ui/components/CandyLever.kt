@@ -75,7 +75,9 @@ fun CandyLever(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
+            // 48dp: the Material minimum interactive height, matching the
+            // beads' minimumInteractiveComponentSize treatment.
+            .height(48.dp)
             .semantics {
                 this.contentDescription = contentDescription
                 progressBarRangeInfo = ProgressBarRangeInfo(value, -1f..1f)
@@ -121,7 +123,7 @@ fun CandyLever(
                 }
             },
     ) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(40.dp)) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(48.dp)) {
             val cy = size.height / 2f
             val trackLeft = thumbRadiusPx
             val trackRight = size.width - thumbRadiusPx
