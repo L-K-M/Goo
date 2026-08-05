@@ -26,6 +26,7 @@ fun CandyToolChip(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Column(
         modifier = modifier,
@@ -38,13 +39,18 @@ fun CandyToolChip(
             color = color,
             selected = selected,
             selectable = true,
+            enabled = enabled,
             onClick = onClick,
             size = 42.dp,
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (selected) color else GooOnDarkDim,
+            color = when {
+                !enabled -> GooOnDarkDim.copy(alpha = 0.4f)
+                selected -> color
+                else -> GooOnDarkDim
+            },
             // The bead already announces the label; a second TalkBack stop
             // saying the same word would just be noise.
             modifier = Modifier.clearAndSetSemantics { },

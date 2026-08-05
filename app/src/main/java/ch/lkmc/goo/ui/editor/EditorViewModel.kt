@@ -441,7 +441,12 @@ class EditorViewModel @Inject constructor(
     }
 
     fun captureKeyframe() {
-        discardLiveStroke()
+        // Punching mid-gesture (a second finger, or the brush-rail bead):
+        // commit the live stroke — same policy as setTool/toggleGoovie:
+        // its stamps are already on the field, and the pin should include
+        // the drag anyway. In goovie mode no live stroke can exist, so
+        // this is a no-op there.
+        endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
         _uiState.update { s ->
             if (s.keyframes.size >= MAX_KEYFRAMES) return@update s
             val kf = Keyframe(strokeCount = log.strokes.size, globals = s.globals)
