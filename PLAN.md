@@ -76,20 +76,32 @@ Liquify works internally, and it buys us everything at once:
   stamping, milliseconds). Periodic field snapshots bound worst-case replay.
 - **Animation ≈ free**: a keyframe is a saved field state; tweening two
   fields is `mix(D₁, D₂, t)` in the shader. Refined at build time (#7):
-  keyframes are stored as document pins `(strokeCount, globals)` —
-  kilobytes for 64 of them — and only the active segment's two endpoint
-  fields are materialized (by replay, cached by count, slot-swapped for
-  adjacent segments). Naive per-keyframe field snapshots would cost
-  hundreds of MB. Levers lerp on the CPU into the same warp uniforms.
-  Editing stays live while the strip is open (revised after user
-  testing: "the editor isn't active in movie mode" read as a broken
-  feature). A pin is a prefix count into an append-only log, so gooing on
-  top of a keyframe cannot move it; the only ops that can are
-  undo/redo/reset, and those already push a rebuild that drops the
-  count-keyed endpoint cache. What the strip genuinely can't do is paint
-  *into* a tween — stamps land in the live field — so any edit first
-  drops the preview from the tween to live. A keyframe's content is
-  edited by re-punching it (Update), never by drawing "inside" it.
+  keyframes are stored as document pins `(strokes, globals)` — the
+  immutable `StrokeLog` snapshot the punch was taken from, shared not
+  copied, so 64 of them cost 64 list references — and only the active
+  segment's two endpoint fields are materialized (by replay, cached by
+  snapshot identity, slot-swapped for adjacent segments). Naive
+  per-keyframe *field* snapshots would cost hundreds of MB; stroke
+  snapshots cost nothing. Levers lerp on the CPU into the same warp
+  uniforms.
+
+  Two revisions after user testing, both from the same report ("how do I
+  edit the second step?"):
+
+  1. **Editing stays live while the strip is open.** "The editor isn't
+     active in movie mode" read as a broken feature. The strip genuinely
+     can't paint *into* a tween — stamps land in the live field — so any
+     edit first drops the preview from the tween to live. A keyframe's
+     content is edited by re-punching it (Update), never by drawing
+     "inside" it.
+  2. **Each keyframe is its own thing.** Pins were prefix *counts* into
+     `StrokeLog.strokes`, which shrinks on undo — so rewinding the editor
+     toward the original photo collapsed the whole strip, and punching
+     the untouched photo as a closing frame was impossible. Pins hold
+     their snapshot instead, and the log's cursor no longer means
+     anything to them: undo, redo, Reset, even a truncated redo branch
+     leave every keyframe exactly where it was punched.
+
   Keyframes live in session memory like the log.
 - **Crash/context-loss safety**: GPU state is a cache. The stroke log is the
   document; after EGL context loss the field is rebuilt by replay.

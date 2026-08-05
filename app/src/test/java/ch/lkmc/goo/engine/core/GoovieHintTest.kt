@@ -5,8 +5,18 @@ import kotlin.test.assertEquals
 
 class GoovieHintTest {
 
-    private fun pin(strokes: Int, bulge: Float = 0f) =
-        Keyframe(strokeCount = strokes, globals = GlobalParams(bulge = bulge))
+    private fun stroke(cx: Float) = Stroke(
+        tool = BrushTool.SMEAR,
+        radius = 0.1f,
+        strength = 0.5f,
+        stamps = listOf(Stamp(cx, 0.5f, 0.01f, 0f)),
+    )
+
+    /** [strokes] distinct strokes — a snapshot of that document length. */
+    private fun pin(strokes: Int, bulge: Float = 0f) = Keyframe(
+        strokes = List(strokes) { stroke(it * 0.1f) },
+        globals = GlobalParams(bulge = bulge),
+    )
 
     @Test
     fun `an empty strip asks for a first punch, even mid-stroke`() {

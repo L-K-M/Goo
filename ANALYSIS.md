@@ -24,7 +24,14 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
   session-file restore path exists — the log just isn't written down.
   Highest-value open item. Shape: ProjectStore (JSON in filesDir),
   write-through on commit, restore on editor entry, plus a Home "resume"
-  affordance (that also clears K3-27).
+  affordance (that also clears K3-27). **Watch out:** a `Keyframe` now
+  holds its whole stroke snapshot, shared in memory but *duplicated* by a
+  naive `Json.encodeToString` — 64 keyframes could write the log 64 times
+  over. The format needs to write the strokes once as a pool and give
+  each keyframe a list of indices into it (and restore by rebuilding the
+  shared lists, so the renderer's identity-keyed endpoint cache still
+  hits). Do not "solve" this by reverting pins to prefix counts — that
+  was the undo-flattens-the-strip bug.
 
 - **K3-9** ⚠️ **Replay cost grows with pumped-tool stamps** (= REVIEW.md
   G-6) — and GOOvie playback hitches at segment boundaries: a segment
@@ -59,16 +66,21 @@ Legend: 🐞 bug · ⚠️ risk · 🔧 improvement · ✨ idea
   Stroke-start pop, pump squelch keyed to stamp rate, lever detent click,
   keyframe punch. Depends on K3-15 for the off switch.
 
-- **K3-28** ✨ **Goo *at* an earlier keyframe.** Editing inside the strip
-  always happens at the head of the log — touching the canvas drops the
-  preview to live, and Update re-pins the selected keyframe to that head.
-  So a strip can be authored and revised forward, but you still can't
-  select keyframe 1 of 5, tweak it, and have keyframes 2–5 inherit the
-  tweak. Prefix pins make that genuinely hard: inserting strokes mid-log
-  would need every later pin bumped, and the redo-branch truncation in
-  `StrokeLog.push` would eat the tail. Shape if it's ever worth it: an
-  insert-at-cursor log op plus pin remapping, or per-keyframe stroke
-  ranges instead of prefixes. Wait for someone to actually ask.
+- **K3-28** ✨ **"Go to keyframe" — load a pin's state into the editor.**
+  Now that a keyframe carries its own stroke snapshot, restoring the
+  editor to it is a few lines: push the snapshot onto `StrokeLog` as an
+  ordinary (undoable) history entry, rebuild, and you are gooing at that
+  keyframe's exact state — tweak, then Update. Today you get there the
+  long way round: undo/Reset back to the state you want, punch or update,
+  then redo. Deliberately not in the same PR as the snapshot change; the
+  user's ask (punch the original photo as a closing frame) is already
+  unblocked by undo → punch → redo. Note the one wrinkle: levers are live
+  document state, not history, so a jump would have to restore
+  `keyframe.globals` explicitly alongside the strokes.
+
+  Explicitly NOT wanted (confirmed with the user): making keyframes 2–5
+  inherit an edit made to keyframe 1. "Each keyframe should be its own
+  thing" — which is exactly what the snapshot model now guarantees.
 
 - **K3-17** ✨ **GIF export** — explicitly deferred by PLAN.md §4.1
   ("GIF secondary… deferred to the polish pass"). MP4 covers the share

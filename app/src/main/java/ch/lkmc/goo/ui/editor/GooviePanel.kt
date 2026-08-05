@@ -284,7 +284,13 @@ private fun StripHint(
     stale: Boolean,
     live: Boolean,
 ) {
-    val hint = goovieHint(keyframes, selected, stale, live)
+    // Remembered: List<Keyframe> is an unstable parameter type, so this
+    // composable re-runs on every GooviePanel recomposition — i.e. every
+    // scrub tick and every playback frame — while the hint itself can only
+    // change when one of these four does. (GLM on PR #26.)
+    val hint = remember(keyframes, selected, stale, live) {
+        goovieHint(keyframes, selected, stale, live)
+    }
     val text = when (hint) {
         GoovieHint.EMPTY -> stringResource(R.string.goovie_empty_hint)
         GoovieHint.LIVE_PINNED -> stringResource(R.string.goovie_hint_live_pinned, selected + 1)

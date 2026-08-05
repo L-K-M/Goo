@@ -4,18 +4,34 @@ import kotlinx.serialization.Serializable
 
 /**
  * One GOOvie keyframe (PLAN.md §4.1): a pin into the document, not a
- * bitmap — the stroke-log position plus the lever values at capture.
- * Kilobytes for a whole movie; the GPU materializes fields on demand by
- * replay. Reordering keyframes reorders playback, the pins stay put.
+ * bitmap — the stroke-log snapshot plus the lever values at capture. The
+ * GPU materializes fields on demand by replay; reordering keyframes
+ * reorders playback, the pins stay put.
  *
- * A pin is a bookmark, not a canvas: there is no "editing keyframe 2".
- * You change what a keyframe shows by gooing the photo and re-punching
- * it (EditorViewModel.repunchSelectedKeyframe).
+ * **Each keyframe is its own thing.** It holds the exact stroke list it
+ * was punched from, so the editor's undo cursor can move anywhere without
+ * disturbing it. That is the whole reason this is a snapshot and not the
+ * prefix COUNT it used to be: counts index into `StrokeLog.strokes`,
+ * which shrinks on undo, so undoing back toward the original photo
+ * silently collapsed every keyframe along with it. Punching the original
+ * photo as the closing frame — undo to it, punch, redo your goo — was
+ * therefore impossible.
+ *
+ * The snapshot is a pointer, not a copy: `StrokeLog` history entries are
+ * immutable and share their `Stroke` instances, so 64 keyframes cost 64
+ * list references. A snapshot the log itself has since discarded (the
+ * redo branch after a new stroke) stays alive and replayable here, which
+ * is exactly what independence means.
+ *
+ * A pin is still a bookmark, not a canvas: there is no "editing
+ * keyframe 2" in place. You goo the photo until it looks right, then
+ * re-punch the keyframe that should hold it
+ * (EditorViewModel.repunchSelectedKeyframe).
  */
 @Serializable
 data class Keyframe(
-    /** Number of committed strokes included (log prefix length). */
-    val strokeCount: Int,
+    /** The stroke-log snapshot this pin replays. Shared, never copied. */
+    val strokes: List<Stroke>,
     val globals: GlobalParams,
 )
 
@@ -112,13 +128,10 @@ object GoovieTimeline {
         return if (next >= span) next.mod(span) else next
     }
 
-    /**
-     * A keyframe's stroke pin, clamped to what the log still holds —
-     * undo followed by a new stroke truncates the redo branch, and any
-     * keyframe pointing past the cut simply shows the truncated state.
-     */
-    fun clampCount(keyframe: Keyframe, logSize: Int): Int =
-        keyframe.strokeCount.coerceIn(0, logSize)
+    // No clampCount here any more: a keyframe carries its own stroke
+    // snapshot, so there is nothing left to clamp against a log that has
+    // since moved. Clamping was the mechanism by which undo flattened a
+    // whole strip.
 }
 
 /** Linear lever interpolation for tween scrubbing. */
