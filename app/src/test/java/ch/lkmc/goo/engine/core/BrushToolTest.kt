@@ -22,6 +22,10 @@ class BrushToolTest {
         assertEquals(2, StampMode.DEFLATE.shaderId)
         assertEquals(3, StampMode.RELAX.shaderId)
         assertEquals(4, StampMode.ERASE.shaderId)
+        assertEquals(5, StampMode.FUSE.shaderId)
+        assertEquals(0, FalloffProfile.SMOOTHSTEP.shaderId)
+        assertEquals(1, FalloffProfile.FEATHER.shaderId)
+        assertEquals(2, FalloffProfile.PLATEAU.shaderId)
     }
 
     @Test
