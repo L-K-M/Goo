@@ -41,6 +41,17 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   (replay from nearest checkpoint instead of identity). Do when replay
   latency becomes user-visible.
 
+- **G-7** ⚠️ ⬜ `renderMovie` runs as one GL runnable, and
+  `GLSurfaceView`'s `onPause()`/`surfaceDestroyed()` block the MAIN
+  thread until the GL event queue drains (AOSP-verified), so
+  backgrounding mid-export freezes the app for the export remainder.
+  Typical 2–8-keyframe GOOvies ≈ 0.5–3 s — fine; a 64-keyframe strip
+  over a heavy stroke log ≈ 15–45 s — ANR/kill territory. Fix is
+  chunked rendering: per-export state in a renderer-held MovieSession,
+  ~30 frames per runnable, self-requeue via a view-provided queueEvent
+  hook, end-of-chunk restore tolerating dead preview surfaces. Do
+  before raising movie length or promoting long strips.
+
 ## Won't do (for now)
 
 - **G-W1** ⏸️ Packed-RGBA8 displacement-field fallback for GLES3 devices
