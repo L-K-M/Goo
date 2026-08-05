@@ -291,8 +291,9 @@ class EditorViewModel @Inject constructor(
             // and applies nothing at all (KPT applied one shot per click).
             val first = emit(listOf(Stamp(u, v, 0f, 0f)))
             if (first.isNotEmpty()) {
-                val params = liveParams ?: return
-                engineBridge?.invoke { stampBatch(params, first) }
+                liveParams?.let { params ->
+                    engineBridge?.invoke { stampBatch(params, first) }
+                }
             }
             startPump()
         } else {
