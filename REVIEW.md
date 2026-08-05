@@ -59,3 +59,18 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   `EXT_color_buffer_float`). Such hardware is essentially nonexistent in
   practice; the engine surfaces a clear error instead. Reopen if a real
   device report shows the error string.
+
+## Sol PR review dispositions
+
+- **PR #24: per-revision lazy materialized lists — declined.** The repeated
+  active-state read concern was valid and fixed with one active-revision cache.
+  Caching every historical prefix would restore the quadratic retained-reference
+  behavior SOL-6 removes.
+- **PR #32: make `MovieEncoder.finish()` idempotent — declined.** The encoder
+  lifecycle requires exactly one finish. Marking a failed muxer stop as complete
+  and returning from a retry can turn a prior finalization failure into apparent
+  success; the render already fails and release remains best-effort.
+- **PR #37: release files missing from the publisher — refuted.** The original
+  `dist/*.apk` and `dist/*.sha256` inputs remain in the release step. A named
+  `actions/download-artifact` download extracts contents directly into its
+  requested path; an artifact-name subdirectory is the multi-artifact behavior.
