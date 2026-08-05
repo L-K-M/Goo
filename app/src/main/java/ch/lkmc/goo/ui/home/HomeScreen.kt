@@ -63,6 +63,7 @@ fun HomeScreen(onOpenImage: (Uri) -> Unit) {
                     )
                 },
                 size = 128.dp,
+                breathe = true,
             )
         }
     }

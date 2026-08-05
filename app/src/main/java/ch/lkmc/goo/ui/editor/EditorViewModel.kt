@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import ch.lkmc.goo.data.ExportFormat
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.data.OnboardingPrefs
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.GlobalParams
@@ -58,6 +59,7 @@ class EditorViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val imageLoader: ImageLoader,
     private val imageSaver: ImageSaver,
+    private val onboardingPrefs: OnboardingPrefs,
 ) : ViewModel() {
 
     data class UiState(
@@ -77,6 +79,8 @@ class EditorViewModel @Inject constructor(
         val mirrored: Boolean = false,
         /** Global-effect levers — live document state, not history. */
         val globals: GlobalParams = GlobalParams(),
+        /** First-ever image: float the "drag to goo" hint until a stroke. */
+        val showHint: Boolean = false,
     )
 
     /** One-shot outcomes of export/share runs, consumed by the screen. */
@@ -123,6 +127,7 @@ class EditorViewModel @Inject constructor(
     val strokesSnapshot: List<Stroke> get() = log.strokes
 
     init {
+        _uiState.update { it.copy(showHint = !onboardingPrefs.smearHintSeen) }
         savedStateHandle.get<FloatArray>(KEY_GLOBALS)?.let { a ->
             GlobalParams.fromArray(a)?.let { g ->
                 _uiState.update { it.copy(globals = g) }
@@ -173,6 +178,10 @@ class EditorViewModel @Inject constructor(
     fun beginStroke(u: Float, v: Float) {
         val bitmap = _uiState.value.bitmap ?: return
         val state = _uiState.value
+        if (state.showHint) {
+            onboardingPrefs.smearHintSeen = true
+            _uiState.update { it.copy(showHint = false) }
+        }
         val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
         val tool = state.tool

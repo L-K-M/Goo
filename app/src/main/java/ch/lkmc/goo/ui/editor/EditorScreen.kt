@@ -1,8 +1,18 @@
 package ch.lkmc.goo.ui.editor
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -21,18 +30,23 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material.icons.filled.Waves
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -47,8 +61,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -65,8 +82,16 @@ import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.engine.gl.WarpSurfaceView
+import ch.lkmc.goo.ui.components.CandyIconButton
+import ch.lkmc.goo.ui.components.CandyToolChip
 import ch.lkmc.goo.ui.export.ExportSheet
 import ch.lkmc.goo.ui.theme.CandyCyan
+import ch.lkmc.goo.ui.theme.CandyGrape
+import ch.lkmc.goo.ui.theme.CandyLemon
+import ch.lkmc.goo.ui.theme.CandyLime
+import ch.lkmc.goo.ui.theme.CandyOrange
+import ch.lkmc.goo.ui.theme.CandyPink
+import ch.lkmc.goo.ui.theme.GooTableShadow
 
 /**
  * The Goo room: the GL canvas with the brush pipeline wired through the
@@ -276,24 +301,67 @@ private fun WarpEditor(
                     WarpSurfaceView(context, renderer).also { surface = it }
                 },
             )
+
+            // First-run hint: floats until the first stroke lands, ever.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = state.showHint && state.bitmap != null,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp),
+                enter = fadeIn() + slideInVertically(
+                    spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow,
+                        visibilityThreshold = IntOffset.VisibilityThreshold,
+                    ),
+                ) { it / 2 },
+                exit = fadeOut(),
+            ) {
+                Text(
+                    text = stringResource(R.string.editor_hint_smear),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = GooTableShadow,
+                    modifier = Modifier
+                        .background(CandyLemon, CircleShape)
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                )
+            }
         }
 
-        if (showLevers) {
-            LeversPanel(
-                globals = state.globals,
-                onChange = viewModel::setGlobals,
-            )
-        } else {
-            BrushRail(
-                tool = state.tool,
-                mirrored = state.mirrored,
-                radius = state.brushRadius,
-                strength = state.brushStrength,
-                onToolChange = viewModel::setTool,
-                onMirrorToggle = viewModel::toggleMirror,
-                onRadiusChange = viewModel::setBrushRadius,
-                onStrengthChange = viewModel::setBrushStrength,
-            )
+        AnimatedContent(
+            targetState = showLevers,
+            transitionSpec = {
+                val springIn = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                    visibilityThreshold = IntOffset.VisibilityThreshold,
+                )
+                // `using null` kills the default SizeTransform: animating the
+                // panel height would re-measure the weight(1f) canvas — and
+                // resize the GLSurfaceView — every frame of the spring. The
+                // height snaps (as the old if/else did); content slides.
+                (slideInVertically(springIn) { it / 3 } + fadeIn()) togetherWith
+                    (slideOutVertically { it / 3 } + fadeOut()) using null
+            },
+            label = "panelSwap",
+        ) { levers ->
+            if (levers) {
+                LeversPanel(
+                    globals = state.globals,
+                    onChange = viewModel::setGlobals,
+                )
+            } else {
+                BrushRail(
+                    tool = state.tool,
+                    mirrored = state.mirrored,
+                    radius = state.brushRadius,
+                    strength = state.brushStrength,
+                    onToolChange = viewModel::setTool,
+                    onMirrorToggle = viewModel::toggleMirror,
+                    onRadiusChange = viewModel::setBrushRadius,
+                    onStrengthChange = viewModel::setBrushStrength,
+                )
+            }
         }
     }
     SnackbarHost(
@@ -354,57 +422,58 @@ private fun TopRail(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.editor_back),
-                tint = MaterialTheme.colorScheme.onBackground,
+        CandyIconButton(
+            icon = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = stringResource(R.string.editor_back),
+            color = CandyCyan,
+            selected = false,
+            haptic = false,
+            onClick = onBack,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            CandyIconButton(
+                icon = Icons.AutoMirrored.Filled.Undo,
+                contentDescription = stringResource(R.string.editor_undo),
+                color = CandyLime,
+                selected = false,
+                enabled = canUndo,
+                onClick = onUndo,
             )
-        }
-        Row {
-            IconButton(onClick = onUndo, enabled = canUndo) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Undo,
-                    contentDescription = stringResource(R.string.editor_undo),
-                    tint = railTint(canUndo),
-                )
-            }
-            IconButton(onClick = onRedo, enabled = canRedo) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Redo,
-                    contentDescription = stringResource(R.string.editor_redo),
-                    tint = railTint(canRedo),
-                )
-            }
-            IconButton(onClick = onReset, enabled = canReset) {
-                Icon(
-                    Icons.Filled.DeleteSweep,
-                    contentDescription = stringResource(R.string.editor_reset),
-                    tint = railTint(canReset),
-                )
-            }
-            IconButton(onClick = onLevers) {
-                Icon(
-                    Icons.Filled.Tune,
-                    contentDescription = stringResource(R.string.editor_levers),
-                    tint = if (leversActive) CandyCyan else railTint(true),
-                )
-            }
-            IconButton(onClick = onExport) {
-                Icon(
-                    Icons.Filled.IosShare,
-                    contentDescription = stringResource(R.string.editor_export),
-                    tint = railTint(true),
-                )
-            }
+            CandyIconButton(
+                icon = Icons.AutoMirrored.Filled.Redo,
+                contentDescription = stringResource(R.string.editor_redo),
+                color = CandyLime,
+                selected = false,
+                enabled = canRedo,
+                onClick = onRedo,
+            )
+            CandyIconButton(
+                icon = Icons.Filled.DeleteSweep,
+                contentDescription = stringResource(R.string.editor_reset),
+                color = CandyOrange,
+                selected = false,
+                enabled = canReset,
+                onClick = onReset,
+            )
+            CandyIconButton(
+                icon = Icons.Filled.Tune,
+                contentDescription = stringResource(R.string.editor_levers),
+                color = CandyCyan,
+                selected = leversActive,
+                selectable = true,
+                onClick = onLevers,
+            )
+            CandyIconButton(
+                icon = Icons.Filled.IosShare,
+                contentDescription = stringResource(R.string.editor_export),
+                color = CandyPink,
+                selected = false,
+                haptic = false,
+                onClick = onExport,
+            )
         }
     }
 }
-
-@Composable
-private fun railTint(enabled: Boolean): Color =
-    if (enabled) MaterialTheme.colorScheme.onBackground
-    else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
 
 @Composable
 private fun BrushRail(
@@ -428,27 +497,24 @@ private fun BrushRail(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top,
         ) {
             BrushTool.entries.forEach { entry ->
-                FilterChip(
+                CandyToolChip(
+                    icon = entry.icon(),
+                    label = stringResource(entry.labelRes()),
+                    color = entry.candyColor(),
                     selected = tool == entry,
                     onClick = { onToolChange(entry) },
-                    label = { Text(stringResource(entry.labelRes())) },
                 )
             }
-            FilterChip(
+            CandyToolChip(
+                icon = Icons.Filled.Flip,
+                label = stringResource(R.string.tool_mirror),
+                color = CandyGrape,
                 selected = mirrored,
                 onClick = onMirrorToggle,
-                label = { Text(stringResource(R.string.tool_mirror)) },
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Flip,
-                        contentDescription = null,
-                        modifier = Modifier.size(FilterChipDefaults.IconSize),
-                    )
-                },
             )
         }
         LabeledSlider(
@@ -489,6 +555,11 @@ private fun LabeledSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
+            colors = SliderDefaults.colors(
+                thumbColor = CandyPink,
+                activeTrackColor = CandyPink.copy(alpha = 0.6f),
+                inactiveTrackColor = GooTableShadow,
+            ),
         )
     }
 }
@@ -503,6 +574,29 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.SHRINK -> R.string.tool_shrink
     BrushTool.SMOOTH -> R.string.tool_smooth
     BrushTool.UNGOO -> R.string.tool_ungoo
+}
+
+private fun BrushTool.icon(): ImageVector = when (this) {
+    BrushTool.SMEAR -> Icons.Filled.Gesture
+    BrushTool.MOVE -> Icons.Filled.OpenWith
+    BrushTool.SMUDGE -> Icons.Filled.BlurOn
+    BrushTool.NUDGE -> Icons.Filled.TouchApp
+    BrushTool.GROW -> Icons.Filled.ZoomIn
+    BrushTool.SHRINK -> Icons.Filled.ZoomOut
+    BrushTool.SMOOTH -> Icons.Filled.Waves
+    BrushTool.UNGOO -> Icons.Filled.AutoFixHigh
+}
+
+/** Each tool wears its own candy — families share a flavor. */
+private fun BrushTool.candyColor(): Color = when (this) {
+    BrushTool.SMEAR -> CandyPink
+    BrushTool.MOVE -> CandyCyan
+    BrushTool.SMUDGE -> CandyPink
+    BrushTool.NUDGE -> CandyCyan
+    BrushTool.GROW -> CandyOrange
+    BrushTool.SHRINK -> CandyLemon
+    BrushTool.SMOOTH -> CandyLime
+    BrushTool.UNGOO -> CandyLime
 }
 
 @Composable
