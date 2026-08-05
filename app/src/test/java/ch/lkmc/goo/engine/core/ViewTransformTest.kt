@@ -1,0 +1,106 @@
+package ch.lkmc.goo.engine.core
+
+import kotlin.math.PI
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class ViewTransformTest {
+
+    private fun assertClose(expected: Float, actual: Float, eps: Float = 1e-3f) {
+        assertTrue(
+            kotlin.math.abs(expected - actual) < eps,
+            "expected $expected, got $actual",
+        )
+    }
+
+    @Test
+    fun `identity maps points to themselves`() {
+        val id = ViewTransform()
+        assertTrue(id.isIdentity)
+        val (x, y) = id.apply(123f, 456f)
+        assertEquals(123f, x)
+        assertEquals(456f, y)
+    }
+
+    @Test
+    fun `apply then invert round-trips`() {
+        val v = ViewTransform(scale = 2.5f, rotation = 0.7f, tx = 40f, ty = -25f)
+        val (px, py) = v.apply(100f, 200f)
+        val (bx, by) = v.invert(px, py)
+        assertClose(100f, bx)
+        assertClose(200f, by)
+    }
+
+    @Test
+    fun `gesture zoom keeps the point under the fingers fixed`() {
+        // The canvas point currently shown at the centroid must still be
+        // shown at the centroid (plus pan) after the step.
+        val v = ViewTransform(scale = 1.5f, rotation = 0.3f, tx = 30f, ty = 60f)
+        val cx = 250f
+        val cy = 400f
+        val (canvasX, canvasY) = v.invert(cx, cy)
+        val stepped = v.gesture(cx, cy, panX = 0f, panY = 0f, zoom = 1.8f, rotationDelta = 0.4f)
+        val (nx, ny) = stepped.apply(canvasX, canvasY)
+        assertClose(cx, nx)
+        assertClose(cy, ny)
+    }
+
+    @Test
+    fun `gesture pan moves the anchored point by exactly the pan`() {
+        val v = ViewTransform(scale = 2f, rotation = -0.2f, tx = -10f, ty = 5f)
+        val cx = 100f
+        val cy = 100f
+        val (canvasX, canvasY) = v.invert(cx, cy)
+        val stepped = v.gesture(cx, cy, panX = 33f, panY = -12f, zoom = 1f, rotationDelta = 0f)
+        val (nx, ny) = stepped.apply(canvasX, canvasY)
+        assertClose(cx + 33f, nx)
+        assertClose(cy - 12f, ny)
+    }
+
+    @Test
+    fun `scale clamps and the centroid anchor survives the clamp`() {
+        val v = ViewTransform(scale = 6f)
+        val stepped = v.gesture(50f, 50f, 0f, 0f, zoom = 10f, rotationDelta = 0f)
+        assertEquals(ViewTransform.MAX_SCALE, stepped.scale)
+        // Anchor property still holds with the adjusted effective zoom.
+        val (canvasX, canvasY) = v.invert(50f, 50f)
+        val (nx, ny) = stepped.apply(canvasX, canvasY)
+        assertClose(50f, nx)
+        assertClose(50f, ny)
+        // Lower clamp too.
+        val small = ViewTransform(scale = 0.6f).gesture(0f, 0f, 0f, 0f, 0.1f, 0f)
+        assertEquals(ViewTransform.MIN_SCALE, small.scale)
+    }
+
+    @Test
+    fun `rotation accumulates across steps`() {
+        var v = ViewTransform()
+        repeat(4) {
+            v = v.gesture(0f, 0f, 0f, 0f, 1f, (PI / 4).toFloat())
+        }
+        assertClose(PI.toFloat(), v.rotation)
+    }
+
+    @Test
+    fun `shader coefficients match the applied matrix`() {
+        val v = ViewTransform(scale = 3f, rotation = 0.5f, tx = 7f, ty = 9f)
+        // apply(1, 0) - t == (a, b) by construction.
+        val (x, y) = v.apply(1f, 0f)
+        assertClose(v.a, x - v.tx)
+        assertClose(v.b, y - v.ty)
+    }
+
+    @Test
+    fun `lerp hits both endpoints and the midpoint`() {
+        val from = ViewTransform(2f, 1f, 10f, 20f)
+        val to = ViewTransform()
+        assertEquals(from, from.lerp(to, 0f))
+        assertEquals(to, from.lerp(to, 1f))
+        val mid = from.lerp(to, 0.5f)
+        assertClose(1.5f, mid.scale)
+        assertClose(0.5f, mid.rotation)
+        assertClose(5f, mid.tx)
+        assertClose(10f, mid.ty)
+    }
+}
