@@ -663,7 +663,15 @@ private fun TopRail(
             haptic = false,
             onClick = onBack,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Scrollable: back + six 48dp beads + spacing is ~374dp — wider than
+        // a 360dp screen, so a plain Row would push the export bead off the
+        // right edge on exactly the phones Goo targets.
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             CandyIconButton(
                 icon = Icons.AutoMirrored.Filled.Undo,
                 contentDescription = stringResource(R.string.editor_undo),
