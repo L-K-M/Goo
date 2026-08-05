@@ -158,14 +158,28 @@ private fun WarpEditor(
     var showExportSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
     var adjustingBrush by remember { mutableStateOf(false) }
-    // Pan/zoom/rotate of the preview. Ephemeral by design: not saved
-    // across rotation (the viewport changes under it anyway) — the photo
-    // reappears fitted, which is also what Reset View promises.
+    // Pan/zoom/rotate of the preview. Ephemeral across process recreation;
+    // viewport changes rebase it around the same source point below.
     var view by remember { mutableStateOf(ViewTransform()) }
     // One reset spring at a time: re-clicks restart it, and new two-finger
     // input cancels it instead of fighting it frame-by-frame.
     val viewResetScope = rememberCoroutineScope()
     var viewResetJob by remember { mutableStateOf<Job?>(null) }
+    fun animateViewReset() {
+        viewResetJob?.cancel()
+        val start = view
+        viewResetJob = viewResetScope.launch {
+            Animatable(0f).animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            ) {
+                view = start.lerp(ViewTransform(), value)
+            }
+        }
+    }
     // Brush cursor: the touch point in view px while a stroke is down
     // (null = finger up / navigating), and the stroke's radius, frozen at
     // beginStroke — captured once at gesture start, so the overlay reads
@@ -345,6 +359,7 @@ private fun WarpEditor(
                         newSize.width > 0 && newSize.height > 0 &&
                         oldSize != newSize
                     ) {
+                        val resumeReset = viewResetJob?.isActive == true
                         viewResetJob?.cancel()
                         view = view.rebase(
                             oldFit = FitTransform(
@@ -356,6 +371,7 @@ private fun WarpEditor(
                                 bitmap.width.toFloat(), bitmap.height.toFloat(),
                             ),
                         )
+                        if (resumeReset) animateViewReset()
                     }
                     canvasSize = newSize
                 }
@@ -523,21 +539,7 @@ private fun WarpEditor(
                     contentDescription = stringResource(R.string.editor_reset_view),
                     color = CandyCyan,
                     selected = false,
-                    onClick = {
-                        viewResetJob?.cancel()
-                        val start = view
-                        viewResetJob = viewResetScope.launch {
-                            Animatable(0f).animateTo(
-                                targetValue = 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                            ) {
-                                view = start.lerp(ViewTransform(), value)
-                            }
-                        }
-                    },
+                    onClick = ::animateViewReset,
                 )
             }
 
