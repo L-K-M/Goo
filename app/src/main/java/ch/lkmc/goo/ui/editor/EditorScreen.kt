@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Waves
@@ -330,6 +331,7 @@ private fun WarpEditor(
     val savedGallery = stringResource(R.string.export_saved_gallery)
     val savedMovieGallery = stringResource(R.string.export_saved_movies)
     val savedAppStorage = stringResource(R.string.export_saved_app_storage)
+    val projectSaved = stringResource(R.string.project_saved)
     val failedPrefix = stringResource(R.string.export_failed)
     LaunchedEffect(viewModel) {
         viewModel.exportEvents.collect { event ->
@@ -371,10 +373,13 @@ private fun WarpEditor(
     LaunchedEffect(viewModel) {
         viewModel.projectEvents.collect { event ->
             when (event) {
-                is EditorViewModel.ProjectEvent.Saved -> {
-                    confirmExit = false
-                    onBack()
-                }
+                is EditorViewModel.ProjectEvent.Saved ->
+                    if (event.leave) {
+                        confirmExit = false
+                        onBack()
+                    } else {
+                        snackbarHostState.showSnackbar(projectSaved)
+                    }
 
                 is EditorViewModel.ProjectEvent.Failed ->
                     snackbarHostState.showSnackbar(
@@ -385,12 +390,20 @@ private fun WarpEditor(
     }
 
     // GLSurfaceView must see activity pause/resume or its GL thread leaks.
-    DisposableEffect(surface, lifecycleOwner) {
+    //
+    // ON_STOP is also where the document reaches disk. It is the last
+    // callback the platform guarantees before a backgrounded process can
+    // be reclaimed, so an app the OS kills while it is away has already
+    // been saved. (The ViewModel's scope outlives ON_STOP — it is cleared
+    // when the room closes, not when it is hidden — so the write finishes
+    // in the background.)
+    DisposableEffect(surface, lifecycleOwner, viewModel) {
         val surfaceView = surface
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> surfaceView?.onPause()
                 Lifecycle.Event.ON_RESUME -> surfaceView?.onResume()
+                Lifecycle.Event.ON_STOP -> viewModel.autosaveProject()
                 else -> Unit
             }
         }
@@ -457,6 +470,11 @@ private fun WarpEditor(
                 viewModel.toggleGoovie()
             },
             goovieActive = state.goovieMode,
+            onSave = { viewModel.saveProject(EditorViewModel.SaveReason.EXPLICIT) },
+            // Dark once everything on screen is on disk — including
+            // straight after a save, which is how the bead answers
+            // "did that work?" without a second dialog.
+            canSave = state.hasUnsavedWork && !state.savingProject,
             onExport = { showExportSheet = true },
         )
 
@@ -906,7 +924,21 @@ private fun WarpEditor(
             // the Saved event would then navigate out from under them.
             onDismissRequest = { if (!state.savingProject) confirmExit = false },
             title = { Text(stringResource(R.string.editor_exit_title)) },
-            text = { Text(stringResource(R.string.editor_exit_body)) },
+            text = {
+                // Leave means two different things, so it must not claim
+                // one wording for both: a session the user never chose to
+                // keep is thrown away, while a project they saved (or
+                // resumed) survives at whatever was written last.
+                Text(
+                    stringResource(
+                        if (state.projectSaved) {
+                            R.string.editor_exit_body_saved
+                        } else {
+                            R.string.editor_exit_body
+                        },
+                    ),
+                )
+            },
             // Save is the confirm slot — the emphasis position, and the
             // one that keeps the work. The other two share the dismiss
             // slot so that leaving-for-good sits FIRST, farthest from the
@@ -914,7 +946,7 @@ private fun WarpEditor(
             confirmButton = {
                 TextButton(
                     enabled = !state.savingProject,
-                    onClick = { viewModel.saveProject() },
+                    onClick = { viewModel.saveProject(EditorViewModel.SaveReason.LEAVE) },
                 ) {
                     // Writing a project copies the source photo, so this
                     // is a beat or two of real work on a big picture — the
@@ -938,6 +970,10 @@ private fun WarpEditor(
                         enabled = !state.savingProject,
                         onClick = {
                             confirmExit = false
+                            // Undo any autosave behind this session, or
+                            // the bin icon on this button is a lie. A
+                            // project saved on purpose is left alone.
+                            viewModel.discardProject()
                             onBack()
                         },
                     ) {
@@ -998,6 +1034,8 @@ private fun TopRail(
     leversActive: Boolean,
     onGoovie: () -> Unit,
     goovieActive: Boolean,
+    onSave: () -> Unit,
+    canSave: Boolean,
     onExport: () -> Unit,
 ) {
     Row(
@@ -1076,6 +1114,18 @@ private fun TopRail(
                 selected = goovieActive,
                 selectable = true,
                 onClick = onGoovie,
+            )
+            // Save the DOCUMENT, next to (not inside) the Out tray that
+            // saves pictures — two different verbs, so two beads. Lit only
+            // when there is something new to write, which also makes it
+            // the rail's honest answer to "did that get saved?".
+            ChromeIconButton(
+                icon = Icons.Filled.Save,
+                contentDescription = stringResource(R.string.editor_save),
+                color = NeonLime,
+                selected = false,
+                enabled = canSave,
+                onClick = onSave,
             )
             ChromeIconButton(
                 icon = Icons.Filled.IosShare,

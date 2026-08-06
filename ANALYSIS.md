@@ -81,17 +81,24 @@ fix and continues as crop-only.
   than half-restore. The In room lists projects with resume and discard.
   Remaining follow-ups:
 
-  - **Save without leaving.** Today the only save point is the leave
-    dialog. An explicit Save action (a rail bead, or an autosave when the
-    editor is backgrounded once a project exists) is what would close the
-    crash/process-death hole SOL-7 still names.
-  - **Storage has no ceiling.** Every project keeps a full-size copy of its
-    source photo, and nothing prunes old ones but the user. Decide a policy
-    (a cap with an explicit prompt, or a size readout in the In room)
-    before it bites someone with a 200-photo shelf.
+  - ~~Save without leaving~~ *(done, same PR, user-reported):* a Save bead
+    on the rail, lit only while something is unsettled, plus an autosave on
+    `ON_STOP` — the last callback before a backgrounded process can be
+    reclaimed — so an OS kill no longer takes the session. An autosave is
+    insurance, not a decision: it leaves `projectSaved` false, so the exit
+    guard stays armed and Leave deletes what it wrote.
+  - ~~Storage has no ceiling~~ *(done, same PR, user-reported):*
+    `ProjectShelf` caps the shelf at 20 projects and 256 MiB, evicting
+    oldest-first and never the project being saved, and the In room states
+    the count rather than dropping work silently.
   - **Traditional Chinese and the rest.** `values-b+zh+Hans` and
     `locales_config` landed with PR 17; zh-Hant, and any further locale,
     is now a translation file plus one line in that config.
+  - **Still open: a crash *between* autosaves.** `ON_STOP` covers
+    backgrounding, which is how processes actually die; a hard crash while
+    the editor is in the foreground still loses the strokes since the last
+    write. Periodic autosave (or a crash handler) is the next increment if
+    that ever shows up in practice.
 
 - **K3-28** ✨ **"Go to keyframe" — load a pin's state into the editor.**
   A keyframe pins an immutable revision, so restoring the editor to it is

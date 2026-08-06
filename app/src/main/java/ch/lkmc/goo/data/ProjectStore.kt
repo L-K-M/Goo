@@ -2,7 +2,10 @@ package ch.lkmc.goo.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -58,6 +61,13 @@ class ProjectStore(private val context: Context) {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+
+    /**
+     * For work that must outlive the caller ([deleteInBackground]). The
+     * store is a singleton for the process's life, so this scope is never
+     * cancelled — which is the point.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Saved projects, most recently saved first. */
     suspend fun list(): List<Summary> = withContext(Dispatchers.IO) {
@@ -148,18 +158,58 @@ class ProjectStore(private val context: Context) {
         writeAtomically(File(dir, DOCUMENT_FILE)) { out ->
             out.write(json.encodeToString(stamped).toByteArray())
         }
+        // After the write, never before: the shelf's ceiling must be
+        // enforced against what is actually on disk, and the project that
+        // just landed is the one thing that can never be the casualty.
+        prune(keep = projectId)
         projectId
     }
 
     /** Delete a project and everything in its folder. Missing = done. */
     suspend fun delete(id: String): Unit = withContext(Dispatchers.IO) {
-        val dir = projectDir(id) ?: return@withContext
+        deleteBlocking(id)
+    }
+
+    /**
+     * Delete without a caller to wait on it — the editor's "Leave" path,
+     * which throws away an autosave and navigates away in the same
+     * breath, taking its ViewModel (and any scope belonging to it) with
+     * it. A delete that gets cancelled there would leave exactly the
+     * project the user just said they did not want.
+     */
+    fun deleteInBackground(id: String) {
+        scope.launch { deleteBlocking(id) }
+    }
+
+    private fun deleteBlocking(id: String) {
+        val dir = projectDir(id) ?: return
         // The document goes first, so a partial delete (storage full of
         // open handles, a kill mid-loop) can never leave a listable
         // project whose pixels are gone.
         File(dir, DOCUMENT_FILE).delete()
         dir.listFiles()?.forEach { it.delete() }
         dir.delete()
+    }
+
+    /**
+     * Enforce the shelf's ceiling ([ProjectShelf]), oldest out. The
+     * decision is pure and tested there; this only measures the folders
+     * and carries it out.
+     */
+    private fun prune(keep: String?) {
+        val entries = projectsDir().listFiles()
+            ?.filter { it.isDirectory }
+            ?.mapNotNull { dir ->
+                val document = File(dir, DOCUMENT_FILE).takeIf(File::isFile)
+                    ?: return@mapNotNull null
+                ProjectShelf.Entry(
+                    id = dir.name,
+                    updatedAtMillis = document.lastModified(),
+                    bytes = dir.listFiles()?.sumOf(File::length) ?: 0L,
+                )
+            }
+            .orEmpty()
+        for (id in ProjectShelf.overflow(entries, keep = keep)) deleteBlocking(id)
     }
 
     private fun projectsDir(): File = File(context.filesDir, PROJECTS_DIR).apply { mkdirs() }
@@ -169,11 +219,20 @@ class ProjectStore(private val context: Context) {
         if (isValidId(id)) File(projectsDir(), id).takeIf(File::isDirectory) else null
 
     private fun copyInto(dir: File, name: String, file: File) {
-        // Copied every save, even when the bytes are already identical
-        // (re-saving a resumed project). A photo copy is tens of
-        // milliseconds; a staleness heuristic that guesses wrong once
-        // costs the user their picture.
-        writeAtomically(File(dir, name)) { out -> file.inputStream().use { it.copyTo(out) } }
+        val destination = File(dir, name)
+        // Session files are write-once — ImageLoader writes each one to a
+        // temp name under a fresh UUID and renames it into place, and a
+        // new photo always means a new file. So a destination that is the
+        // same length and no older than its source IS that source, and
+        // re-copying it would only burn the megabytes again on every
+        // autosave. Anything else copies.
+        if (destination.isFile &&
+            destination.length() == file.length() &&
+            destination.lastModified() >= file.lastModified()
+        ) {
+            return
+        }
+        writeAtomically(destination) { out -> file.inputStream().use { it.copyTo(out) } }
     }
 
     private fun writeThumbnail(dir: File, bitmap: Bitmap) {

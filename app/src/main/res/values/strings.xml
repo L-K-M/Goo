@@ -20,6 +20,13 @@
     <!-- Saved projects on the In screen. "Hold to throw away" is the only
          place the long press is announced, so it stays in the label. -->
     <string name="home_projects_label">Pick up where you left off — hold a screen to throw it away:</string>
+    <!-- The shelf is a recents list, and a recents list that quietly drops
+         the oldest entry has to say so somewhere. The count is
+         ProjectShelf.MAX_PROJECTS. -->
+    <plurals name="home_projects_retention">
+        <item quantity="one">The newest session is kept.</item>
+        <item quantity="other">The %1$d newest sessions are kept.</item>
+    </plurals>
     <string name="project_open">Keep gooing this project</string>
     <string name="project_delete_title">Throw this goo away?</string>
     <string name="project_delete_body">The strokes, keyframes, levers and the photo behind them go for good. Pictures you already saved from Out stay in your gallery.</string>
@@ -39,9 +46,14 @@
          each verb costs rather than the vague "unsaved changes". -->
     <string name="editor_exit_title">Leave the goo behind?</string>
     <string name="editor_exit_body">Save keeps this project — strokes, keyframes, effect levers and all — on the In screen, ready to pick up again. Leave throws it away for good.</string>
+    <!-- Shown instead when the project is already the user's (resumed, or
+         saved from the rail): Leave stops editing, it does not delete. -->
+    <string name="editor_exit_body_saved">Save updates this project on the In screen — strokes, keyframes, effect levers and all. Leave stops here, and the project keeps whatever was saved last.</string>
     <string name="editor_exit_save">Save and leave</string>
     <string name="editor_exit_confirm">Leave</string>
     <string name="editor_exit_cancel">Keep gooing</string>
+    <string name="editor_save">Save this project</string>
+    <string name="project_saved">Saved to the In screen</string>
     <string name="editor_brush_size">Size</string>
     <string name="editor_brush_strength">Strength</string>
 

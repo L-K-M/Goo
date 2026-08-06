@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -68,6 +69,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.BuildConfig
 import ch.lkmc.goo.R
+import ch.lkmc.goo.data.ProjectShelf
 import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.ui.components.ChromeButton
 import ch.lkmc.goo.ui.components.GridBackdrop
@@ -234,6 +236,17 @@ fun HomeScreen(
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.home_projects_retention,
+                            ProjectShelf.MAX_PROJECTS,
+                            ProjectShelf.MAX_PROJECTS,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 Spacer(modifier = Modifier.height(32.dp))
                 Text(

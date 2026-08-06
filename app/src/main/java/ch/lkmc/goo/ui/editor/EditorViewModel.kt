@@ -151,6 +151,15 @@ class EditorViewModel @Inject constructor(
         /** A project write is in flight (the leave dialog waits on it). */
         val savingProject: Boolean = false,
         /**
+         * This session has a project on disk the user ASKED for — it was
+         * resumed from the In room, or saved from the rail or the leave
+         * dialog. An autosave alone does not count, and that distinction
+         * is what Leave means: throwing away a session the user never
+         * chose to keep really deletes it, while leaving a saved project
+         * just stops editing it.
+         */
+        val projectSaved: Boolean = false,
+        /**
          * [signature] as of the last successful save (or of the project
          * this session opened); null = never saved.
          */
@@ -195,16 +204,24 @@ class EditorViewModel @Inject constructor(
             get() = canReset || keyframes.isNotEmpty() || bitmapB != null || cropped
 
         /**
-         * There is work here that is not on disk — the exit guard.
+         * There is work here the user has not settled — the exit guard,
+         * and what lights the rail's Save bead.
          *
-         * Since projects persist (ANALYSIS SOL-34), "unsaved" finally
-         * means what it says: work that differs from what was last
-         * written. Opening a saved project and pressing Back without
-         * touching anything leaves silently, because that document IS
-         * saved; goo one more stroke and the guard comes back.
+         * Two ways to be unsettled, and the second is the subtle one:
+         *
+         * - The document differs from what was last written. Since
+         *   projects persist (ANALYSIS SOL-34), "unsaved" finally means
+         *   what it says: reopening a saved project and pressing Back
+         *   without touching anything leaves silently, and one more
+         *   stroke brings the guard back.
+         * - The project on disk exists only because the editor autosaved
+         *   it ([projectSaved] false). An autosave is insurance against
+         *   an OS kill, not a decision to keep the thing — so the door
+         *   still asks, and answering Leave deletes what the insurance
+         *   wrote ([EditorViewModel.discardProject]).
          */
         val hasUnsavedWork: Boolean
-            get() = hasWork && signature != savedSignature
+            get() = hasWork && (!projectSaved || signature != savedSignature)
     }
 
     /**
@@ -241,10 +258,27 @@ class EditorViewModel @Inject constructor(
         data class Failed(@StringRes val reason: Int) : ExportEvent
     }
 
+    /** Why a project write is happening — it decides what the user sees. */
+    enum class SaveReason {
+        /** The rail's Save bead: stay in the room, say it worked. */
+        EXPLICIT,
+
+        /** The leave dialog: the room closes once the write lands. */
+        LEAVE,
+
+        /**
+         * The editor went to the background. Silent on success — the user
+         * is somewhere else — but a FAILURE is still announced when they
+         * come back, because it means the work they walked away from is
+         * not on disk.
+         */
+        AUTOSAVE,
+    }
+
     /** One-shot outcomes of a project write. */
     sealed interface ProjectEvent {
-        /** The document is on disk; the screen may leave the room. */
-        data object Saved : ProjectEvent
+        /** The document is on disk. [leave] closes the room. */
+        data class Saved(val leave: Boolean) : ProjectEvent
 
         data class Failed(@StringRes val reason: Int) : ProjectEvent
     }
@@ -438,6 +472,9 @@ class EditorViewModel @Inject constructor(
                 keyframes = keyframes,
                 selectedKeyframe = -1,
                 scrubPos = 0f,
+                // Resumed, so it is the user's project already: Leave
+                // stops editing it rather than throwing it away.
+                projectSaved = true,
             )
         }
         refreshHistoryFlags()
@@ -1173,11 +1210,44 @@ class EditorViewModel @Inject constructor(
     // this saves the thing you can go on gooing tomorrow.
 
     /**
+     * Save when the editor goes to the background.
+     *
+     * This is the answer to "the OS killed my app and my goo was gone":
+     * `onStop` is the last callback guaranteed before a process can be
+     * reclaimed, so it is where the document has to reach disk. Only when
+     * there is something new to write — backgrounding an untouched photo,
+     * or one whose state is already saved, does nothing.
+     */
+    fun autosaveProject() {
+        val state = _uiState.value
+        if (!state.hasUnsavedWork || state.savingProject) return
+        saveProject(SaveReason.AUTOSAVE)
+    }
+
+    /**
+     * Throw away a session the user never asked to keep — the Leave
+     * button, which has to undo any autosave behind it or the bin icon
+     * on it is a lie.
+     *
+     * A project that WAS saved on purpose (resumed, or saved from the
+     * rail) is never touched: Leave stops editing it, it does not delete
+     * it. The delete is fire-and-forget because the screen navigates away
+     * in the same breath, taking this ViewModel's scope with it.
+     */
+    fun discardProject() {
+        val id = projectId ?: return
+        if (_uiState.value.projectSaved) return
+        projectId = null
+        savedStateHandle.remove<String>(KEY_PROJECT_ID)
+        projectStore.deleteInBackground(id)
+    }
+
+    /**
      * Write this session to disk, overwriting the project it came from
      * (or minting one on the first save). Emits [ProjectEvent.Saved] when
      * the document is safely on disk — the leave dialog waits for it.
      */
-    fun saveProject() {
+    fun saveProject(reason: SaveReason) {
         if (_uiState.value.savingProject) return
         // A second finger can be mid-stroke when the dialog's button is
         // tapped. Commit rather than discard, same policy as setTool: the
@@ -1203,15 +1273,25 @@ class EditorViewModel @Inject constructor(
         val signature = state.signature
         val strokes = log.strokes
         val fusion = sessionFileB
+        // A project with no preview at all is worse than one showing the
+        // photo under the goo, so the very first write of a project may
+        // fall back to the plain decode. Later writes never do: they
+        // would replace a real preview of the goo with a bare photo.
+        val firstWrite = projectId == null
         _uiState.update { it.copy(savingProject = true) }
         viewModelScope.launch {
             var thumbnail: Bitmap? = null
             try {
-                thumbnail = renderThumbnail(strokes)
+                thumbnail = renderThumbnail(strokes, sourceIsAcceptable = firstWrite)
                 projectId = projectStore.save(projectId, document, session, fusion, thumbnail)
                 savedStateHandle[KEY_PROJECT_ID] = projectId
                 markSaved(signature)
-                _projectEvents.send(ProjectEvent.Saved)
+                if (reason != SaveReason.AUTOSAVE) {
+                    // A save the user asked for is what makes the project
+                    // theirs: Leave stops deleting it from here on.
+                    _uiState.update { it.copy(projectSaved = true) }
+                    _projectEvents.send(ProjectEvent.Saved(leave = reason == SaveReason.LEAVE))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1240,40 +1320,55 @@ class EditorViewModel @Inject constructor(
      * down mid-save (a rotation) would otherwise leave this suspended
      * forever, with the user stuck in a dialog that never returns.
      */
-    private suspend fun renderThumbnail(strokes: List<Stroke>): Bitmap? {
-        val bridge = engineBridge ?: return null
+    private suspend fun renderThumbnail(
+        strokes: List<Stroke>,
+        sourceIsAcceptable: Boolean,
+    ): Bitmap? {
         val session = sessionFile ?: return null
-        return withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) {
-            var source: Bitmap? = null
-            var sourceB: Bitmap? = null
-            try {
-                val decoded =
-                    imageLoader.decodePreview(session, ProjectStore.THUMBNAIL_MAX_DIM, cropRect)
-                source = decoded
+        var source: Bitmap? = null
+        var sourceB: Bitmap? = null
+        var rendered = false
+        try {
+            val decoded =
+                imageLoader.decodePreview(session, ProjectStore.THUMBNAIL_MAX_DIM, cropRect)
+            source = decoded
+            val bridge = engineBridge
+            val warped = if (bridge == null) null else withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) {
                 val decodedB = sessionFileB?.let {
                     imageLoader.decodeCover(it, decoded.width, decoded.height)
                 }
                 sourceB = decodedB
-                suspendCancellableCoroutine { cont ->
+                suspendCancellableCoroutine<Bitmap?> { cont ->
                     bridge {
                         exportBitmap(decoded, decodedB, strokes) { out ->
                             if (cont.isActive) cont.resume(out) else out?.recycle()
                         }
                     }
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "could not render the project preview", e)
-                null
-            } finally {
-                // Same rule as runExport: on the cancelled path a queued GL
-                // upload may still hold these, so drop the references and
-                // let GC reclaim instead of recycling under the GL thread.
-                if (coroutineContext.isActive) {
-                    source?.recycle()
-                    sourceB?.recycle()
-                }
+            }
+            if (warped != null) {
+                rendered = true
+                return warped
+            }
+            // No replay: no surface, or a paused one (the autosave case —
+            // the GL thread stops as the app goes to the background). The
+            // caller decides whether a bare photo beats no preview.
+            if (!sourceIsAcceptable) return null
+            source = null
+            return decoded
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "could not render the project preview", e)
+            return null
+        } finally {
+            // Recycled only when the GL side actually answered. After a
+            // timeout the queued event may still be holding these, and
+            // freeing a bitmap under the GL thread is worse than letting
+            // GC take a megabyte late (same policy as runExport).
+            if (rendered && coroutineContext.isActive) {
+                source?.recycle()
+                sourceB?.recycle()
             }
         }
     }

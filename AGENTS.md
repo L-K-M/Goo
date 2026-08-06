@@ -101,12 +101,28 @@ lives in `engine/core` as pure JVM classes.
   and `restore` refuses a malformed table outright instead of
   half-restoring — a blank canvas over the right photo is what "lost all
   my goo" looks like.
-- **A saved project's folder changes only when the user saves.** Opening
-  one copies its bytes into fresh session files (`ImageLoader.importFile`)
-  because the editor treats session files as scratch it owns: a Fusion
-  swap deletes the file it replaces, and `sweepSessions` collects whatever
-  no session claims. Never point `sessionFile`/`sessionFileB` straight at
-  `filesDir/projects/…`.
+- **A saved project's folder changes only when the user saves** (or the
+  editor autosaves). Opening one copies its bytes into fresh session files
+  (`ImageLoader.importFile`) because the editor treats session files as
+  scratch it owns: a Fusion swap deletes the file it replaces, and
+  `sweepSessions` collects whatever no session claims. Never point
+  `sessionFile`/`sessionFileB` straight at `filesDir/projects/…`. Session
+  files are also **write-once** — a new photo always means a new UUID
+  name — which is what lets `ProjectStore.copyInto` skip re-copying a
+  source of identical length and age on every autosave.
+- **An autosave is insurance, not a decision.** `ON_STOP` is the last
+  callback before a backgrounded process can be reclaimed, so that is
+  where `autosaveProject` writes; but a project that exists only because
+  of it has `projectSaved = false`, which keeps the exit guard armed and
+  makes Leave *delete* what the autosave wrote (`discardProject`, through
+  `ProjectStore.deleteInBackground` — the ViewModel's scope dies with the
+  navigation). Only a resume or a save the user asked for flips
+  `projectSaved`, and from then on Leave keeps the project.
+- **The shelf has a ceiling and says so.** `ProjectShelf` (pure, tested)
+  decides what a save evicts: newest kept, oldest out, never the project
+  being written. The In room states the count out loud — if you change
+  `MAX_PROJECTS`/`MAX_BYTES`, that line moves with it, because silently
+  dropping someone's work is only acceptable when it was announced.
 - **Saved projects stay out of backup.** The two backup allowlists name
   `datastore` and sharedprefs only; `files/projects` holds the user's
   photos, and "nothing leaves your device" is a promise the About screen
