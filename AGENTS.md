@@ -112,12 +112,22 @@ lives in `engine/core` as pure JVM classes.
   source of identical length and age on every autosave.
 - **An autosave is insurance, not a decision.** `ON_STOP` is the last
   callback before a backgrounded process can be reclaimed, so that is
-  where `autosaveProject` writes; but a project that exists only because
-  of it has `projectSaved = false`, which keeps the exit guard armed and
-  makes Leave *delete* what the autosave wrote (`discardProject`, through
-  `ProjectStore.deleteInBackground` — the ViewModel's scope dies with the
-  navigation). Only a resume or a save the user asked for flips
-  `projectSaved`, and from then on Leave keeps the project.
+  where `autosaveProject` writes; a checkpoint loop (`AutosavePolicy`:
+  quiet-after-edit, with a ceiling for people who never pause) covers the
+  foreground crash the lifecycle can't. But a project that exists only
+  because of them has `projectSaved = false`, which keeps the exit guard
+  armed and makes Leave *delete* what the autosave wrote
+  (`discardProject`, through `ProjectStore.deleteInBackground` — the
+  ViewModel's scope dies with the navigation). Only a resume or a save the
+  user asked for flips `projectSaved`, and from then on Leave keeps the
+  project.
+- **Autosave paths key on `hasUnwrittenChanges`, never `hasUnsavedWork`.**
+  The exit guard's flag stays true after an autosave on purpose (the user
+  still hasn't settled the question), so a checkpoint loop reading it
+  would rewrite the same document forever. For the same family of
+  reasons, a checkpoint keeps the preview already on disk rather than
+  re-rendering it: the replay runs on the GL thread, and a checkpoint
+  fires into a pause the user is about to end.
 - **The shelf has a ceiling and says so.** `ProjectShelf` (pure, tested)
   decides what a save evicts: newest kept, oldest out, never the project
   being written. The In room states the count out loud — if you change

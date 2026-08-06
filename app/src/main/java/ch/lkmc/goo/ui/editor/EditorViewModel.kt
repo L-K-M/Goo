@@ -47,6 +47,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -204,6 +207,16 @@ class EditorViewModel @Inject constructor(
             get() = canReset || keyframes.isNotEmpty() || bitmapB != null || cropped
 
         /**
+         * The document on screen is not the document on disk — what the
+         * autosave paths write, and the only thing they may key on. (The
+         * exit guard's [hasUnsavedWork] must NOT be used there: it stays
+         * true after an autosave by design, so a checkpoint loop reading
+         * it would rewrite the same document forever.)
+         */
+        val hasUnwrittenChanges: Boolean
+            get() = hasWork && signature != savedSignature
+
+        /**
          * There is work here the user has not settled — the exit guard,
          * and what lights the rail's Save bead.
          *
@@ -221,7 +234,7 @@ class EditorViewModel @Inject constructor(
          *   wrote ([EditorViewModel.discardProject]).
          */
         val hasUnsavedWork: Boolean
-            get() = hasWork && (!projectSaved || signature != savedSignature)
+            get() = hasUnwrittenChanges || (hasWork && !projectSaved)
     }
 
     /**
@@ -310,6 +323,13 @@ class EditorViewModel @Inject constructor(
      * near-identical copies of the same picture.
      */
     private var projectId: String? = null
+
+    /**
+     * A failing autosave has already told the user once. Cleared by any
+     * successful write, so a disk that frees up and fills again speaks
+     * again.
+     */
+    private var autosaveFailureReported = false
     private var exportJob: Job? = null
     private var secondImageJob: Job? = null
     private var secondImageRequestId = 0L
@@ -353,6 +373,7 @@ class EditorViewModel @Inject constructor(
         // project once reopens THAT project after process death, strokes
         // and all, rather than the bare photo the route names.
         val project = savedStateHandle.get<String>(KEY_PROJECT_ID) ?: route.projectId
+        startCheckpointing()
         viewModelScope.launch {
             try {
                 if (project != null) openProject(project) else openPhoto(route.imageUri)
@@ -1220,9 +1241,65 @@ class EditorViewModel @Inject constructor(
      */
     fun autosaveProject() {
         val state = _uiState.value
-        if (!state.hasUnsavedWork || state.savingProject) return
+        if (!state.hasUnwrittenChanges || state.savingProject) return
+        // A stroke in flight is not in the log yet, and a pumped tool can
+        // hold one down for a minute. Writing now would checkpoint the
+        // state before it; the commit that ends it moves the signature and
+        // brings the loop straight back.
+        if (liveParams != null) return
         saveProject(SaveReason.AUTOSAVE)
     }
+
+    /**
+     * Checkpoint the document while editing continues — the foreground
+     * half of "an OS kill must not cost the session" ([AutosavePolicy]
+     * holds the two clocks and why there are two).
+     *
+     * Runs for the ViewModel's whole life; it costs nothing while the
+     * document matches disk. Deliberately paused while an export owns the
+     * GL thread: the checkpoint's own preview render would queue behind a
+     * movie and time out, and a movie is not a moment to add GL work to.
+     */
+    private fun startCheckpointing() {
+        viewModelScope.launch {
+            var dirtySinceMs: Long? = null
+            uiState
+                .map { state ->
+                    Checkpoint(
+                        signature = state.signature,
+                        due = state.hasUnwrittenChanges,
+                        busy = state.savingProject || state.exporting || state.exportingMovie,
+                    )
+                }
+                .distinctUntilChanged()
+                // collectLatest IS the debounce: every change to the
+                // document cancels the pending wait and starts a new one.
+                .collectLatest { checkpoint ->
+                    if (!checkpoint.due) {
+                        dirtySinceMs = null
+                        return@collectLatest
+                    }
+                    if (checkpoint.busy) return@collectLatest
+                    val now = System.nanoTime() / 1_000_000L
+                    val since = dirtySinceMs ?: now.also { dirtySinceMs = it }
+                    delay(AutosavePolicy.delayMs(now - since))
+                    // Restart the clock at the ATTEMPT, not at the write.
+                    // A write that succeeds clears `due` and this is moot;
+                    // one that fails (no space, say) leaves the document
+                    // dirty and already past the ceiling, and without this
+                    // the loop would retry as fast as the disk can say no.
+                    dirtySinceMs = System.nanoTime() / 1_000_000L
+                    autosaveProject()
+                }
+        }
+    }
+
+    /** What the checkpoint loop watches; distinct values restart its wait. */
+    private data class Checkpoint(
+        val signature: DocumentSignature,
+        val due: Boolean,
+        val busy: Boolean,
+    )
 
     /**
      * Throw away a session the user never asked to keep — the Leave
@@ -1278,14 +1355,23 @@ class EditorViewModel @Inject constructor(
         // fall back to the plain decode. Later writes never do: they
         // would replace a real preview of the goo with a bare photo.
         val firstWrite = projectId == null
+        // Checkpoints keep the preview they have. Rendering one replays
+        // the whole log on the GL thread, and a checkpoint fires ten
+        // seconds into a pause — precisely when the user is about to put
+        // a finger back down, and would wait behind it. A save they asked
+        // for is a moment they are already waiting on; this is not.
+        val renderPreview = reason != SaveReason.AUTOSAVE || firstWrite
         _uiState.update { it.copy(savingProject = true) }
         viewModelScope.launch {
             var thumbnail: Bitmap? = null
             try {
-                thumbnail = renderThumbnail(strokes, sourceIsAcceptable = firstWrite)
+                if (renderPreview) {
+                    thumbnail = renderThumbnail(strokes, sourceIsAcceptable = firstWrite)
+                }
                 projectId = projectStore.save(projectId, document, session, fusion, thumbnail)
                 savedStateHandle[KEY_PROJECT_ID] = projectId
                 markSaved(signature)
+                autosaveFailureReported = false
                 if (reason != SaveReason.AUTOSAVE) {
                     // A save the user asked for is what makes the project
                     // theirs: Leave stops deleting it from here on.
@@ -1296,7 +1382,13 @@ class EditorViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "could not save the project", e)
-                _projectEvents.send(ProjectEvent.Failed(R.string.error_project_save))
+                // A broken autosave says so ONCE. It keeps retrying (the
+                // work is still unwritten, and the disk may free up), but
+                // a snackbar every ten seconds would bury the editor
+                // without telling the user anything new.
+                val announce = reason != SaveReason.AUTOSAVE || !autosaveFailureReported
+                if (reason == SaveReason.AUTOSAVE) autosaveFailureReported = true
+                if (announce) _projectEvents.send(ProjectEvent.Failed(R.string.error_project_save))
             } finally {
                 thumbnail?.recycle()
                 _uiState.update { it.copy(savingProject = false) }

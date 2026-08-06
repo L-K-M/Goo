@@ -55,8 +55,9 @@ and a Fusion brush that paints a second photo through the first.
 - **Saved projects** — save from the rail or on the way out and the whole
   document is kept (strokes with their undo history, keyframes, levers,
   crop, Fusion photo), shelved on the In screen as a preview tile to pick
-  back up. The editor also autosaves when it goes to the background, so an
-  app the system reclaims comes back with your goo. The shelf is a recents
+  back up. The editor autosaves as you work — a checkpoint when you pause,
+  and again when it goes to the background — so neither a system kill nor
+  a crash takes the session with it. The shelf is a recents
   list — the newest 20 sessions, oldest out, as the screen says. Projects
   live in app-private storage and stay out of cloud backup: the photos are
   yours, and they stay on the device.

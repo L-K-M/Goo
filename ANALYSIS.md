@@ -94,11 +94,16 @@ fix and continues as crop-only.
   - **Traditional Chinese and the rest.** `values-b+zh+Hans` and
     `locales_config` landed with PR 17; zh-Hant, and any further locale,
     is now a translation file plus one line in that config.
-  - **Still open: a crash *between* autosaves.** `ON_STOP` covers
-    backgrounding, which is how processes actually die; a hard crash while
-    the editor is in the foreground still loses the strokes since the last
-    write. Periodic autosave (or a crash handler) is the next increment if
-    that ever shows up in practice.
+  - ~~A crash *between* autosaves~~ *(done, same PR, user-reported):*
+    `ON_STOP` covers backgrounding, which is how processes usually die,
+    but not a hard crash with the editor in the foreground. A checkpoint
+    loop closes it — `AutosavePolicy` writes 10 s after the last change,
+    and never lets the document go unwritten for more than 90 s while
+    editing continues, so the steady gooer who never pauses is
+    checkpointed too. A failed checkpoint restarts its own clock instead
+    of retrying at disk speed, and says so once rather than every cycle.
+    The remaining exposure is the last few strokes before a foreground
+    crash, which is what any editor's autosave leaves on the table.
 
 - **K3-28** ✨ **"Go to keyframe" — load a pin's state into the editor.**
   A keyframe pins an immutable revision, so restoring the editor to it is
