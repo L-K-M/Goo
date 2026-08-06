@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- API 31+ backup/transfer rules; mirrors backup_rules.xml. -->
+<!-- API 31+ backup/transfer rules; mirrors backup_rules.xml, including
+     why saved projects are absent: the user's photos stay on the device. -->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="file" path="datastore" />

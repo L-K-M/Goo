@@ -60,20 +60,38 @@ fix and continues as crop-only.
   or retain an explicit undo token for destructive lever resets. `Zero all`
   needs the same guardrail.
 
-- **SOL-7: Back destroys an unpersisted edit without warning.** *Interim
-  guard landed (PR 15, user-reported):* both Back paths now route through
-  `UiState.hasUnsavedWork` — strokes/levers (`canReset`), keyframes, a picked
-  Fusion photo, or a crop — and stop to ask; Back inside crop mode leaves the
-  overlay instead of the room. This is a seatbelt, NOT persistence: process
-  death, a crash, or Leave still take the document. SOL-34 remains the fix.
+- **SOL-7: Back destroys an unpersisted edit without warning.** *Resolved
+  (guard in PR 15, persistence in PR 17).* Both Back paths route through
+  `UiState.hasUnsavedWork`, and the dialog now offers Save as well as Leave.
+  With SOL-34 landed, "unsaved" is a comparison against what is on disk
+  (`savedSignature`), so reopening a saved project and leaving it untouched
+  no longer asks; Back inside crop mode still leaves the overlay, not the
+  room. A crash or process death before the first save still takes the
+  document — see the autosave follow-up below.
 
 - **SOL-34 / G-2 / K3-7 / K3-27: Persist the document and add Recent Goo.**
-  This remains the highest-value feature. Write source identities, normalized
-  stroke revisions, history cursor, globals, Fusion state, keyframe revision
-  IDs, and schema version atomically; recover corrupt projects safely; add Home
-  resume/discard. Build it after #24/#27 settle the revision model. Runtime
-  `StrokeRevision` graphs must be serialized as a normalized ID table, never
-  recursively.
+  *Landed (PR 17).* `ProjectStore` writes one folder per project under
+  `filesDir/projects`: source bytes, Fusion's photo B, a preview rendered
+  through the export replay, and `project.json` — schema version, crop rect,
+  globals, keyframe pins as revision ids, and the stroke log as a normalized
+  revision table (`StrokeLogSnapshot`: every reachable revision once, parents
+  before children, history and pins referring to them by id, exactly as this
+  entry required). Writes are per-file tmp+rename with the document renamed
+  last; loads validate ids, parent order and file names, and refuse rather
+  than half-restore. The In room lists projects with resume and discard.
+  Remaining follow-ups:
+
+  - **Save without leaving.** Today the only save point is the leave
+    dialog. An explicit Save action (a rail bead, or an autosave when the
+    editor is backgrounded once a project exists) is what would close the
+    crash/process-death hole SOL-7 still names.
+  - **Storage has no ceiling.** Every project keeps a full-size copy of its
+    source photo, and nothing prunes old ones but the user. Decide a policy
+    (a cap with an explicit prompt, or a size readout in the In room)
+    before it bites someone with a 200-photo shelf.
+  - **Traditional Chinese and the rest.** `values-b+zh+Hans` and
+    `locales_config` landed with PR 17; zh-Hant, and any further locale,
+    is now a translation file plus one line in that config.
 
 - **K3-28** ✨ **"Go to keyframe" — load a pin's state into the editor.**
   A keyframe pins an immutable revision, so restoring the editor to it is
@@ -129,7 +147,11 @@ fix and continues as crop-only.
   truth lives under `cacheDir`, while an unrestricted provider stream can fill
   storage or stall IO. Durable drafts belong in deliberate private storage
   with explicit cleanup. Add compressed-byte/free-space limits and cancellation
-  before copying. Decide backup behavior with SOL-34.
+  before copying. *Backup behavior decided with SOL-34 (PR 17):* saved
+  projects live in `filesDir/projects` and are deliberately absent from both
+  backup allowlists (`backup_rules.xml`, `data_extraction_rules.xml`) — they
+  hold the user's photos, and the app's promise is that nothing leaves the
+  device. The size limits themselves are still open.
 
 - **SOL-21: GLES capability failure is not consistently fail-soft.** Declare
   GLES 3.0 in the manifest, wrap config/shader/FBO initialization in one error

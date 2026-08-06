@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simplified Chinese. The folder is the BCP-47 form (b+zh+Hans) rather
+     than zh-rCN, so it matches zh-Hans in any region (CN, SG, MY) instead
+     of one country; Traditional users fall back to the default English
+     until a zh-Hant file exists.
+
+     House lexicon, kept consistent because the app made these words up:
+     "goo" (verb) = 捏, "goo" (noun, the work) = 黏糊, UnGoo = 去黏.
+     Meltorama 2000 and GOOvie stay in Latin script — they are names, and
+     the console's chrome wordmark is the name. -->
+<resources>
+    <string name="home_tagline">把照片揉成黏糊</string>
+    <string name="home_subtagline">像揉湿颜料一样，\n挤压、涂抹、拉伸你的照片。</string>
+    <string name="home_enter_goo">开捏！</string>
+    <string name="home_samples_label">手边没有照片？先捏个样图：</string>
+    <string name="sample_goo_guy">样图：黏糊小人</string>
+    <string name="sample_candy_blobs">样图：糖果球</string>
+
+    <string name="home_projects_label">接着上次继续捏——长按图块可以丢掉它：</string>
+    <string name="project_open">继续捏这个项目</string>
+    <string name="project_delete_title">丢掉这团黏糊？</string>
+    <string name="project_delete_body">笔触、关键帧、效果推杆，以及背后的照片都会永久消失。你已经从「出片」保存的图片仍然留在相册里。</string>
+    <string name="project_delete_confirm">丢掉</string>
+    <string name="project_delete_cancel">留着</string>
+
+    <string name="editor_back">返回</string>
+    <string name="editor_undo">撤销</string>
+    <string name="editor_redo">重做</string>
+    <string name="editor_reset">重置黏糊</string>
+    <string name="editor_reset_title">全部去黏？</string>
+    <string name="editor_reset_body">照片会回到最初的样子。笔触可以撤销；效果推杆回到中间。</string>
+    <string name="editor_reset_confirm">重置</string>
+    <string name="editor_reset_cancel">继续捏</string>
+    <string name="editor_exit_title">丢下这团黏糊？</string>
+    <string name="editor_exit_body">「保存」会把这个项目——笔触、关键帧、效果推杆，一个都不少——留在首页，随时可以接着捏。「离开」则会把它永久丢掉。</string>
+    <string name="editor_exit_save">保存并离开</string>
+    <string name="editor_exit_confirm">离开</string>
+    <string name="editor_exit_cancel">继续捏</string>
+    <string name="editor_brush_size">大小</string>
+    <string name="editor_brush_strength">力度</string>
+
+    <string name="tool_smear">涂抹</string>
+    <string name="tool_move">移动</string>
+    <string name="tool_smudge">晕开</string>
+    <string name="tool_nudge">微调</string>
+    <string name="tool_grow">胀大</string>
+    <string name="tool_shrink">缩小</string>
+    <string name="tool_smooth">抚平</string>
+    <string name="tool_ungoo">去黏</string>
+    <string name="tool_fuse">融合</string>
+
+    <string name="home_about">关于</string>
+    <string name="about_body">像揉湿颜料一样挤压、涂抹、拉伸你的照片——向 Kai\'s Power Goo（1996）致敬，穿上它一直该有的复古未来外壳。完全离线：没有权限、没有网络，任何东西都不会离开你的设备。\n\n几乎全部由大语言模型智能体构建。公共领域（Unlicense）。与 Kai\'s Power Goo 或 KPT 的权利人无关。</string>
+    <string name="about_close">关闭</string>
+    <string name="fusion_change_photo">换一张照片</string>
+    <string name="fusion_remove_photo">移除照片</string>
+    <string name="fusion_loading_photo">正在把新的融合照片融进来…</string>
+    <string name="tool_mirror">镜像</string>
+
+    <string name="editor_levers">整体效果</string>
+    <string name="editor_hint_smear">在照片上拖动就能捏它</string>
+    <string name="editor_reset_view">重置视图</string>
+
+    <string name="editor_crop">裁剪</string>
+    <string name="crop_apply">按取景框裁剪</string>
+    <string name="crop_cancel">退出裁剪</string>
+    <string name="crop_full_frame">回到完整照片</string>
+    <string name="crop_confirm_title">裁剪并重新开始？</string>
+    <string name="crop_confirm_body">换了取景框就得重新捏：笔触、关键帧和推杆都会从头开始。此操作无法撤销。</string>
+    <string name="crop_confirm_go">裁剪</string>
+
+    <string name="editor_goovies">GOOvie</string>
+    <string name="goovie_capture">打一个关键帧</string>
+    <string name="goovie_punch">打帧</string>
+    <string name="goovie_punch_count">打帧（%1$d）</string>
+    <string name="goovie_play">播放</string>
+    <string name="goovie_pause">暂停</string>
+    <string name="goovie_delete">删除关键帧</string>
+    <string name="goovie_move_earlier">关键帧前移</string>
+    <string name="goovie_move_later">关键帧后移</string>
+    <string name="goovie_update">更新这个关键帧</string>
+    <string name="goovie_update_count">更新 %1$d</string>
+    <string name="goovie_empty_hint">先把照片捏一捏，再打关键帧——拖动或播放就能看它跳起来。</string>
+    <string name="goovie_hint_live_pinned">正在实时捏。打帧会钉出一个新关键帧；「更新」把第 %1$d 帧重新钉到眼前这一幕。</string>
+    <string name="goovie_hint_live">正在实时捏。打帧会把眼前这一幕钉成下一个关键帧。</string>
+    <string name="goovie_hint_needs_second">只有一个关键帧。再捏一点，然后再打一帧——动画就在两次打帧之间。</string>
+    <string name="goovie_hint_all_same">每个关键帧钉的黏糊都一样，所以画面不会动。再捏一点，然后打帧或更新。</string>
+    <string name="goovie_hint_stale">你捏的进度已经超过第 %1$d 帧。打一个新的，或者用「更新」把它重新钉住。</string>
+    <string name="goovie_hint_ready">拖动或播放就能看它跳起来。</string>
+    <string name="goovie_export_movie">保存或分享 GOOvie</string>
+    <string name="goovie_exporting">拍摄中…</string>
+
+    <string name="movie_export_title">GOOvie 出片</string>
+    <string name="movie_speed">速度</string>
+    <string name="movie_loop">无限循环</string>
+    <string name="movie_length">大约 %1$s 秒</string>
+    <string name="lever_bulge">鼓起</string>
+    <string name="lever_twirl">旋涡</string>
+    <string name="lever_squeeze">挤扁</string>
+    <string name="lever_stretch">拉长</string>
+    <string name="lever_spike">尖刺</string>
+    <string name="lever_static">噪点</string>
+    <string name="lever_zero_all">全部归零</string>
+    <string name="editor_error_title">没能捏成</string>
+    <string name="editor_export">保存或分享</string>
+
+    <string name="export_title">出片</string>
+    <string name="export_quality">画质 %1$d</string>
+    <string name="export_save">保存</string>
+    <string name="export_share">分享</string>
+    <string name="export_saved_gallery">已保存到 Pictures/Meltorama</string>
+    <string name="export_saved_movies">已保存到 Movies/Meltorama</string>
+    <string name="export_saved_app_storage">已保存——用「分享」把它放进相册</string>
+    <string name="export_failed">这一步没成：</string>
+
+    <string name="error_open_image">Meltorama 打不开这张照片。</string>
+    <string name="error_open_second_image">Meltorama 打不开第二张照片。</string>
+    <string name="error_crop">这次裁剪没成功。</string>
+    <string name="error_crop_memory">内存不够，裁不了这张照片。</string>
+    <string name="error_editor_not_ready">黏糊台还没准备好。</string>
+    <string name="error_export">渲染这张图片没成功。</string>
+    <string name="error_movie_export">拍这段 GOOvie 没成功。</string>
+    <string name="error_movie_save">保存这段 GOOvie 没成功。</string>
+    <string name="error_project_save">保存项目没成功。</string>
+    <string name="error_project_missing">这个项目已经不在了。</string>
+    <string name="error_project_damaged">这个项目里的黏糊读不出来。</string>
+    <string name="error_gpu_unsupported">这台设备的 GPU 渲染不了黏糊（不支持浮点渲染目标）。</string>
+</resources>

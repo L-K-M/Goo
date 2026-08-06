@@ -52,6 +52,13 @@ and a Fusion brush that paints a second photo through the first.
 - **Unlimited undo/redo**, confirmed Reset, and an engine that treats
   GPU state as a cache — the stroke log is the document, and everything
   rebuilds by replay after context loss.
+- **Saved projects** — leaving offers to keep the whole document (strokes
+  with their undo history, keyframes, levers, crop, Fusion photo), and the
+  In screen shelves it as a preview tile to pick back up. Projects live in
+  app-private storage and stay out of cloud backup: the photos are yours,
+  and they stay on the device.
+- **English and Simplified Chinese**, switchable per app on Android 13+
+  without changing the phone's language.
 
 The full design and the PR-by-PR build history live in
 [PLAN.md](PLAN.md); known trade-offs and deferred work in

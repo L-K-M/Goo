@@ -165,4 +165,88 @@ class StrokeLog {
     }
 
     private fun nextId(): StrokeRevisionId = StrokeRevisionId(nextRevisionId++)
+
+    // ---- Persistence ---------------------------------------------------
+    // The document goes to disk as a flat revision table (see
+    // StrokeLogSnapshot). Everything below is pure data movement: no
+    // Android types, so the round trip is covered by the JVM suite.
+
+    /**
+     * Serialize this log. [pins] are extra revisions to keep alive —
+     * GOOvie keyframes, which may pin states the history has truncated —
+     * and their ancestors ride along, so a loaded project can rebuild
+     * every pin by id.
+     *
+     * Records come out parent-before-child: a revision's parent always
+     * has a smaller id (it existed first), so sorting by id topologically
+     * sorts the table, and [restore] can insist on that order rather than
+     * chasing forward references.
+     */
+    fun snapshot(pins: List<StrokeRevision> = emptyList()): StrokeLogSnapshot {
+        val reachable = HashMap<Long, StrokeRevision>()
+        for (root in history + pins) {
+            var revision: StrokeRevision? = root
+            // Stop at the first ancestor already collected: everything
+            // above it came in with that earlier walk.
+            while (revision != null && reachable.put(revision.id.value, revision) == null) {
+                revision = revision.stateParent
+            }
+        }
+        return StrokeLogSnapshot(
+            revisions = reachable.values
+                .sortedBy { it.id.value }
+                .map { revision ->
+                    StrokeRevisionRecord(
+                        id = revision.id.value,
+                        parent = revision.stateParent?.id?.value,
+                        stroke = revision.appendedStroke,
+                    )
+                },
+            history = history.map { it.id.value },
+            cursor = cursor,
+        )
+    }
+
+    /**
+     * Replace this log's contents with [snapshot].
+     *
+     * @return every restored revision by id — the caller needs it to
+     * re-resolve keyframe pins — or null when the snapshot is malformed,
+     * in which case this log is left exactly as it was. A corrupt or
+     * hand-edited project file must degrade to "can't open that", never
+     * to a half-restored document that undoes into nonsense.
+     *
+     * Validity is structural: unique ids, parents that appear earlier in
+     * the table (so the graph is acyclic by construction), a non-empty
+     * history whose ids all resolve, and a cursor inside it.
+     */
+    fun restore(snapshot: StrokeLogSnapshot): Map<StrokeRevisionId, StrokeRevision>? {
+        if (snapshot.history.isEmpty()) return null
+        if (snapshot.cursor !in snapshot.history.indices) return null
+        val table = HashMap<Long, StrokeRevision>(snapshot.revisions.size)
+        for (record in snapshot.revisions) {
+            if (table.containsKey(record.id)) return null
+            val parent = record.parent?.let { table[it] ?: return null }
+            // A stroke with no stamps cannot be produced by push (it is
+            // dropped there), and it would make strokeCount lie about
+            // what a replay draws. Treat it as corruption.
+            if (record.stroke != null && record.stroke.stamps.isEmpty()) return null
+            table[record.id] = StrokeRevision(
+                id = StrokeRevisionId(record.id),
+                stateParent = parent,
+                appendedStroke = record.stroke,
+                strokeCount = (parent?.strokeCount ?: 0) + if (record.stroke != null) 1 else 0,
+            )
+        }
+        val restored = snapshot.history.map { table[it] ?: return null }
+        history.clear()
+        history.addAll(restored)
+        cursor = snapshot.cursor
+        // Ids are handed out fresh from here on: reusing one would let a
+        // renderer cache (or a keyframe pin) answer for the wrong state.
+        nextRevisionId = (table.keys.maxOrNull() ?: -1L) + 1L
+        materializedRevision = currentRevision
+        materializedStrokes = currentRevision.materialize()
+        return table.mapKeys { (id, _) -> StrokeRevisionId(id) }
+    }
 }

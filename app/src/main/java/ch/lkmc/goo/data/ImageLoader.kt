@@ -28,24 +28,45 @@ import java.util.UUID
 class ImageLoader(private val context: Context) {
 
     /**
-     * Copy [uri]'s bytes to a private session file and return it. The copy
-     * is written to a temp name and renamed on success, so a mid-copy
-     * failure can never leave a truncated file that looks like a session.
+     * Copy [uri]'s bytes to a private session file and return it.
      *
      * Bundled samples arrive as `file:///android_asset/<path>` (the WebView
      * convention) and stream straight from the APK; everything else goes
      * through the content resolver (Photo Picker grants).
      */
     suspend fun importImage(uri: Uri): File = withContext(Dispatchers.IO) {
+        copyToSession { output ->
+            openStream(uri)?.use { input -> input.copyTo(output) }
+                ?: throw FileNotFoundException("cannot open $uri")
+        }
+    }
+
+    /**
+     * Copy an app-private [file] into a session file — reopening a saved
+     * project (ProjectStore).
+     *
+     * The copy is deliberate: the editor treats its session files as
+     * scratch it owns (a Fusion swap deletes the file it replaces, a
+     * sweep collects what no session claims), and a saved project must
+     * only ever change when the user saves it.
+     */
+    suspend fun importFile(file: File): File = withContext(Dispatchers.IO) {
+        copyToSession { output -> file.inputStream().use { it.copyTo(output) } }
+    }
+
+    /**
+     * Run [write] into a temp file and rename it into place, so a
+     * mid-copy failure can never leave a truncated file that looks like
+     * a session.
+     */
+    private inline fun copyToSession(write: (java.io.OutputStream) -> Unit): File {
         val dir = File(context.cacheDir, "sessions").apply { mkdirs() }
         val file = File(dir, "session-${UUID.randomUUID()}.img")
         val tmp = File(dir, "${file.name}.tmp")
         try {
-            openStream(uri)?.use { input ->
-                tmp.outputStream().use { output -> input.copyTo(output) }
-            } ?: throw FileNotFoundException("cannot open $uri")
+            tmp.outputStream().use(write)
             check(tmp.renameTo(file)) { "could not finalize session file" }
-            file
+            return file
         } finally {
             tmp.delete()
         }

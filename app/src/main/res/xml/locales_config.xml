@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The languages Meltorama ships, in preference order. This is what puts
+     the app in Android 13+'s per-app language picker (Settings > Apps >
+     Meltorama > Language): without it, a user who wants the app in Chinese
+     has to switch the whole phone.
+
+     Hand-written rather than generated (AGP's generateLocaleConfig): the
+     list is short, and this file is where the shipped-locale decision is
+     recorded. Add a row here in the same change that adds a values-* folder. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:defaultLocale="en"
+    tools:targetApi="35">
+    <locale android:name="en" />
+    <locale android:name="zh-Hans" />
+</locale-config>

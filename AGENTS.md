@@ -93,8 +93,33 @@ lives in `engine/core` as pure JVM classes.
   (`GlWarpRenderer.eachTweenFrame`) so MP4 and GIF cannot disagree about
   what a GOOvie is.
 - Runtime revision graphs are intentionally non-serializable. Project
-  persistence must store a normalized revision table plus revision IDs
-  rather than recursively serializing shared parent nodes.
+  persistence stores a normalized revision table plus revision IDs rather
+  than recursively serializing shared parent nodes — `StrokeLog.snapshot`
+  / `restore` and `StrokeLogSnapshot`. Two rules there are load-bearing:
+  `snapshot(pins)` must be given the keyframe revisions (a pin can hold a
+  revision the history truncated, and it would otherwise not be written),
+  and `restore` refuses a malformed table outright instead of
+  half-restoring — a blank canvas over the right photo is what "lost all
+  my goo" looks like.
+- **A saved project's folder changes only when the user saves.** Opening
+  one copies its bytes into fresh session files (`ImageLoader.importFile`)
+  because the editor treats session files as scratch it owns: a Fusion
+  swap deletes the file it replaces, and `sweepSessions` collects whatever
+  no session claims. Never point `sessionFile`/`sessionFileB` straight at
+  `filesDir/projects/…`.
+- **Saved projects stay out of backup.** The two backup allowlists name
+  `datastore` and sharedprefs only; `files/projects` holds the user's
+  photos, and "nothing leaves your device" is a promise the About screen
+  makes out loud. Adding a project path there is a product decision.
+- **User-visible wording is a string resource, everywhere.** ViewModels
+  and the GL renderer have no Context and no locale, so failures travel as
+  `@StringRes Int` (`ExportEvent.Failed`, `UiState.error`,
+  `GlWarpRenderer.onUnsupported`) and the exception's own English text
+  goes to Logcat. The app ships `values/` and `values-b+zh+Hans/`, listed
+  in `res/xml/locales_config.xml` (Android 13+ per-app language) — add a
+  locale to that file in the same change that adds its `values-*` folder,
+  or the picker won't offer it. Lint's `MissingTranslation` is a hard CI
+  gate, so brand and symbol strings carry `translatable="false"`.
 - The app has **no INTERNET permission**. Keep it that way; adding any
   network dependency is a product decision requiring an ADR.
 - App display name lives ONLY in `strings.xml` — `app_name` (short, for
