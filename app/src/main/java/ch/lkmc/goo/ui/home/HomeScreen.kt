@@ -3,6 +3,7 @@ package ch.lkmc.goo.ui.home
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -69,7 +70,6 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.BuildConfig
 import ch.lkmc.goo.R
-import ch.lkmc.goo.data.ProjectShelf
 import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.ui.components.ChromeButton
 import ch.lkmc.goo.ui.components.GridBackdrop
@@ -77,6 +77,7 @@ import ch.lkmc.goo.ui.components.Wordmark
 import ch.lkmc.goo.ui.theme.MeltPanel
 import ch.lkmc.goo.ui.theme.NeonCyan
 import ch.lkmc.goo.ui.theme.NeonMagenta
+import ch.lkmc.goo.ui.theme.NeonTangerine
 import ch.lkmc.goo.ui.theme.NeonViolet
 import ch.lkmc.goo.ui.theme.chromeSweep
 import kotlinx.coroutines.Dispatchers
@@ -117,6 +118,36 @@ fun HomeScreen(
             confirmButton = {
                 TextButton(onClick = { showAbout = false }) {
                     Text(stringResource(R.string.about_close))
+                }
+            },
+        )
+    }
+
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    if (confirmDeleteAll) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text(stringResource(R.string.project_delete_all_title)) },
+            text = {
+                Text(
+                    pluralStringResource(
+                        R.plurals.project_delete_all_body,
+                        state.projects.size,
+                        state.projects.size,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteAll = false
+                        viewModel.deleteAll()
+                    },
+                ) { Text(stringResource(R.string.project_delete_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteAll = false }) {
+                    Text(stringResource(R.string.project_delete_cancel))
                 }
             },
         )
@@ -236,17 +267,31 @@ fun HomeScreen(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
+                    // The instrument readout: what the shelf holds, what it
+                    // costs, and what is left. Nothing evicts on its own,
+                    // so this is the number the decision is made on — and
+                    // labelSmall is the console's monospace readout face,
+                    // which is exactly what these are.
                     Text(
                         text = pluralStringResource(
-                            R.plurals.home_projects_retention,
-                            ProjectShelf.MAX_PROJECTS,
-                            ProjectShelf.MAX_PROJECTS,
+                            R.plurals.home_projects_usage,
+                            state.projects.size,
+                            state.projects.size,
+                            formatBytes(state.usedBytes),
+                            formatBytes(state.freeBytes),
                         ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
+                    TextButton(onClick = { confirmDeleteAll = true }) {
+                        Text(
+                            text = stringResource(R.string.project_delete_all),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NeonTangerine,
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(32.dp))
                 Text(
@@ -387,6 +432,17 @@ private fun ProjectTile(
 
 private val TILE_CORNER = 12.dp
 private val TILE_SHAPE = RoundedCornerShape(12.dp)
+
+/**
+ * Bytes as the platform would say them ("148 MB"), in the app's locale —
+ * [Formatter] takes a Context precisely so the units and the decimal
+ * separator follow it, which a hand-rolled divide-by-1024 would not.
+ */
+@Composable
+private fun formatBytes(bytes: Long): String {
+    val context = LocalContext.current
+    return remember(bytes, context) { Formatter.formatFileSize(context, bytes) }
+}
 
 /**
  * One bundled sample as a tappable port-hole: the image behind a milled

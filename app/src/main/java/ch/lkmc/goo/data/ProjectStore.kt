@@ -1,11 +1,9 @@
 package ch.lkmc.goo.data
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -47,6 +45,14 @@ class ProjectStore(private val context: Context) {
         val updatedAtMillis: Long,
         /** The saved preview, or null when a save could not render one. */
         val thumbnail: File?,
+        /**
+         * Everything this project's folder occupies. Measured on every
+         * listing — a handful of stat calls per project, against a screen
+         * that already decodes a preview for each one — because the In
+         * room shows what the shelf costs, and a stale number is worse
+         * than no number when someone is deciding what to delete.
+         */
+        val bytes: Long,
     )
 
     /** A project opened for editing: the document plus its own bytes. */
@@ -61,13 +67,6 @@ class ProjectStore(private val context: Context) {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
-
-    /**
-     * For work that must outlive the caller ([deleteInBackground]). The
-     * store is a singleton for the process's life, so this scope is never
-     * cancelled — which is the point.
-     */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Saved projects, most recently saved first. */
     suspend fun list(): List<Summary> = withContext(Dispatchers.IO) {
@@ -84,6 +83,7 @@ class ProjectStore(private val context: Context) {
                     id = dir.name,
                     updatedAtMillis = document.lastModified(),
                     thumbnail = File(dir, THUMBNAIL_FILE).takeIf(File::isFile),
+                    bytes = dir.listFiles()?.sumOf(File::length) ?: 0L,
                 )
             }
             ?.sortedByDescending { it.updatedAtMillis }
@@ -158,10 +158,6 @@ class ProjectStore(private val context: Context) {
         writeAtomically(File(dir, DOCUMENT_FILE)) { out ->
             out.write(json.encodeToString(stamped).toByteArray())
         }
-        // After the write, never before: the shelf's ceiling must be
-        // enforced against what is actually on disk, and the project that
-        // just landed is the one thing that can never be the casualty.
-        prune(keep = projectId)
         projectId
     }
 
@@ -171,14 +167,33 @@ class ProjectStore(private val context: Context) {
     }
 
     /**
-     * Delete without a caller to wait on it — the editor's "Leave" path,
-     * which throws away an autosave and navigates away in the same
-     * breath, taking its ViewModel (and any scope belonging to it) with
-     * it. A delete that gets cancelled there would leave exactly the
-     * project the user just said they did not want.
+     * Delete every saved project. The In room's "throw them all away",
+     * which exists because nothing evicts on its own any more: the shelf
+     * grows until the user says otherwise, so the user needs a way to say
+     * it that is not twenty long-presses.
      */
-    fun deleteInBackground(id: String) {
-        scope.launch { deleteBlocking(id) }
+    suspend fun deleteAll(): Unit = withContext(Dispatchers.IO) {
+        projectsDir().listFiles()
+            ?.filter { it.isDirectory }
+            ?.forEach { deleteBlocking(it.name) }
+    }
+
+    /**
+     * Free space on the volume the projects live on — the other half of
+     * the number the In room shows. "148 MB of goo" means nothing on its
+     * own; "148 MB of goo, 1.2 GB free" is a decision.
+     */
+    // Lint prefers StorageManager#getAllocatableBytes, which counts space
+    // the system COULD reclaim by clearing caches. That is the right
+    // number for an app about to allocate; it is the wrong one to print
+    // on a screen, because it is larger than the free space the user sees
+    // in Settings and would make the readout look like it is lying.
+    @SuppressLint("UsableSpace")
+    suspend fun freeBytes(): Long = withContext(Dispatchers.IO) {
+        // usableSpace, not freeSpace: it accounts for the reserve the
+        // filesystem keeps back, so it is the number the user can
+        // actually spend.
+        runCatching { context.filesDir.usableSpace }.getOrDefault(0L)
     }
 
     private fun deleteBlocking(id: String) {
@@ -189,27 +204,6 @@ class ProjectStore(private val context: Context) {
         File(dir, DOCUMENT_FILE).delete()
         dir.listFiles()?.forEach { it.delete() }
         dir.delete()
-    }
-
-    /**
-     * Enforce the shelf's ceiling ([ProjectShelf]), oldest out. The
-     * decision is pure and tested there; this only measures the folders
-     * and carries it out.
-     */
-    private fun prune(keep: String?) {
-        val entries = projectsDir().listFiles()
-            ?.filter { it.isDirectory }
-            ?.mapNotNull { dir ->
-                val document = File(dir, DOCUMENT_FILE).takeIf(File::isFile)
-                    ?: return@mapNotNull null
-                ProjectShelf.Entry(
-                    id = dir.name,
-                    updatedAtMillis = document.lastModified(),
-                    bytes = dir.listFiles()?.sumOf(File::length) ?: 0L,
-                )
-            }
-            .orEmpty()
-        for (id in ProjectShelf.overflow(entries, keep = keep)) deleteBlocking(id)
     }
 
     private fun projectsDir(): File = File(context.filesDir, PROJECTS_DIR).apply { mkdirs() }

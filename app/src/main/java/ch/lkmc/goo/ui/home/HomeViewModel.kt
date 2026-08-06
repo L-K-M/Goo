@@ -12,10 +12,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * The In room's half of project persistence: the shelf of saved goo.
+ * The In room's half of project persistence: the shelf of saved goo, and
+ * what it costs.
  *
  * Deliberately thin — no document parsing, no bitmaps decoded here. A
- * summary is a folder name, a timestamp and a preview file
+ * summary is a folder name, a timestamp, a preview file and a size
  * ([ProjectStore.list]); the tiles decode their own previews off the main
  * thread, the way the bundled samples already do.
  */
@@ -26,7 +27,12 @@ class HomeViewModel @Inject constructor(
 
     data class UiState(
         val projects: List<ProjectStore.Summary> = emptyList(),
-    )
+        /** Free space where the projects live; 0 until the first listing. */
+        val freeBytes: Long = 0L,
+    ) {
+        /** What the shelf occupies, all in. */
+        val usedBytes: Long get() = projects.sumOf { it.bytes }
+    }
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -38,16 +44,17 @@ class HomeViewModel @Inject constructor(
     /**
      * Re-read the shelf. Called on every resume, because the editor saves
      * behind this screen's back — returning from the Goo room must show
-     * the project that was just written.
+     * the project that was just written, and the size it added.
      */
     fun refresh() {
         viewModelScope.launch {
             val projects = projectStore.list()
-            _uiState.update { it.copy(projects = projects) }
+            val free = projectStore.freeBytes()
+            _uiState.update { it.copy(projects = projects, freeBytes = free) }
         }
     }
 
-    /** Throw a project away, tile and pixels alike. */
+    /** Throw one project away, tile and pixels alike. */
     fun delete(id: String) {
         viewModelScope.launch {
             projectStore.delete(id)
@@ -56,6 +63,17 @@ class HomeViewModel @Inject constructor(
             _uiState.update { state ->
                 state.copy(projects = state.projects.filterNot { it.id == id })
             }
+            // Then re-read, for the freed space.
+            refresh()
+        }
+    }
+
+    /** Throw the whole shelf away. */
+    fun deleteAll() {
+        viewModelScope.launch {
+            projectStore.deleteAll()
+            _uiState.update { it.copy(projects = emptyList()) }
+            refresh()
         }
     }
 }

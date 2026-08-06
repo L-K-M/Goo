@@ -133,11 +133,18 @@ lives in `engine/core` as pure JVM classes.
   Relatedly, a checkpoint keeps the preview already on disk rather than
   re-rendering it — the replay runs on the GL thread, and a checkpoint
   fires into a pause the user is about to end.
-- **The shelf has a ceiling and says so.** `ProjectShelf` (pure, tested)
-  decides what a save evicts: newest kept, oldest out, never the project
-  being written. The In room states the count out loud — if you change
-  `MAX_PROJECTS`/`MAX_BYTES`, that line moves with it, because silently
-  dropping someone's work is only acceptable when it was announced.
+- **Nothing evicts a project but the user.** The shelf had a cap
+  (`ProjectShelf`: 20 projects / 256 MiB, oldest out) and it is **gone on
+  purpose** — user-reported, PR #46. An app that always saves and then
+  quietly deletes the oldest thing it saved is worse than one that never
+  saved: the user cannot even predict which loss they are getting. In its
+  place the In room prints the numbers a decision needs — how many goos,
+  what they cost, what is free — beside per-goo delete and a
+  throw-them-all-away. If you add a size limit back, it needs a product
+  decision and a prompt, not a quiet sweep.
+  The consequence is real and accepted: the shelf grows without bound,
+  and every session that holds work leaves something on it. That is what
+  the readout is for.
 - **Saved projects stay out of backup.** The two backup allowlists name
   `datastore` and sharedprefs only; `files/projects` holds the user's
   photos, and "nothing leaves your device" is a promise the About screen
