@@ -18,7 +18,7 @@
     <string name="sample_candy_blobs">Sample: Candy Blobs</string>
 
     <!-- Saved projects on the In screen. "Hold to throw away" is the only
-         place the long press is announced, so it stays in the label. The
+         place the long press is announced, so it stays in the label.
          A tile is a goo, not a "screen": the bezel is how it is drawn,
          but what the user holds is their work. -->
     <string name="home_projects_label">Pick up where you left off — hold a goo to throw it away:</string>
