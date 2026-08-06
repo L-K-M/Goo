@@ -22,18 +22,24 @@
          A tile is a goo, not a "screen": the bezel is how it is drawn,
          but what the user holds is their work. -->
     <string name="home_projects_label">Pick up where you left off — hold a goo to throw it away:</string>
-    <!-- The shelf is a recents list, and a recents list that quietly drops
-         the oldest entry has to say so somewhere. The count is
-         ProjectShelf.MAX_PROJECTS. -->
-    <plurals name="home_projects_retention">
-        <item quantity="one">The newest session is kept.</item>
-        <item quantity="other">The %1$d newest sessions are kept.</item>
+    <!-- The shelf's instrument readout. Nothing evicts on its own, so
+         these are the numbers the user's own decision is made on: what is
+         there, what it costs, and what is left. -->
+    <plurals name="home_projects_usage">
+        <item quantity="one">%1$d goo · %2$s used · %3$s free</item>
+        <item quantity="other">%1$d goos · %2$s used · %3$s free</item>
     </plurals>
     <string name="project_open">Keep gooing this project</string>
     <string name="project_delete_title">Throw this goo away?</string>
     <string name="project_delete_body">The strokes, keyframes, levers and the photo behind them go for good. Pictures you already saved from Out stay in your gallery.</string>
     <string name="project_delete_confirm">Throw away</string>
     <string name="project_delete_cancel">Keep it</string>
+    <string name="project_delete_all">Throw them all away</string>
+    <string name="project_delete_all_title">Throw every goo away?</string>
+    <plurals name="project_delete_all_body">
+        <item quantity="one">That one goo goes for good — its strokes, keyframes, levers and the photo behind them. Pictures you already saved from Out stay in your gallery.</item>
+        <item quantity="other">All %1$d goos go for good — their strokes, keyframes, levers and the photos behind them. Pictures you already saved from Out stay in your gallery.</item>
+    </plurals>
 
     <string name="editor_back">Back</string>
     <string name="editor_undo">Undo</string>

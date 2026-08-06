@@ -89,10 +89,14 @@ fix and continues as crop-only.
     reclaimed — so an OS kill no longer takes the session. PR 45 finished
     the thought: leaving writes too, so every path out of the editor saves
     and the exit prompt is gone.
-  - ~~Storage has no ceiling~~ *(done, same PR, user-reported):*
-    `ProjectShelf` caps the shelf at 20 projects and 256 MiB, evicting
-    oldest-first and never the project being saved, and the In room states
-    the count rather than dropping work silently.
+  - ~~Storage has no ceiling~~ *(answered, PR 46, user-reported):* first
+    with a cap (`ProjectShelf`, 20 projects / 256 MiB, oldest out), then
+    without one — the cap was removed because an app that always saves and
+    then quietly deletes the oldest thing it saved is worse than one that
+    never saved. The In room now prints what the shelf holds, what it
+    costs and what is free, next to per-goo delete and a
+    throw-them-all-away, and the user decides. Growth is unbounded by
+    design; the readout is the guardrail.
   - **Traditional Chinese and the rest.** `values-b+zh+Hans` and
     `locales_config` landed with PR 17; zh-Hant, and any further locale,
     is now a translation file plus one line in that config.
