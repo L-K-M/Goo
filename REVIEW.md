@@ -88,3 +88,34 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   `dist/*.apk` and `dist/*.sha256` inputs remain in the release step. A named
   `actions/download-artifact` download extracts contents directly into its
   requested path; an artifact-name subdirectory is the multi-artifact behavior.
+
+## PR #42 review dispositions (GOOvie speed + GIF)
+
+- **Non-exhaustive `when (format)` wedges the UI — refuted.** The claim was
+  that Kotlin does not enforce exhaustiveness for `when` *statements*, so a
+  future `MovieFormat` entry would silently skip both branches and leave
+  `exportingMovie` stuck on "Filming…". Kotlin has made that a compile
+  ERROR since 1.7, and this repo is on 2.4.10. Verified by adding a third
+  enum entry locally: `compileDebugKotlin` fails with "'when' expression
+  must be exhaustive. Add the 'WEBM' branch or an 'else' branch" at
+  `EditorViewModel.kt` AND at `MovieExportSheet.labelRes` — the review
+  asserted only the latter would fail. The suggested `else -> onResult(false)`
+  would DELETE that compile-time guard and turn a build failure into a
+  runtime one. Do not add it.
+- **Tighten `GifEncoder.addFrame` to `delayCentis >= 2` — declined.**
+  `GifEncoder` is a format writer; 0 is a legal GIF delay ("as fast as the
+  viewer can"). The ≥2 floor is *pacing policy* and belongs to
+  `MovieSpec.gifDelayCentis`, which owns it and is tested for it. Moving the
+  policy into the writer would make the encoder refuse valid GIFs.
+- **`renderGif` should delete its partial file on failure — declined.**
+  The work file's lifecycle belongs to the caller by contract
+  (`MovieSaver.createWorkFile`: "caller owns deletion"), and
+  `EditorViewModel.onMovieRendered` deletes it in a `finally` on every path,
+  failure included; `createWorkFile` also clears the directory before the
+  next export. A second owner of that delete would be duplication, not
+  safety. The review itself notes this matches `renderMovie` and is not a
+  regression.
+- **Plurals resource for `movie_length` — declined (non-issue).** The value
+  is always a decimal string ("1.0", "3.6"), and English takes the plural
+  form for decimals regardless of value; the app ships one locale. Revisit
+  with the first translation, not before.

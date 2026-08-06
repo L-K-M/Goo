@@ -149,7 +149,14 @@ OWN context (config chosen with EGL_RECORDABLE_ANDROID at surface setup),
 so source and endpoint textures are directly usable; offline pacing via
 eglPresentationTimeANDROID; sync-mode codec + muxer driven entirely on
 the GL thread; 1080p-cap even-dimension sizing and frame timing in
-MovieSpec (pure, tested). GIF deferred to the polish pass.
+MovieSpec (pure, tested). GIF (post-v1 #16) shares that tween walk but
+renders into an offscreen FBO, reads back with glReadPixels, and streams
+frames through a median-cut palette and GIF's LZW straight to disk
+(`engine/media/GifPalette`, `GifEncoder` — pure JVM, decoded back in the
+tests); looping is the Netscape 2.0 repeat-forever block. Export speed
+(½×–4×) scales the FRAME COUNT, never the frame rate, so the pts ladder
+and the GIF centisecond delay stay on their nominal clock; an over-long
+GIF drops down a frame-rate ladder rather than losing strip.
 
 ### 4.2 Package layout
 
@@ -288,6 +295,7 @@ User-feedback PRs after the v1.0.0 tag, same one-PR-one-feature policy:
 | 13 | Crop                   | freeform reframe from the editor rail. Document-space change, not an edit: strokes/keyframes record UVs of the frame they were painted on, so applying a crop restarts the goo (confirmed when there's goo to lose) and clears history hard ([StrokeLog.clearHistory]). The rect lives in normalized upright ORIGINAL-image space — session bytes stay original, decode applies the rect (preview and export alike), so quality never pays for a re-encode and "back to the full picture" always exists. Re-crops compose inward; the decode target scales up to a 4096 cap so cropped previews stay sharp. |
 | 14 | Meltorama 2000         | rename (short form "Meltorama" for the launcher; claim "Goo Your Photos"; appId unchanged) plus the retro-future console re-skin: gunmetal panels with milled bevels, neon domes in swept-chrome rims, horizon-grid In room, chrome wordmark that measures itself to fit. |
 | 15 | Unsaved-work exit guard | Back (rail bead and system gesture alike) asks before ending a session that holds work — strokes, levers, keyframes, a Fusion photo or a crop ([UiState.hasUnsavedWork]). Back also leaves crop mode instead of the room. Interim: the real fix is project persistence (ANALYSIS SOL-34), and the dialog says so rather than pretending a save exists. |
+| 16 | GOOvie speed + GIF     | the strip's Save/Share icons become one out-tray sheet (`MovieExportSheet`): format (MP4/GIF), speed (½×/1×/2×/4×), loop-forever for GIF, and the length the choice produces. Speed changes the frame count only. GIF is a full pure-JVM encoder — median-cut palette per frame, GIF89a LZW, Netscape loop block — fed by an offscreen FBO readback of the same tween walk the MP4 path uses. GIFs are images: they land in `Pictures/Meltorama`, MP4s in `Movies/Meltorama`. |
 
 ### Renaming
 
@@ -297,7 +305,7 @@ places a display name lives, for the next time:
 - `strings.xml`: `app_name` (launcher label — keep it short, Android
   ellipsizes past ~12 characters), `app_name_full` + `app_model` (the
   Wordmark lockup on the In screen), `about_title`, and the
-  gallery-folder text in `export_saved_gallery`;
+  gallery-folder text in `export_saved_gallery` and `export_saved_movies`;
 - `res/values/themes.xml` style name + the `android:theme` reference in
   `AndroidManifest.xml`;
 - the MediaStore folders in `ImageSaver`/`MovieSaver` (`Pictures/…`,

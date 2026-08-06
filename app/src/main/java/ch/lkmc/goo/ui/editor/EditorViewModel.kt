@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import ch.lkmc.goo.data.ExportFormat
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.data.MovieFormat
 import ch.lkmc.goo.data.MovieSaver
 import ch.lkmc.goo.data.OnboardingPrefs
 import ch.lkmc.goo.engine.core.BrushDynamics
@@ -20,6 +21,7 @@ import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
+import ch.lkmc.goo.engine.core.MovieSpeed
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
@@ -172,8 +174,12 @@ class EditorViewModel @Inject constructor(
 
     /** One-shot outcomes of export/share runs, consumed by the screen. */
     sealed interface ExportEvent {
-        /** Saved; [toGallery] false means the API 26–28 app-storage path. */
-        data class Saved(val toGallery: Boolean) : ExportEvent
+        /**
+         * Saved; [toGallery] false means the API 26–28 app-storage path.
+         * [video] picks the folder the message names: MP4s land in
+         * Movies/, everything else (stills, GIFs) in Pictures/.
+         */
+        data class Saved(val toGallery: Boolean, val video: Boolean = false) : ExportEvent
         data class ShareReady(val uri: Uri, val mimeType: String) : ExportEvent
         data class Failed(val message: String) : ExportEvent
     }
@@ -827,12 +833,22 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Export the GOOvie as MP4: the GL thread renders every tweened frame
-     * into the encoder surface (renderMovie), then the result lands in the
-     * Movies collection [share] false, or the share sheet [share] true —
-     * through the same ExportEvent flow the image path uses.
+     * Export the GOOvie: the GL thread renders every tweened frame into
+     * the H.264 encoder surface (renderMovie) or into a palettised GIF
+     * (renderGif), then the result lands in the gallery [share] false, or
+     * the share sheet [share] true — through the same ExportEvent flow the
+     * image path uses.
+     *
+     * [speed] scales the frame count, not the frame rate; [loop] only
+     * reaches the GIF writer (an MP4 has no loop flag to set — players
+     * decide).
      */
-    fun exportGoovie(share: Boolean) {
+    fun exportGoovie(
+        share: Boolean,
+        format: MovieFormat,
+        speed: MovieSpeed,
+        loop: Boolean,
+    ) {
         val s = _uiState.value
         if (s.exportingMovie || s.keyframes.size < 2) return
         val bridge = engineBridge
@@ -849,7 +865,7 @@ class EditorViewModel @Inject constructor(
             // A failure here must not crash the coroutine or wedge the
             // exporting flag (GLM PR review): report like a render failure.
             val workFile = try {
-                movieSaver.createWorkFile()
+                movieSaver.createWorkFile(format)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -857,20 +873,43 @@ class EditorViewModel @Inject constructor(
                 _exportEvents.send(ExportEvent.Failed(e.message ?: "movie export failed"))
                 return@launch
             }
+            // MutableStateFlow.update is thread-safe; GL thread is fine.
+            val onProgress: (Float) -> Unit = { p ->
+                _uiState.update { it.copy(movieProgress = p) }
+            }
+            val onResult: (Boolean) -> Unit = { ok ->
+                onMovieRendered(ok, workFile, format, share)
+            }
             bridge.invoke {
-                renderMovie(
-                    keyframes = keyframes,
-                    outputFile = workFile,
-                    // MutableStateFlow.update is thread-safe; GL thread is fine.
-                    onProgress = { p -> _uiState.update { it.copy(movieProgress = p) } },
-                    onResult = { ok -> onMovieRendered(ok, workFile, share) },
-                )
+                when (format) {
+                    MovieFormat.MP4 -> renderMovie(
+                        keyframes = keyframes,
+                        speed = speed.multiplier,
+                        outputFile = workFile,
+                        onProgress = onProgress,
+                        onResult = onResult,
+                    )
+
+                    MovieFormat.GIF -> renderGif(
+                        keyframes = keyframes,
+                        speed = speed.multiplier,
+                        loop = loop,
+                        outputFile = workFile,
+                        onProgress = onProgress,
+                        onResult = onResult,
+                    )
+                }
             }
         }
     }
 
     /** GL-thread completion → IO save → main-thread events. */
-    private fun onMovieRendered(ok: Boolean, workFile: File, share: Boolean) {
+    private fun onMovieRendered(
+        ok: Boolean,
+        workFile: File,
+        format: MovieFormat,
+        share: Boolean,
+    ) {
         viewModelScope.launch {
             try {
                 if (!ok) {
@@ -879,11 +918,14 @@ class EditorViewModel @Inject constructor(
                 }
                 if (share) {
                     val uri = movieSaver.writeShareCache(workFile)
-                    _exportEvents.send(ExportEvent.ShareReady(uri, MovieSaver.MIME_MP4))
+                    _exportEvents.send(ExportEvent.ShareReady(uri, format.mimeType))
                 } else {
-                    val result = movieSaver.save(workFile)
+                    val result = movieSaver.save(workFile, format)
                     _exportEvents.send(
-                        ExportEvent.Saved(toGallery = result is MovieSaver.SaveResult.Gallery),
+                        ExportEvent.Saved(
+                            toGallery = result is MovieSaver.SaveResult.Gallery,
+                            video = format.isVideo,
+                        ),
                     )
                 }
             } catch (e: Exception) {

@@ -235,9 +235,6 @@ fix and continues as crop-only.
 - **K3-16: Procedural squishy sounds.** Offline synthesized PCM for stroke
   start, pump, lever detent, and keyframe punch. Depends on Settings.
 
-- **K3-17: GIF export.** MP4 covers the primary share case; a bounded palette
-  encoder remains lower priority unless users ask.
-
 - **K3-5 / SOL-36: API 26-27 HEIC and support disclosure.** The current failure
   is graceful. Publish actual format/output limits first; implement old-API
   HEIC only if device stats or reports justify the matrix.
@@ -338,3 +335,4 @@ fix and continues as crop-only.
 | K3-13 | Brush cursor ring while painting | #21 |
 | K3-12 | Bundled generated sample images | #22 |
 | K3-22 | Pinch/pan/zoom/rotate canvas | upstream #12 |
+| K3-17 | GIF export (looping) + GOOvie export speed | #42 |
