@@ -22,8 +22,14 @@ import ch.lkmc.goo.engine.core.ViewTransform
  * the exact aspect-space radius over the fitted photo, filled with a
  * radial gradient sampled from the ACTUAL falloff curve of the current
  * tool at the current strength — Plateau reads flat-topped, Feather
- * reads soft, and strength reads as opacity. Centered on the image so
- * "how big compared to the picture" is answered at a glance.
+ * reads soft, and strength reads as opacity.
+ *
+ * It sits in the middle of the VIEWPORT, not the middle of the photo.
+ * Those coincide at rest (FitTransform centers the photo in the canvas),
+ * but zoom in and the photo's center walks off-screen, taking the
+ * preview with it — user-reported, and a preview you cannot see is no
+ * preview. Only the radius rides the view transform, which is what keeps
+ * "this big, against what you are looking at" true at any zoom.
  *
  * Strength shown is the user-facing slider value, not the per-tool
  * scaled value — Nudge at full strength should read "full", even though
@@ -55,16 +61,14 @@ fun BrushPreviewOverlay(
         )
         // Aspect-space radius is a fraction of image height (see
         // UiState.brushRadius) — px radius scales with the fitted photo
-        // AND the view zoom, so the circle stays honest when zoomed in.
-        // Rotation is irrelevant to a circle; the center rides the full
-        // view transform.
+        // AND the view zoom, so a brush drawn here covers exactly the
+        // pixels it would cover if stamped here. Rotation is irrelevant
+        // to a circle, and the center does not ride the view at all: it
+        // is the viewport's own middle, so panning and zooming can never
+        // carry the preview off-screen.
         val radiusPx = radius * fit.fittedHeight * view.scale
         if (radiusPx <= 0f) return@Canvas
-        val (cx, cy) = view.apply(
-            fit.offsetX + fit.fittedWidth / 2f,
-            fit.offsetY + fit.fittedHeight / 2f,
-        )
-        val center = Offset(cx, cy)
+        val center = Offset(size.width / 2f, size.height / 2f)
 
         // Fill: the tool's real falloff, strength as peak opacity.
         val peak = 0.45f * strength.coerceIn(0f, 1f) * alpha
