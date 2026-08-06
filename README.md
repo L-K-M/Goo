@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/L-K-M/Goo/actions/workflows/ci.yml/badge.svg)](https://github.com/L-K-M/Goo/actions/workflows/ci.yml)
 
-Latest release: v<!-- version -->1.0.0<!-- /version -->
+Latest release: v<!-- version -->1.5.0<!-- /version -->
 
 </div>
 
