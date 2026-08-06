@@ -27,14 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -51,7 +48,6 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
@@ -68,7 +64,6 @@ import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -172,7 +167,10 @@ private fun WarpEditor(
     val bitmap = state.bitmap ?: return
     var surface by remember { mutableStateOf<WarpSurfaceView?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
-    var confirmExit by remember { mutableStateOf(false) }
+    // A write is running with the room about to close behind it. Distinct
+    // from state.savingProject, which is also true for the rail's Save
+    // bead — that one must not put a scrim over the canvas.
+    var leaving by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
     var showMovieSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
@@ -182,34 +180,47 @@ private fun WarpEditor(
     // (only asked when there is goo to lose).
     var showCrop by remember { mutableStateOf(false) }
     var pendingCrop by remember { mutableStateOf<CropAction?>(null) }
-    // Leaving the editor ends the session and takes the document with it
-    // (nothing is persisted until SOL-34), so both ways out — the rail's
-    // Back bead and the system gesture/button — go through one guard.
+    // Leaving writes the document, then goes. There is no "are you sure":
+    // nothing is lost by leaving, so there is nothing to ask about (the
+    // old guard existed only because the session lived in memory alone —
+    // ANALYSIS SOL-7 called it an interim measure, and SOL-34 retired it).
+    // A goo you did not want is thrown away from the In room, where the
+    // rest of the shelf lives.
     //
     // Remembered rather than rebuilt each pass: WarpEditor recomposes on
     // every pointer move (the cursor ring's strokePos), and handing the
-    // rail a fresh lambda would drag all eight of its beads into every
-    // one of those frames. rememberUpdatedState keeps the guard reading
-    // the current state without making the lambda itself unstable.
-    // The check lives inside the lambda, not only in the BackHandler's
-    // `enabled`: the rail's Back bead calls this directly and has no such
-    // gate, so this is the only thing standing between a tap and a lost
-    // session on that path.
+    // rail a fresh lambda would drag all nine of its beads into every one
+    // of those frames. rememberUpdatedState keeps the lambda reading
+    // current state without making the lambda itself unstable.
     val latestState by rememberUpdatedState(state)
-    val leaveEditor: () -> Unit = remember(onBack) {
-        { if (latestState.hasUnsavedWork) confirmExit = true else onBack() }
+    val leaveEditor: () -> Unit = remember(onBack, viewModel) {
+        {
+            if (latestState.savingProject) {
+                // A write is already in flight (a checkpoint landed as the
+                // finger came down on Back). Ride it out: it closes the
+                // room when it lands, and starting a second write would
+                // only copy the same photo twice.
+                leaving = true
+                viewModel.leaveWhenCurrentSaveLands()
+            } else if (latestState.hasUnwrittenChanges) {
+                leaving = true
+                viewModel.saveProject(EditorViewModel.SaveReason.LEAVE)
+            } else {
+                onBack()
+            }
+        }
     }
     // Crop mode owns the whole canvas: back leaves the overlay, the way it
     // would dismiss any other modal, instead of leaving the room. Enabled
     // only when there is something to intercept — a disabled BackHandler
-    // lets the system run its own (predictive) animation for the pop.
+    // lets the system run its own (predictive) animation for the pop, and
+    // with nothing to write that pop is exactly right.
     //
     // Deliberately still enabled during a movie export: leaving tears the
     // surface down, which cancels the export (the engineBridge
-    // DisposableEffect above), so that is exactly when the user most
-    // needs to be asked first. Gating this off would drop back through to
-    // the NavHost and pop the editor with NO dialog at all.
-    BackHandler(enabled = showCrop || state.hasUnsavedWork) {
+    // DisposableEffect above), and the write on the way out is worth more
+    // there than anywhere else.
+    BackHandler(enabled = showCrop || state.hasUnwrittenChanges || leaving) {
         if (showCrop) showCrop = false else leaveEditor()
     }
     // Pan/zoom/rotate of the preview. Ephemeral across process recreation;
@@ -367,24 +378,30 @@ private fun WarpEditor(
         }
     }
 
-    // Project writes. Saved is the leave dialog's exit: the document is on
-    // disk, so the room can close. A failure keeps the user here (with the
-    // dialog still up) rather than leaving with the work unwritten.
+    // Project writes. The document is on disk, so the room can close —
+    // and a write that was already running when Back was pressed closes
+    // it too ([leaving]), which is why this reads the flag rather than
+    // only the event's own reason.
     LaunchedEffect(viewModel) {
         viewModel.projectEvents.collect { event ->
             when (event) {
                 is EditorViewModel.ProjectEvent.Saved ->
-                    if (event.leave) {
-                        confirmExit = false
+                    if (event.leave || leaving) {
                         onBack()
                     } else {
                         snackbarHostState.showSnackbar(projectSaved)
                     }
 
-                is EditorViewModel.ProjectEvent.Failed ->
+                is EditorViewModel.ProjectEvent.Failed -> {
+                    // Never strand the user in a room they asked to leave
+                    // with no way out and no explanation: drop the scrim,
+                    // say what happened, and let them try again or leave
+                    // (Back with a failed write still offers to retry).
+                    leaving = false
                     snackbarHostState.showSnackbar(
                         "$failedPrefix ${resources.getString(event.reason)}",
                     )
+                }
             }
         }
     }
@@ -474,7 +491,7 @@ private fun WarpEditor(
             // Dark once everything on screen is on disk — including
             // straight after a save, which is how the bead answers
             // "did that work?" without a second dialog.
-            canSave = state.hasUnsavedWork && !state.savingProject,
+            canSave = state.hasUnwrittenChanges && !state.savingProject,
             onExport = { showExportSheet = true },
         )
 
@@ -864,6 +881,22 @@ private fun WarpEditor(
             }
         }
     }
+    // The write on the way out. Usually a blink — but the first save of a
+    // session copies the source photo, and on a 50 MP picture that is long
+    // enough that a room which simply stopped responding would read as a
+    // hang. It also swallows taps, which is the point: the document being
+    // written must not change underneath the writer.
+    if (leaving) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MeltVoid.copy(alpha = 0.72f))
+                .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false) } },
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(color = NeonLime)
+        }
+    }
     SnackbarHost(
         hostState = snackbarHostState,
         modifier = Modifier.align(Alignment.BottomCenter),
@@ -912,85 +945,6 @@ private fun WarpEditor(
                 // Back to the overlay, rect intact — not a full cancel.
                 TextButton(onClick = { pendingCrop = null }) {
                     Text(stringResource(R.string.editor_reset_cancel))
-                }
-            },
-        )
-    }
-
-    if (confirmExit) {
-        AlertDialog(
-            // A save in flight owns this dialog: dismissing it would drop
-            // the user into the room while the write is still running, and
-            // the Saved event would then navigate out from under them.
-            onDismissRequest = { if (!state.savingProject) confirmExit = false },
-            title = { Text(stringResource(R.string.editor_exit_title)) },
-            text = {
-                // Leave means two different things, so it must not claim
-                // one wording for both: a session the user never chose to
-                // keep is thrown away, while a project they saved (or
-                // resumed) survives at whatever was written last.
-                Text(
-                    stringResource(
-                        if (state.projectSaved) {
-                            R.string.editor_exit_body_saved
-                        } else {
-                            R.string.editor_exit_body
-                        },
-                    ),
-                )
-            },
-            // Save is the confirm slot — the emphasis position, and the
-            // one that keeps the work. The other two share the dismiss
-            // slot so that leaving-for-good sits FIRST, farthest from the
-            // save, with the throw-away icon on it.
-            confirmButton = {
-                TextButton(
-                    enabled = !state.savingProject,
-                    onClick = { viewModel.saveProject(EditorViewModel.SaveReason.LEAVE) },
-                ) {
-                    // Writing a project copies the source photo, so this
-                    // is a beat or two of real work on a big picture — the
-                    // dialog says so rather than just going dead.
-                    if (state.savingProject) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    Text(stringResource(R.string.editor_exit_save))
-                }
-            },
-            dismissButton = {
-                // FlowRow, not Row: these two share one dialog slot, and at
-                // a large font scale (or in a language that sets them
-                // longer) an unbreakable row would run off the dialog.
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        enabled = !state.savingProject,
-                        onClick = {
-                            confirmExit = false
-                            // Undo any autosave behind this session, or
-                            // the bin icon on this button is a lie. A
-                            // project saved on purpose is left alone.
-                            viewModel.discardProject()
-                            onBack()
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.DeleteForever,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.editor_exit_confirm))
-                    }
-                    TextButton(
-                        enabled = !state.savingProject,
-                        onClick = { confirmExit = false },
-                    ) {
-                        Text(stringResource(R.string.editor_exit_cancel))
-                    }
                 }
             },
         )

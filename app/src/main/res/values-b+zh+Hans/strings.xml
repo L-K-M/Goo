@@ -35,12 +35,6 @@
     <string name="editor_reset_body">照片会回到最初的样子。笔触可以撤销；效果推杆回到中间。</string>
     <string name="editor_reset_confirm">重置</string>
     <string name="editor_reset_cancel">继续捏</string>
-    <string name="editor_exit_title">丢下这团黏糊？</string>
-    <string name="editor_exit_body">「保存」会把这个项目——笔触、关键帧、效果推杆，一个都不少——留在首页，随时可以接着捏。「离开」则会把它永久丢掉。</string>
-    <string name="editor_exit_body_saved">「保存」会更新首页上的这个项目——笔触、关键帧、效果推杆，一个都不少。「离开」只是就此打住，项目会保持上次保存时的样子。</string>
-    <string name="editor_exit_save">保存并离开</string>
-    <string name="editor_exit_confirm">离开</string>
-    <string name="editor_exit_cancel">继续捏</string>
     <string name="editor_save">保存这个项目</string>
     <string name="project_saved">已保存到首页</string>
     <string name="editor_brush_size">大小</string>

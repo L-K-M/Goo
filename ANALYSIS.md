@@ -61,13 +61,15 @@ fix and continues as crop-only.
   needs the same guardrail.
 
 - **SOL-7: Back destroys an unpersisted edit without warning.** *Resolved
-  (guard in PR 15, persistence in PR 17).* Both Back paths route through
-  `UiState.hasUnsavedWork`, and the dialog now offers Save as well as Leave.
-  With SOL-34 landed, "unsaved" is a comparison against what is on disk
-  (`savedSignature`), so reopening a saved project and leaving it untouched
-  no longer asks; Back inside crop mode still leaves the overlay, not the
-  room. A crash or process death before the first save still takes the
-  document — see the autosave follow-up below.
+  by removing the problem (guard in PR 15, persistence in PR 17, guard
+  retired in PR 45).* Back now writes the document and leaves — there is
+  nothing to warn about. The guard, and the dialog it grew, were always
+  interim: they existed because the session lived in memory alone. Once it
+  doesn't, a prompt asking whether to keep work that is already kept is
+  noise, and the "did the user deliberately keep this?" flag it needed to
+  stay honest was a bug surface in its own right (it mislabelled a fresh
+  session as already-saved, so Leave silently kept it — user-reported).
+  Back inside crop mode still leaves the overlay, not the room.
 
 - **SOL-34 / G-2 / K3-7 / K3-27: Persist the document and add Recent Goo.**
   *Landed (PR 17).* `ProjectStore` writes one folder per project under
@@ -82,11 +84,11 @@ fix and continues as crop-only.
   Remaining follow-ups:
 
   - ~~Save without leaving~~ *(done, same PR, user-reported):* a Save bead
-    on the rail, lit only while something is unsettled, plus an autosave on
+    on the rail, lit only while something is unwritten, plus an autosave on
     `ON_STOP` — the last callback before a backgrounded process can be
-    reclaimed — so an OS kill no longer takes the session. An autosave is
-    insurance, not a decision: it leaves `projectSaved` false, so the exit
-    guard stays armed and Leave deletes what it wrote.
+    reclaimed — so an OS kill no longer takes the session. PR 45 finished
+    the thought: leaving writes too, so every path out of the editor saves
+    and the exit prompt is gone.
   - ~~Storage has no ceiling~~ *(done, same PR, user-reported):*
     `ProjectShelf` caps the shelf at 20 projects and 256 MiB, evicting
     oldest-first and never the project being saved, and the In room states

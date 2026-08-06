@@ -3,9 +3,9 @@
     <!-- The single user-visible source of the app name (PLAN.md "Renaming").
          SHORT form on purpose: this is the launcher label, where Android
          gives about 12 characters before it ellipsizes. The full name is
-         [app_name_full] + [app_model], set as a lockup on the In screen. -->
-    <!-- The wordmark is the product's name, not a phrase: it stays
-         Meltorama 2000 in every language, so translators never see it. -->
+         [app_name_full] + [app_model], set as a lockup on the In screen.
+         Untranslatable: the wordmark is the product's name, not a phrase,
+         so it stays Meltorama 2000 in every language. -->
     <string name="app_name" translatable="false">Meltorama</string>
     <string name="app_name_full" translatable="false">MELTORAMA</string>
     <string name="app_model" translatable="false">2000</string>
@@ -43,17 +43,6 @@
     <string name="editor_reset_body">The picture goes back to how it started. Brush strokes can be undone; the effect levers return to center.</string>
     <string name="editor_reset_confirm">Reset</string>
     <string name="editor_reset_cancel">Keep gooing</string>
-    <!-- The leave guard, now that projects persist: saving is the offer,
-         and Leave is the destructive one (it wears the bin icon). Say what
-         each verb costs rather than the vague "unsaved changes". -->
-    <string name="editor_exit_title">Leave the goo behind?</string>
-    <string name="editor_exit_body">Save keeps this project — strokes, keyframes, effect levers and all — on the In screen, ready to pick up again. Leave throws it away for good.</string>
-    <!-- Shown instead when the project is already the user's (resumed, or
-         saved from the rail): Leave stops editing, it does not delete. -->
-    <string name="editor_exit_body_saved">Save updates this project on the In screen — strokes, keyframes, effect levers and all. Leave stops here, and the project keeps whatever was saved last.</string>
-    <string name="editor_exit_save">Save and leave</string>
-    <string name="editor_exit_confirm">Leave</string>
-    <string name="editor_exit_cancel">Keep gooing</string>
     <string name="editor_save">Save this project</string>
     <string name="project_saved">Saved to the In screen</string>
     <string name="editor_brush_size">Size</string>

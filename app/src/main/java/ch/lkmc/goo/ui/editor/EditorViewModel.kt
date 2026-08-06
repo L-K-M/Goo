@@ -151,17 +151,8 @@ class EditorViewModel @Inject constructor(
          * the state that was saved, and Back would leave without asking.
          */
         val documentEpoch: Int = 0,
-        /** A project write is in flight (the leave dialog waits on it). */
+        /** A project write is in flight; Back waits for it. */
         val savingProject: Boolean = false,
-        /**
-         * This session has a project on disk the user ASKED for — it was
-         * resumed from the In room, or saved from the rail or the leave
-         * dialog. An autosave alone does not count, and that distinction
-         * is what Leave means: throwing away a session the user never
-         * chose to keep really deletes it, while leaving a saved project
-         * just stops editing it.
-         */
-        val projectSaved: Boolean = false,
         /**
          * [signature] as of the last successful save (or of the project
          * this session opened); null = never saved.
@@ -207,34 +198,16 @@ class EditorViewModel @Inject constructor(
             get() = canReset || keyframes.isNotEmpty() || bitmapB != null || cropped
 
         /**
-         * The document on screen is not the document on disk — what the
-         * autosave paths write, and the only thing they may key on. (The
-         * exit guard's [hasUnsavedWork] must NOT be used there: it stays
-         * true after an autosave by design, so a checkpoint loop reading
-         * it would rewrite the same document forever.)
+         * The document on screen is not the document on disk.
+         *
+         * The one question the editor asks about saving, and it drives
+         * everything: the checkpoint loop, the write on the way out, and
+         * whether the rail's Save bead is lit. There is deliberately no
+         * "unsaved work" flag beside it any more — leaving saves, so the
+         * only thing that can be unwritten is the last few seconds.
          */
         val hasUnwrittenChanges: Boolean
             get() = hasWork && signature != savedSignature
-
-        /**
-         * There is work here the user has not settled — the exit guard,
-         * and what lights the rail's Save bead.
-         *
-         * Two ways to be unsettled, and the second is the subtle one:
-         *
-         * - The document differs from what was last written. Since
-         *   projects persist (ANALYSIS SOL-34), "unsaved" finally means
-         *   what it says: reopening a saved project and pressing Back
-         *   without touching anything leaves silently, and one more
-         *   stroke brings the guard back.
-         * - The project on disk exists only because the editor autosaved
-         *   it ([projectSaved] false). An autosave is insurance against
-         *   an OS kill, not a decision to keep the thing — so the door
-         *   still asks, and answering Leave deletes what the insurance
-         *   wrote ([EditorViewModel.discardProject]).
-         */
-        val hasUnsavedWork: Boolean
-            get() = hasUnwrittenChanges || (hasWork && !projectSaved)
     }
 
     /**
@@ -276,7 +249,7 @@ class EditorViewModel @Inject constructor(
         /** The rail's Save bead: stay in the room, say it worked. */
         EXPLICIT,
 
-        /** The leave dialog: the room closes once the write lands. */
+        /** On the way out: the room closes once the write lands. */
         LEAVE,
 
         /**
@@ -330,6 +303,14 @@ class EditorViewModel @Inject constructor(
      * again.
      */
     private var autosaveFailureReported = false
+
+    /**
+     * Back was pressed while a write was already running (a checkpoint
+     * landing under the finger). That write is the one that saves this
+     * session, so the room closes when IT lands — see
+     * [leaveWhenCurrentSaveLands].
+     */
+    private var leaveAfterSave = false
     private var exportJob: Job? = null
     private var secondImageJob: Job? = null
     private var secondImageRequestId = 0L
@@ -493,9 +474,6 @@ class EditorViewModel @Inject constructor(
                 keyframes = keyframes,
                 selectedKeyframe = -1,
                 scrubPos = 0f,
-                // Resumed, so it is the user's project already: Leave
-                // stops editing it rather than throwing it away.
-                projectSaved = true,
             )
         }
         refreshHistoryFlags()
@@ -1239,6 +1217,15 @@ class EditorViewModel @Inject constructor(
      * there is something new to write — backgrounding an untouched photo,
      * or one whose state is already saved, does nothing.
      */
+    /**
+     * Back was pressed while a write was already in flight. Don't start a
+     * second one — it would copy the same photo again — just close the
+     * room when the running write lands.
+     */
+    fun leaveWhenCurrentSaveLands() {
+        if (_uiState.value.savingProject) leaveAfterSave = true
+    }
+
     fun autosaveProject() {
         val state = _uiState.value
         if (!state.hasUnwrittenChanges || state.savingProject) return
@@ -1302,24 +1289,6 @@ class EditorViewModel @Inject constructor(
     )
 
     /**
-     * Throw away a session the user never asked to keep — the Leave
-     * button, which has to undo any autosave behind it or the bin icon
-     * on it is a lie.
-     *
-     * A project that WAS saved on purpose (resumed, or saved from the
-     * rail) is never touched: Leave stops editing it, it does not delete
-     * it. The delete is fire-and-forget because the screen navigates away
-     * in the same breath, taking this ViewModel's scope with it.
-     */
-    fun discardProject() {
-        val id = projectId ?: return
-        if (_uiState.value.projectSaved) return
-        projectId = null
-        savedStateHandle.remove<String>(KEY_PROJECT_ID)
-        projectStore.deleteInBackground(id)
-    }
-
-    /**
      * Write this session to disk, overwriting the project it came from
      * (or minting one on the first save). Emits [ProjectEvent.Saved] when
      * the document is safely on disk — the leave dialog waits for it.
@@ -1372,16 +1341,22 @@ class EditorViewModel @Inject constructor(
                 savedStateHandle[KEY_PROJECT_ID] = projectId
                 markSaved(signature)
                 autosaveFailureReported = false
-                if (reason != SaveReason.AUTOSAVE) {
-                    // A save the user asked for is what makes the project
-                    // theirs: Leave stops deleting it from here on.
-                    _uiState.update { it.copy(projectSaved = true) }
-                    _projectEvents.send(ProjectEvent.Saved(leave = reason == SaveReason.LEAVE))
+                val leave = reason == SaveReason.LEAVE || leaveAfterSave
+                leaveAfterSave = false
+                // A checkpoint is silent unless someone is waiting on it:
+                // announcing every one would put a snackbar on screen
+                // every ten seconds, and the screen's collector suspends
+                // for as long as a snackbar is up.
+                if (reason != SaveReason.AUTOSAVE || leave) {
+                    _projectEvents.send(ProjectEvent.Saved(leave = leave))
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "could not save the project", e)
+                // Nothing reached disk, so nobody leaves on the strength
+                // of it; the screen drops its scrim on the same event.
+                leaveAfterSave = false
                 // A broken autosave says so ONCE. It keeps retrying (the
                 // work is still unwritten, and the disk may free up), but
                 // a snackbar every ten seconds would bury the editor

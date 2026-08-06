@@ -110,23 +110,28 @@ lives in `engine/core` as pure JVM classes.
   files are also **write-once** — a new photo always means a new UUID
   name — which is what lets `ProjectStore.copyInto` skip re-copying a
   source of identical length and age on every autosave.
-- **An autosave is insurance, not a decision.** `ON_STOP` is the last
-  callback before a backgrounded process can be reclaimed, so that is
-  where `autosaveProject` writes; a checkpoint loop (`AutosavePolicy`:
-  quiet-after-edit, with a ceiling for people who never pause) covers the
-  foreground crash the lifecycle can't. But a project that exists only
-  because of them has `projectSaved = false`, which keeps the exit guard
-  armed and makes Leave *delete* what the autosave wrote
-  (`discardProject`, through `ProjectStore.deleteInBackground` — the
-  ViewModel's scope dies with the navigation). Only a resume or a save the
-  user asked for flips `projectSaved`, and from then on Leave keeps the
-  project.
-- **Autosave paths key on `hasUnwrittenChanges`, never `hasUnsavedWork`.**
-  The exit guard's flag stays true after an autosave on purpose (the user
-  still hasn't settled the question), so a checkpoint loop reading it
-  would rewrite the same document forever. For the same family of
-  reasons, a checkpoint keeps the preview already on disk rather than
-  re-rendering it: the replay runs on the GL thread, and a checkpoint
+- **Everything is saved; there is no exit prompt.** Leaving the editor
+  writes the document and goes (`SaveReason.LEAVE`, with a scrim while it
+  runs because the first write of a session copies the photo). `ON_STOP`
+  writes too — the last callback before a backgrounded process can be
+  reclaimed — and a checkpoint loop (`AutosavePolicy`: quiet-after-edit,
+  with a ceiling for people who never pause) covers the foreground crash
+  the lifecycle can't. Throwing a goo away is a deliberate act in the In
+  room, not an answer to a question on the way out.
+
+  The dialog that used to ask, and the deliberate-vs-autosave machinery
+  behind it (`projectSaved`, `discardProject`, two body strings), are
+  **gone on purpose** — user-reported, PR #45. The guard only ever existed
+  because the session lived in memory alone (ANALYSIS SOL-7 called it
+  interim); once nothing can be lost, a prompt about losing it is a
+  prompt about nothing, and the flag it needed was one more thing to get
+  wrong — it did, and told users their fresh goo was "already saved".
+- **`hasUnwrittenChanges` is the only saved-state question.** One property,
+  read by the write-on-leave, the checkpoint loop and the Save bead. Do
+  not reintroduce a second flag that stays true after a write: a
+  checkpoint loop reading one would rewrite the same document forever.
+  Relatedly, a checkpoint keeps the preview already on disk rather than
+  re-rendering it — the replay runs on the GL thread, and a checkpoint
   fires into a pause the user is about to end.
 - **The shelf has a ceiling and says so.** `ProjectShelf` (pure, tested)
   decides what a save evicts: newest kept, oldest out, never the project

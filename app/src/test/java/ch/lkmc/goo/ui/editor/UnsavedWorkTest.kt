@@ -9,10 +9,18 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * [EditorViewModel.UiState.hasUnsavedWork] is the whole exit guard: it
- * decides whether Back leaves silently or stops to ask. A false negative
- * destroys a session with no warning and no undo, which is the failure
- * this flag exists to prevent — so each signal it reads gets its own case.
+ * [EditorViewModel.UiState.hasUnwrittenChanges] is the editor's whole
+ * answer to "is this on disk yet". Three things read it and each one
+ * fails differently:
+ *
+ * - the write on the way out — a false negative here loses the session,
+ *   which is the injury this flag exists to prevent;
+ * - the checkpoint loop — a false POSITIVE here is a loop that rewrites
+ *   an unchanged document forever;
+ * - the rail's Save bead, which is lit by it and so has to go dark the
+ *   moment a write lands, or it lies about the state of the work.
+ *
+ * So each signal it reads gets its own case.
  *
  * One signal is missing on purpose: `bitmapB` (a picked Fusion photo).
  * `Bitmap` is a final Android class with no JVM-constructible instance,
@@ -39,108 +47,89 @@ class UnsavedWorkTest {
         return Keyframe(revision = log.currentRevision, globals = GlobalParams())
     }
 
+    /** The state as it stands right after a write of it lands. */
+    private fun EditorViewModel.UiState.written() = copy(savedSignature = signature)
+
     @Test
-    fun `an untouched photo leaves without a prompt`() {
-        assertFalse(state().hasUnsavedWork)
+    fun `an untouched photo has nothing to write`() {
+        // Opening a photo and backing straight out must not put a project
+        // on the shelf — there is no work in it.
+        assertFalse(state().hasUnwrittenChanges)
+        assertFalse(state().written().hasUnwrittenChanges)
     }
 
     @Test
     fun `strokes or moved levers count as work`() {
         // canReset is exactly "strokes committed, or levers off identity"
         // (EditorViewModel.refreshHistoryFlags) — the Reset bead's own gate.
-        assertTrue(state(canReset = true).hasUnsavedWork)
+        assertTrue(state(canReset = true).hasUnwrittenChanges)
     }
 
     @Test
     fun `a punched keyframe counts even over an unwarped photo`() {
         // Pins carry lever values, and a strip is authored work in its own
         // right: losing it silently is the same injury as losing strokes.
-        assertTrue(state(keyframes = listOf(keyframe())).hasUnsavedWork)
+        assertTrue(state(keyframes = listOf(keyframe())).hasUnwrittenChanges)
     }
 
     @Test
     fun `a crop counts precisely because it clears everything else`() {
         // applyCrop restarts the document: log cleared, levers zeroed. So
         // canReset reads false exactly when the reframe is the only thing
-        // left to lose — the case a canReset-only guard would wave through.
+        // left to lose — the case a canReset-only check would wave through.
         assertFalse(state(cropped = true).canReset)
-        assertTrue(state(cropped = true).hasUnsavedWork)
+        assertTrue(state(cropped = true).hasUnwrittenChanges)
     }
 
     @Test
     fun `work in any one place is enough`() {
-        assertTrue(state(canReset = true, keyframes = listOf(keyframe())).hasUnsavedWork)
-        assertTrue(state(canReset = true, cropped = true).hasUnsavedWork)
-        assertTrue(state(keyframes = listOf(keyframe()), cropped = true).hasUnsavedWork)
+        assertTrue(state(canReset = true, keyframes = listOf(keyframe())).hasUnwrittenChanges)
+        assertTrue(state(canReset = true, cropped = true).hasUnwrittenChanges)
+        assertTrue(state(keyframes = listOf(keyframe()), cropped = true).hasUnwrittenChanges)
     }
 
-    // ---- Saved projects ------------------------------------------------
-    // Now that a document can be on disk (ANALYSIS SOL-34), "unsaved" is a
-    // comparison: work that differs from what was written — and, for an
-    // autosave, work the user never actually chose to keep.
-
-    /** A project on disk that the user asked for: resumed, or Saved. */
-    private fun EditorViewModel.UiState.saved() =
-        copy(savedSignature = signature, projectSaved = true)
+    // ---- Against what is on disk ---------------------------------------
+    // Since projects persist (ANALYSIS SOL-34) this is a comparison, not a
+    // flag — and the comparison has to settle, or the checkpoint loop
+    // never stops writing.
 
     @Test
-    fun `a document that matches the saved one leaves without asking`() {
+    fun `a document that matches the written one is settled`() {
         val work = state(canReset = true, keyframes = listOf(keyframe()))
-        assertTrue(work.hasUnsavedWork)
-        // Reopening a project lands here: there IS work, and it is on disk.
-        val reopened = work.saved()
-        assertTrue(reopened.hasWork)
-        assertFalse(reopened.hasUnsavedWork)
+        assertTrue(work.hasUnwrittenChanges)
+        // Reopening a project lands here, and so does the instant after
+        // any save: there IS work, and it is already on disk.
+        assertTrue(work.written().hasWork)
+        assertFalse(work.written().hasUnwrittenChanges)
     }
 
     @Test
-    fun `one more stroke after a save arms the guard again`() {
-        val saved = state(canReset = true).saved()
+    fun `one more stroke after a write counts again`() {
+        val written = state(canReset = true).written()
         // A committed stroke moves the log to a new revision, and ids are
         // never reused — which is exactly why the signature can rely on it.
-        val gooedSince = saved.copy(revisionId = StrokeRevisionId(7))
-        assertTrue(gooedSince.hasUnsavedWork)
+        assertTrue(written.copy(revisionId = StrokeRevisionId(7)).hasUnwrittenChanges)
     }
 
     @Test
-    fun `moving a lever after a save arms the guard again`() {
-        val saved = state(canReset = true).saved()
-        assertTrue(saved.copy(globals = GlobalParams(twirl = 0.4f)).hasUnsavedWork)
+    fun `moving a lever after a write counts again`() {
+        val written = state(canReset = true).written()
+        assertTrue(written.copy(globals = GlobalParams(twirl = 0.4f)).hasUnwrittenChanges)
     }
 
     @Test
-    fun `punching a keyframe after a save arms the guard again`() {
-        val saved = state(canReset = true).saved()
-        assertTrue(saved.copy(keyframes = listOf(keyframe())).hasUnsavedWork)
+    fun `punching a keyframe after a write counts again`() {
+        val written = state(canReset = true).written()
+        assertTrue(written.copy(keyframes = listOf(keyframe())).hasUnwrittenChanges)
     }
 
     @Test
-    fun `a re-crop or a swapped Fusion photo arms the guard again`() {
+    fun `a re-crop or a swapped Fusion photo counts again`() {
         // Neither shows up in any other term: two different crop rects both
         // read as `cropped`, two different photo Bs both read as "has a B".
-        // documentEpoch is the whole reason the guard sees them at all.
-        val saved = state(canReset = true, cropped = true).saved()
-        assertFalse(saved.hasUnsavedWork)
-        assertTrue(saved.copy(documentEpoch = saved.documentEpoch + 1).hasUnsavedWork)
-    }
-
-    @Test
-    fun `an autosave is insurance, not an answer`() {
-        // Backgrounding wrote this document to disk, so the signature
-        // matches — but the user never chose to keep it. The door still
-        // asks, and Leave is what deletes the autosave.
-        val autosaved = state(canReset = true).let { it.copy(savedSignature = it.signature) }
-        assertFalse(autosaved.projectSaved)
-        assertTrue(autosaved.hasUnsavedWork)
-        // Answering Save (or having resumed the project) settles it.
-        assertFalse(autosaved.copy(projectSaved = true).hasUnsavedWork)
-    }
-
-    @Test
-    fun `saving an untouched photo still leaves silently`() {
-        // Nothing to save, nothing saved: the guard must not appear just
-        // because savedSignature is null on a blank document.
-        assertFalse(state().hasUnsavedWork)
-        assertFalse(state().saved().hasUnsavedWork)
+        // documentEpoch is the whole reason this sees them at all.
+        val written = state(canReset = true, cropped = true).written()
+        assertFalse(written.hasUnwrittenChanges)
+        assertTrue(written.copy(documentEpoch = written.documentEpoch + 1).hasUnwrittenChanges)
     }
 }
