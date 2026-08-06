@@ -1,6 +1,7 @@
 package ch.lkmc.goo.ui.editor
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -79,6 +80,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
@@ -160,6 +162,7 @@ private fun WarpEditor(
     val bitmap = state.bitmap ?: return
     var surface by remember { mutableStateOf<WarpSurfaceView?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    var confirmExit by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
     var showMovieSheet by remember { mutableStateOf(false) }
     var showLevers by remember { mutableStateOf(false) }
@@ -169,6 +172,36 @@ private fun WarpEditor(
     // (only asked when there is goo to lose).
     var showCrop by remember { mutableStateOf(false) }
     var pendingCrop by remember { mutableStateOf<CropAction?>(null) }
+    // Leaving the editor ends the session and takes the document with it
+    // (nothing is persisted until SOL-34), so both ways out — the rail's
+    // Back bead and the system gesture/button — go through one guard.
+    //
+    // Remembered rather than rebuilt each pass: WarpEditor recomposes on
+    // every pointer move (the cursor ring's strokePos), and handing the
+    // rail a fresh lambda would drag all eight of its beads into every
+    // one of those frames. rememberUpdatedState keeps the guard reading
+    // the current state without making the lambda itself unstable.
+    // The check lives inside the lambda, not only in the BackHandler's
+    // `enabled`: the rail's Back bead calls this directly and has no such
+    // gate, so this is the only thing standing between a tap and a lost
+    // session on that path.
+    val latestState by rememberUpdatedState(state)
+    val leaveEditor: () -> Unit = remember(onBack) {
+        { if (latestState.hasUnsavedWork) confirmExit = true else onBack() }
+    }
+    // Crop mode owns the whole canvas: back leaves the overlay, the way it
+    // would dismiss any other modal, instead of leaving the room. Enabled
+    // only when there is something to intercept — a disabled BackHandler
+    // lets the system run its own (predictive) animation for the pop.
+    //
+    // Deliberately still enabled during a movie export: leaving tears the
+    // surface down, which cancels the export (the engineBridge
+    // DisposableEffect above), so that is exactly when the user most
+    // needs to be asked first. Gating this off would drop back through to
+    // the NavHost and pop the editor with NO dialog at all.
+    BackHandler(enabled = showCrop || state.hasUnsavedWork) {
+        if (showCrop) showCrop = false else leaveEditor()
+    }
     // Pan/zoom/rotate of the preview. Ephemeral across process recreation;
     // viewport changes rebase it around the same source point below.
     var view by remember { mutableStateOf(ViewTransform()) }
@@ -350,7 +383,7 @@ private fun WarpEditor(
             canUndo = state.canUndo && !state.exportingMovie,
             canRedo = state.canRedo && !state.exportingMovie,
             canReset = state.canReset && !state.exportingMovie,
-            onBack = onBack,
+            onBack = leaveEditor,
             onUndo = {
                 viewModel.undo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
@@ -827,6 +860,27 @@ private fun WarpEditor(
                 // Back to the overlay, rect intact — not a full cancel.
                 TextButton(onClick = { pendingCrop = null }) {
                     Text(stringResource(R.string.editor_reset_cancel))
+                }
+            },
+        )
+    }
+
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text(stringResource(R.string.editor_exit_title)) },
+            text = { Text(stringResource(R.string.editor_exit_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmExit = false
+                        onBack()
+                    },
+                ) { Text(stringResource(R.string.editor_exit_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmExit = false }) {
+                    Text(stringResource(R.string.editor_exit_cancel))
                 }
             },
         )

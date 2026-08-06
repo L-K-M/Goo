@@ -23,6 +23,13 @@
     <string name="editor_reset_body">The picture goes back to how it started. Brush strokes can be undone; the effect levers return to center.</string>
     <string name="editor_reset_confirm">Reset</string>
     <string name="editor_reset_cancel">Keep gooing</string>
+    <!-- Leaving ends the session: the document lives in memory only until
+         project persistence lands, so say that plainly rather than the
+         usual vague "unsaved changes". -->
+    <string name="editor_exit_title">Leave the goo behind?</string>
+    <string name="editor_exit_body">Your strokes, keyframes and effect levers live only in this session — Meltorama can\'t save a project yet, so leaving loses them. Save or share the picture from Out first if you want to keep it.</string>
+    <string name="editor_exit_confirm">Leave</string>
+    <string name="editor_exit_cancel">Keep gooing</string>
     <string name="editor_brush_size">Size</string>
     <string name="editor_brush_strength">Strength</string>
 
