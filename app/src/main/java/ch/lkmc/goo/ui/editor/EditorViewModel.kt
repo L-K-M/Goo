@@ -2,17 +2,24 @@ package ch.lkmc.goo.ui.editor
 
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
+import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import ch.lkmc.goo.R
+import ch.lkmc.goo.data.CropRecord
 import ch.lkmc.goo.data.ExportFormat
 import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
+import ch.lkmc.goo.data.KeyframeRecord
 import ch.lkmc.goo.data.MovieFormat
 import ch.lkmc.goo.data.MovieSaver
 import ch.lkmc.goo.data.OnboardingPrefs
+import ch.lkmc.goo.data.ProjectDocument
+import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
@@ -40,11 +47,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.resume
@@ -70,12 +81,19 @@ class EditorViewModel @Inject constructor(
     private val imageSaver: ImageSaver,
     private val movieSaver: MovieSaver,
     private val onboardingPrefs: OnboardingPrefs,
+    private val projectStore: ProjectStore,
 ) : ViewModel() {
 
     data class UiState(
         val loading: Boolean = true,
         val bitmap: Bitmap? = null,
-        val error: String? = null,
+        /**
+         * The room could not open: a string RESOURCE, not a sentence.
+         * Wording that reaches a user is a resource everywhere in this
+         * app (the ViewModel has no Context and no locale), so exception
+         * text goes to Logcat and the user gets a translated line.
+         */
+        @StringRes val error: Int? = null,
         val canUndo: Boolean = false,
         val canRedo: Boolean = false,
         val canReset: Boolean = false,
@@ -125,7 +143,37 @@ class EditorViewModel @Inject constructor(
         val movieProgress: Float = 0f,
         /** A crop is active (the overlay offers "full picture" only then). */
         val cropped: Boolean = false,
+        /**
+         * Counts the document changes no other field here can tell apart:
+         * a re-crop (both rects just read as [cropped]) and a Fusion photo
+         * swap (both just read as "has a B"). Only [signature] uses it —
+         * without it, re-cropping a saved project would look identical to
+         * the state that was saved, and Back would leave without asking.
+         */
+        val documentEpoch: Int = 0,
+        /** A project write is in flight (the leave dialog waits on it). */
+        val savingProject: Boolean = false,
+        /**
+         * This session has a project on disk the user ASKED for — it was
+         * resumed from the In room, or saved from the rail or the leave
+         * dialog. An autosave alone does not count, and that distinction
+         * is what Leave means: throwing away a session the user never
+         * chose to keep really deletes it, while leaving a saved project
+         * just stops editing it.
+         */
+        val projectSaved: Boolean = false,
+        /**
+         * [signature] as of the last successful save (or of the project
+         * this session opened); null = never saved.
+         */
+        val savedSignature: DocumentSignature? = null,
     ) {
+        /**
+         * Everything a save would write, compared by value — the test for
+         * "is what's on screen already on disk".
+         */
+        val signature: DocumentSignature
+            get() = DocumentSignature(revisionId, globals, keyframes, documentEpoch)
         /**
          * The selected pin is behind the live document: Punch and Update
          * would now produce different keyframes. Drives the strip's nudge
@@ -139,12 +187,8 @@ class EditorViewModel @Inject constructor(
             }
 
         /**
-         * There is work in this session that leaving would destroy.
-         *
-         * The document lives in this ViewModel and nowhere else until
-         * SOL-34 lands project persistence, so Back is as destructive as
-         * Reset — and unlike Reset it isn't undoable. Everything a user
-         * would call "my work" counts:
+         * There is something in this session a save would capture.
+         * Everything a user would call "my work" counts:
          *
          * - [canReset]: committed strokes, or levers off identity;
          * - [keyframes]: a punched GOOvie strip, even over an unwarped
@@ -157,12 +201,53 @@ class EditorViewModel @Inject constructor(
          *
          * Deliberately NOT cleared by exporting: a saved JPEG is a
          * picture, not a document — leaving still forfeits every stroke
-         * behind it. One extra tap beats silently ending a session the
-         * user could have kept editing.
+         * behind it.
+         */
+        val hasWork: Boolean
+            get() = canReset || keyframes.isNotEmpty() || bitmapB != null || cropped
+
+        /**
+         * The document on screen is not the document on disk — what the
+         * autosave paths write, and the only thing they may key on. (The
+         * exit guard's [hasUnsavedWork] must NOT be used there: it stays
+         * true after an autosave by design, so a checkpoint loop reading
+         * it would rewrite the same document forever.)
+         */
+        val hasUnwrittenChanges: Boolean
+            get() = hasWork && signature != savedSignature
+
+        /**
+         * There is work here the user has not settled — the exit guard,
+         * and what lights the rail's Save bead.
+         *
+         * Two ways to be unsettled, and the second is the subtle one:
+         *
+         * - The document differs from what was last written. Since
+         *   projects persist (ANALYSIS SOL-34), "unsaved" finally means
+         *   what it says: reopening a saved project and pressing Back
+         *   without touching anything leaves silently, and one more
+         *   stroke brings the guard back.
+         * - The project on disk exists only because the editor autosaved
+         *   it ([projectSaved] false). An autosave is insurance against
+         *   an OS kill, not a decision to keep the thing — so the door
+         *   still asks, and answering Leave deletes what the insurance
+         *   wrote ([EditorViewModel.discardProject]).
          */
         val hasUnsavedWork: Boolean
-            get() = canReset || keyframes.isNotEmpty() || bitmapB != null || cropped
+            get() = hasUnwrittenChanges || (hasWork && !projectSaved)
     }
+
+    /**
+     * Value-identity for the document: what a save writes, in the terms
+     * this state can compare. Revision ids are never reused, so
+     * [revisionId] equality is stroke-log equality (see [UiState.revisionId]).
+     */
+    data class DocumentSignature(
+        val revisionId: StrokeRevisionId?,
+        val globals: GlobalParams,
+        val keyframes: List<Keyframe>,
+        val documentEpoch: Int,
+    )
 
     /** Everything the GL thread needs to show one scrub position. */
     data class TweenRequest(
@@ -181,7 +266,34 @@ class EditorViewModel @Inject constructor(
          */
         data class Saved(val toGallery: Boolean, val video: Boolean = false) : ExportEvent
         data class ShareReady(val uri: Uri, val mimeType: String) : ExportEvent
-        data class Failed(val message: String) : ExportEvent
+
+        /** [reason] is a string resource; see [UiState.error]. */
+        data class Failed(@StringRes val reason: Int) : ExportEvent
+    }
+
+    /** Why a project write is happening — it decides what the user sees. */
+    enum class SaveReason {
+        /** The rail's Save bead: stay in the room, say it worked. */
+        EXPLICIT,
+
+        /** The leave dialog: the room closes once the write lands. */
+        LEAVE,
+
+        /**
+         * The editor went to the background. Silent on success — the user
+         * is somewhere else — but a FAILURE is still announced when they
+         * come back, because it means the work they walked away from is
+         * not on disk.
+         */
+        AUTOSAVE,
+    }
+
+    /** One-shot outcomes of a project write. */
+    sealed interface ProjectEvent {
+        /** The document is on disk. [leave] closes the room. */
+        data class Saved(val leave: Boolean) : ProjectEvent
+
+        data class Failed(@StringRes val reason: Int) : ProjectEvent
     }
 
     private val _uiState = MutableStateFlow(UiState())
@@ -189,6 +301,9 @@ class EditorViewModel @Inject constructor(
 
     private val _exportEvents = Channel<ExportEvent>(Channel.BUFFERED)
     val exportEvents: Flow<ExportEvent> = _exportEvents.receiveAsFlow()
+
+    private val _projectEvents = Channel<ProjectEvent>(Channel.BUFFERED)
+    val projectEvents: Flow<ProjectEvent> = _projectEvents.receiveAsFlow()
 
     /**
      * Bridge to the screen-owned GL renderer: runs a block on the GL
@@ -200,6 +315,21 @@ class EditorViewModel @Inject constructor(
 
     private var sessionFile: File? = null
     private var sessionFileB: File? = null
+
+    /**
+     * The project this session writes to, once it has one. Null until the
+     * first save of a freshly opened photo; set for the whole life of a
+     * resumed project, so saving again overwrites rather than piling up
+     * near-identical copies of the same picture.
+     */
+    private var projectId: String? = null
+
+    /**
+     * A failing autosave has already told the user once. Cleared by any
+     * successful write, so a disk that frees up and fills again speaks
+     * again.
+     */
+    private var autosaveFailureReported = false
     private var exportJob: Job? = null
     private var secondImageJob: Job? = null
     private var secondImageRequestId = 0L
@@ -239,53 +369,152 @@ class EditorViewModel @Inject constructor(
             }
         }
         val route = savedStateHandle.toRoute<EditorRoute>()
+        // The saved-state copy wins over the route: a session that saved a
+        // project once reopens THAT project after process death, strokes
+        // and all, rather than the bare photo the route names.
+        val project = savedStateHandle.get<String>(KEY_PROJECT_ID) ?: route.projectId
+        startCheckpointing()
         viewModelScope.launch {
             try {
-                // After process death the picker grant on the original URI
-                // is gone; the session copy made on first import is the
-                // stable source (that's why it exists).
-                val restored = savedStateHandle.get<String>(KEY_SESSION_FILE)
-                    ?.let(::File)
-                    ?.takeIf(File::exists)
-                val file = restored ?: imageLoader.importImage(route.imageUri.toUri()).also {
-                    savedStateHandle[KEY_SESSION_FILE] = it.path
-                }
-                sessionFile = file
-                // Restore the crop before the decode that uses it. A
-                // malformed rect restores as null (full frame) — the
-                // strokes it framed died with the process anyway.
-                cropRect = CropRect.fromArray(savedStateHandle.get<FloatArray>(KEY_CROP))
-                // A restored Fusion photo B must survive the sweep too.
-                val restoredB = savedStateHandle.get<String>(KEY_SESSION_B)
-                    ?.let(::File)
-                    ?.takeIf(File::exists)
-                // Previous sessions' copies are garbage now (REVIEW.md G-1).
-                imageLoader.sweepSessions(keep = setOfNotNull(file, restoredB))
-                val bitmap = imageLoader.decodePreview(file, crop = cropRect)
-                _uiState.update {
-                    it.copy(loading = false, bitmap = bitmap, cropped = cropRect != null)
-                }
-                // Restore B after A: the cover-crop needs A's dimensions.
-                // The screen syncs bitmapB to the engine like it does A.
-                // A failed B decode degrades to no-B (key cleared so the
-                // next restore doesn't retry a bad file) — it must never
-                // take photo A's whole editor down with it.
-                if (restoredB != null) {
-                    try {
-                        val bitmapB =
-                            imageLoader.decodeCover(restoredB, bitmap.width, bitmap.height)
-                        sessionFileB = restoredB
-                        _uiState.update { it.copy(bitmapB = bitmapB) }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        savedStateHandle.remove<String>(KEY_SESSION_B)
-                    }
-                }
+                if (project != null) openProject(project) else openPhoto(route.imageUri)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(loading = false, error = e.message ?: "could not open image") }
+                Log.w(TAG, "could not open the editor", e)
+                _uiState.update { it.copy(loading = false, error = R.string.error_open_image) }
+            }
+        }
+    }
+
+    /** Fresh photo (or the same one again after process death). */
+    private suspend fun openPhoto(imageUri: String?) {
+        // After process death the picker grant on the original URI is
+        // gone; the session copy made on first import is the stable
+        // source (that's why it exists).
+        val restored = savedStateHandle.get<String>(KEY_SESSION_FILE)
+            ?.let(::File)
+            ?.takeIf(File::exists)
+        val file = restored ?: imageLoader.importImage(
+            requireNotNull(imageUri) { "the editor route names neither a photo nor a project" }
+                .toUri(),
+        ).also {
+            savedStateHandle[KEY_SESSION_FILE] = it.path
+        }
+        sessionFile = file
+        // Restore the crop before the decode that uses it. A malformed
+        // rect restores as null (full frame) — the strokes it framed died
+        // with the process anyway.
+        cropRect = CropRect.fromArray(savedStateHandle.get<FloatArray>(KEY_CROP))
+        // A restored Fusion photo B must survive the sweep too.
+        val restoredB = savedStateHandle.get<String>(KEY_SESSION_B)
+            ?.let(::File)
+            ?.takeIf(File::exists)
+        // Previous sessions' copies are garbage now (REVIEW.md G-1).
+        imageLoader.sweepSessions(keep = setOfNotNull(file, restoredB))
+        val bitmap = imageLoader.decodePreview(file, crop = cropRect)
+        _uiState.update {
+            it.copy(loading = false, bitmap = bitmap, cropped = cropRect != null)
+        }
+        // Restore B after A: the cover-crop needs A's dimensions. The
+        // screen syncs bitmapB to the engine like it does A. A failed B
+        // decode degrades to no-B (key cleared so the next restore
+        // doesn't retry a bad file) — it must never take photo A's whole
+        // editor down with it.
+        if (restoredB != null) {
+            try {
+                val bitmapB = imageLoader.decodeCover(restoredB, bitmap.width, bitmap.height)
+                sessionFileB = restoredB
+                _uiState.update { it.copy(bitmapB = bitmapB) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                savedStateHandle.remove<String>(KEY_SESSION_B)
+            }
+        }
+    }
+
+    /**
+     * Reopen a saved project (ANALYSIS SOL-34): its bytes are copied back
+     * into fresh session files, then the document is restored on top.
+     *
+     * The copy is the point. A session is mutable in ways a saved project
+     * must not be — swapping Fusion's photo B deletes the file it
+     * replaces, a sweep collects what no session claims — so the editor
+     * never holds the project's own files. The folder on disk changes
+     * only when the user saves.
+     */
+    private suspend fun openProject(id: String) {
+        val loaded = projectStore.load(id)
+        if (loaded == null) {
+            // Deleted from the In room in another session, or never
+            // finished being written.
+            _uiState.update { it.copy(loading = false, error = R.string.error_project_missing) }
+            return
+        }
+        projectId = id
+        savedStateHandle[KEY_PROJECT_ID] = id
+        val document = loaded.document
+        val file = imageLoader.importFile(loaded.source)
+        sessionFile = file
+        savedStateHandle[KEY_SESSION_FILE] = file.path
+        val fileB = loaded.fusion?.let { imageLoader.importFile(it) }
+        savedStateHandle[KEY_SESSION_B] = fileB?.path
+        imageLoader.sweepSessions(keep = setOfNotNull(file, fileB))
+
+        cropRect = document.cropRect()
+        savedStateHandle[KEY_CROP] = cropRect?.toArray()
+        val bitmap = imageLoader.decodePreview(file, crop = cropRect)
+
+        // The document last, and all at once: a log that won't restore is
+        // a damaged project, not a reason to hand back a blank canvas over
+        // the right photo (which is what "lost all my goo" looks like).
+        val table = log.restore(document.log)
+        if (table == null) {
+            Log.w(TAG, "project $id has an unreadable stroke log")
+            _uiState.update { it.copy(loading = false, error = R.string.error_project_damaged) }
+            return
+        }
+        val keyframes = document.keyframes
+            // A pin whose revision is missing cannot be replayed. Dropping
+            // it keeps the rest of the strip (and the strokes) openable;
+            // only a corrupt file can get here, since snapshot() writes
+            // every pinned revision.
+            .mapNotNull { record ->
+                table[StrokeRevisionId(record.revision)]?.let { Keyframe(it, record.globals) }
+            }
+            .take(MAX_KEYFRAMES)
+        savedStateHandle[KEY_GLOBALS] = document.globals.toArray()
+        _uiState.update {
+            it.copy(
+                loading = false,
+                bitmap = bitmap,
+                cropped = cropRect != null,
+                globals = document.globals,
+                keyframes = keyframes,
+                selectedKeyframe = -1,
+                scrubPos = 0f,
+                // Resumed, so it is the user's project already: Leave
+                // stops editing it rather than throwing it away.
+                projectSaved = true,
+            )
+        }
+        refreshHistoryFlags()
+        // What is on screen IS what is on disk: Back leaves without a
+        // prompt until the first edit.
+        markSaved(_uiState.value.signature)
+        if (fileB != null) {
+            try {
+                val bitmapB = imageLoader.decodeCover(fileB, bitmap.width, bitmap.height)
+                sessionFileB = fileB
+                _uiState.update { it.copy(bitmapB = bitmapB) }
+                // bitmapB is not part of the signature (documentEpoch is,
+                // and this restore does not bump it), so a resumed Fusion
+                // project still counts as saved.
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "project $id has an unreadable Fusion photo", e)
+                savedStateHandle.remove<String>(KEY_SESSION_B)
             }
         }
     }
@@ -319,7 +548,9 @@ class EditorViewModel @Inject constructor(
                 sessionFileB = file
                 savedStateHandle[KEY_SESSION_B] = file.path
                 previousB?.delete()
-                _uiState.update { it.copy(bitmapB = bitmapB) }
+                // A swap leaves "has a B" unchanged, so the epoch is the
+                // only thing that tells the exit guard a photo moved.
+                _uiState.update { it.copy(bitmapB = bitmapB, documentEpoch = it.documentEpoch + 1) }
                 candidateFile = null
                 candidateBitmap = null
             } catch (e: CancellationException) {
@@ -335,9 +566,8 @@ class EditorViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(tool = if (it.bitmapB == null) BrushTool.SMEAR else it.tool)
                     }
-                    _exportEvents.trySend(
-                        ExportEvent.Failed(e.message ?: "could not open second image"),
-                    )
+                    Log.w(TAG, "could not import the Fusion photo", e)
+                    _exportEvents.trySend(ExportEvent.Failed(R.string.error_open_second_image))
                 }
             } finally {
                 if (requestId == secondImageRequestId) {
@@ -363,7 +593,12 @@ class EditorViewModel @Inject constructor(
         sessionFileB = null
         savedStateHandle.remove<String>(KEY_SESSION_B)
         _uiState.update {
-            it.copy(bitmapB = null, importingPhotoB = false, tool = BrushTool.SMEAR)
+            it.copy(
+                bitmapB = null,
+                importingPhotoB = false,
+                tool = BrushTool.SMEAR,
+                documentEpoch = it.documentEpoch + 1,
+            )
         }
     }
 
@@ -414,6 +649,9 @@ class EditorViewModel @Inject constructor(
                         bitmap = bitmap,
                         bitmapB = bitmapB,
                         cropped = absolute != null,
+                        // Two different rects both read as "cropped"; only
+                        // the epoch tells a re-crop from the saved frame.
+                        documentEpoch = it.documentEpoch + 1,
                         globals = GlobalParams(),
                         keyframes = emptyList(),
                         scrubPos = 0f,
@@ -433,16 +671,17 @@ class EditorViewModel @Inject constructor(
                 // leaves the document standing — and OOM is this path's
                 // likeliest failure, yet it's an Error that would sail past
                 // catch(Exception) and crash instead of degrading.
-                _exportEvents.send(ExportEvent.Failed("not enough memory to crop"))
+                _exportEvents.send(ExportEvent.Failed(R.string.error_crop_memory))
             } catch (e: Exception) {
-                _exportEvents.send(ExportEvent.Failed(e.message ?: "could not crop"))
+                Log.w(TAG, "crop failed", e)
+                _exportEvents.send(ExportEvent.Failed(R.string.error_crop))
             }
         }
     }
 
     /** Engine-side failures (GL thread) surface as the screen's error state. */
-    fun reportEngineError(message: String) {
-        _uiState.update { it.copy(loading = false, error = message) }
+    fun reportEngineError(@StringRes reason: Int) {
+        _uiState.update { it.copy(loading = false, error = reason) }
     }
 
     // ---- Live stroke ---------------------------------------------------
@@ -853,7 +1092,7 @@ class EditorViewModel @Inject constructor(
         if (s.exportingMovie || s.keyframes.size < 2) return
         val bridge = engineBridge
         if (bridge == null) {
-            _exportEvents.trySend(ExportEvent.Failed("editor is not ready"))
+            _exportEvents.trySend(ExportEvent.Failed(R.string.error_editor_not_ready))
             return
         }
         _uiState.update { it.copy(exportingMovie = true, movieProgress = 0f, playing = false) }
@@ -869,8 +1108,9 @@ class EditorViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.w(TAG, "could not create the movie work file", e)
                 _uiState.update { it.copy(exportingMovie = false, movieProgress = 0f) }
-                _exportEvents.send(ExportEvent.Failed(e.message ?: "movie export failed"))
+                _exportEvents.send(ExportEvent.Failed(R.string.error_movie_export))
                 return@launch
             }
             // MutableStateFlow.update is thread-safe; GL thread is fine.
@@ -913,7 +1153,7 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (!ok) {
-                    _exportEvents.send(ExportEvent.Failed("movie export failed"))
+                    _exportEvents.send(ExportEvent.Failed(R.string.error_movie_export))
                     return@launch
                 }
                 if (share) {
@@ -929,7 +1169,8 @@ class EditorViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                _exportEvents.send(ExportEvent.Failed(e.message ?: "movie save failed"))
+                Log.w(TAG, "could not save the movie", e)
+                _exportEvents.send(ExportEvent.Failed(R.string.error_movie_save))
             } finally {
                 workFile.delete()
                 _uiState.update { it.copy(exportingMovie = false, movieProgress = 0f) }
@@ -983,6 +1224,247 @@ class EditorViewModel @Inject constructor(
         return hadLive
     }
 
+    // ---- Projects ------------------------------------------------------
+    // Saving writes the DOCUMENT, not a picture: the source bytes, the
+    // stroke log as a normalized revision table, the levers, the crop
+    // rect and the GOOvie pins (ProjectDocument). Out saves pictures;
+    // this saves the thing you can go on gooing tomorrow.
+
+    /**
+     * Save when the editor goes to the background.
+     *
+     * This is the answer to "the OS killed my app and my goo was gone":
+     * `onStop` is the last callback guaranteed before a process can be
+     * reclaimed, so it is where the document has to reach disk. Only when
+     * there is something new to write — backgrounding an untouched photo,
+     * or one whose state is already saved, does nothing.
+     */
+    fun autosaveProject() {
+        val state = _uiState.value
+        if (!state.hasUnwrittenChanges || state.savingProject) return
+        // A stroke in flight is not in the log yet, and a pumped tool can
+        // hold one down for a minute. Writing now would checkpoint the
+        // state before it; the commit that ends it moves the signature and
+        // brings the loop straight back.
+        if (liveParams != null) return
+        saveProject(SaveReason.AUTOSAVE)
+    }
+
+    /**
+     * Checkpoint the document while editing continues — the foreground
+     * half of "an OS kill must not cost the session" ([AutosavePolicy]
+     * holds the two clocks and why there are two).
+     *
+     * Runs for the ViewModel's whole life; it costs nothing while the
+     * document matches disk. Deliberately paused while an export owns the
+     * GL thread: the checkpoint's own preview render would queue behind a
+     * movie and time out, and a movie is not a moment to add GL work to.
+     */
+    private fun startCheckpointing() {
+        viewModelScope.launch {
+            var dirtySinceMs: Long? = null
+            uiState
+                .map { state ->
+                    Checkpoint(
+                        signature = state.signature,
+                        due = state.hasUnwrittenChanges,
+                        busy = state.savingProject || state.exporting || state.exportingMovie,
+                    )
+                }
+                .distinctUntilChanged()
+                // collectLatest IS the debounce: every change to the
+                // document cancels the pending wait and starts a new one.
+                .collectLatest { checkpoint ->
+                    if (!checkpoint.due) {
+                        dirtySinceMs = null
+                        return@collectLatest
+                    }
+                    if (checkpoint.busy) return@collectLatest
+                    val now = System.nanoTime() / 1_000_000L
+                    val since = dirtySinceMs ?: now.also { dirtySinceMs = it }
+                    delay(AutosavePolicy.delayMs(now - since))
+                    // Restart the clock at the ATTEMPT, not at the write.
+                    // A write that succeeds clears `due` and this is moot;
+                    // one that fails (no space, say) leaves the document
+                    // dirty and already past the ceiling, and without this
+                    // the loop would retry as fast as the disk can say no.
+                    dirtySinceMs = System.nanoTime() / 1_000_000L
+                    autosaveProject()
+                }
+        }
+    }
+
+    /** What the checkpoint loop watches; distinct values restart its wait. */
+    private data class Checkpoint(
+        val signature: DocumentSignature,
+        val due: Boolean,
+        val busy: Boolean,
+    )
+
+    /**
+     * Throw away a session the user never asked to keep — the Leave
+     * button, which has to undo any autosave behind it or the bin icon
+     * on it is a lie.
+     *
+     * A project that WAS saved on purpose (resumed, or saved from the
+     * rail) is never touched: Leave stops editing it, it does not delete
+     * it. The delete is fire-and-forget because the screen navigates away
+     * in the same breath, taking this ViewModel's scope with it.
+     */
+    fun discardProject() {
+        val id = projectId ?: return
+        if (_uiState.value.projectSaved) return
+        projectId = null
+        savedStateHandle.remove<String>(KEY_PROJECT_ID)
+        projectStore.deleteInBackground(id)
+    }
+
+    /**
+     * Write this session to disk, overwriting the project it came from
+     * (or minting one on the first save). Emits [ProjectEvent.Saved] when
+     * the document is safely on disk — the leave dialog waits for it.
+     */
+    fun saveProject(reason: SaveReason) {
+        if (_uiState.value.savingProject) return
+        // A second finger can be mid-stroke when the dialog's button is
+        // tapped. Commit rather than discard, same policy as setTool: the
+        // stamps are on the field, and the save should include them.
+        endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
+        val session = sessionFile
+        if (session == null) {
+            _projectEvents.trySend(ProjectEvent.Failed(R.string.error_editor_not_ready))
+            return
+        }
+        val state = _uiState.value
+        val keyframes = state.keyframes
+        val document = ProjectDocument(
+            crop = cropRect?.let(CropRecord::of),
+            globals = state.globals,
+            // The pins ride along as extra roots: a keyframe can hold a
+            // revision the history has truncated, and it has to reach disk.
+            log = log.snapshot(pins = keyframes.map { it.revision }),
+            keyframes = keyframes.map { KeyframeRecord(it.revisionId.value, it.globals) },
+        )
+        // Snapshotted here, not read back at completion: this is the state
+        // being written, and nothing later may claim more than that was.
+        val signature = state.signature
+        val strokes = log.strokes
+        val fusion = sessionFileB
+        // A project with no preview at all is worse than one showing the
+        // photo under the goo, so the very first write of a project may
+        // fall back to the plain decode. Later writes never do: they
+        // would replace a real preview of the goo with a bare photo.
+        val firstWrite = projectId == null
+        // Checkpoints keep the preview they have. Rendering one replays
+        // the whole log on the GL thread, and a checkpoint fires ten
+        // seconds into a pause — precisely when the user is about to put
+        // a finger back down, and would wait behind it. A save they asked
+        // for is a moment they are already waiting on; this is not.
+        val renderPreview = reason != SaveReason.AUTOSAVE || firstWrite
+        _uiState.update { it.copy(savingProject = true) }
+        viewModelScope.launch {
+            var thumbnail: Bitmap? = null
+            try {
+                if (renderPreview) {
+                    thumbnail = renderThumbnail(strokes, sourceIsAcceptable = firstWrite)
+                }
+                projectId = projectStore.save(projectId, document, session, fusion, thumbnail)
+                savedStateHandle[KEY_PROJECT_ID] = projectId
+                markSaved(signature)
+                autosaveFailureReported = false
+                if (reason != SaveReason.AUTOSAVE) {
+                    // A save the user asked for is what makes the project
+                    // theirs: Leave stops deleting it from here on.
+                    _uiState.update { it.copy(projectSaved = true) }
+                    _projectEvents.send(ProjectEvent.Saved(leave = reason == SaveReason.LEAVE))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "could not save the project", e)
+                // A broken autosave says so ONCE. It keeps retrying (the
+                // work is still unwritten, and the disk may free up), but
+                // a snackbar every ten seconds would bury the editor
+                // without telling the user anything new.
+                val announce = reason != SaveReason.AUTOSAVE || !autosaveFailureReported
+                if (reason == SaveReason.AUTOSAVE) autosaveFailureReported = true
+                if (announce) _projectEvents.send(ProjectEvent.Failed(R.string.error_project_save))
+            } finally {
+                thumbnail?.recycle()
+                _uiState.update { it.copy(savingProject = false) }
+            }
+        }
+    }
+
+    /** Record that [signature] is what the project on disk now holds. */
+    private fun markSaved(signature: DocumentSignature) {
+        _uiState.update { it.copy(savedSignature = signature) }
+    }
+
+    /**
+     * The In room's tile: the document rendered small, through the same
+     * replay the export uses, so the tile shows the goo rather than the
+     * photo it started from.
+     *
+     * Best-effort by design — a project with no preview still opens, so
+     * nothing here may fail a save. The timeout is the one that matters:
+     * the GL bridge answers on the surface's queue, and a surface torn
+     * down mid-save (a rotation) would otherwise leave this suspended
+     * forever, with the user stuck in a dialog that never returns.
+     */
+    private suspend fun renderThumbnail(
+        strokes: List<Stroke>,
+        sourceIsAcceptable: Boolean,
+    ): Bitmap? {
+        val session = sessionFile ?: return null
+        var source: Bitmap? = null
+        var sourceB: Bitmap? = null
+        var rendered = false
+        try {
+            val decoded =
+                imageLoader.decodePreview(session, ProjectStore.THUMBNAIL_MAX_DIM, cropRect)
+            source = decoded
+            val bridge = engineBridge
+            val warped = if (bridge == null) null else withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) {
+                val decodedB = sessionFileB?.let {
+                    imageLoader.decodeCover(it, decoded.width, decoded.height)
+                }
+                sourceB = decodedB
+                suspendCancellableCoroutine<Bitmap?> { cont ->
+                    bridge {
+                        exportBitmap(decoded, decodedB, strokes) { out ->
+                            if (cont.isActive) cont.resume(out) else out?.recycle()
+                        }
+                    }
+                }
+            }
+            if (warped != null) {
+                rendered = true
+                return warped
+            }
+            // No replay: no surface, or a paused one (the autosave case —
+            // the GL thread stops as the app goes to the background). The
+            // caller decides whether a bare photo beats no preview.
+            if (!sourceIsAcceptable) return null
+            source = null
+            return decoded
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "could not render the project preview", e)
+            return null
+        } finally {
+            // Recycled only when the GL side actually answered. After a
+            // timeout the queued event may still be holding these, and
+            // freeing a bitmap under the GL thread is worse than letting
+            // GC take a megabyte late (same policy as runExport).
+            if (rendered && coroutineContext.isActive) {
+                source?.recycle()
+                sourceB?.recycle()
+            }
+        }
+    }
+
     // ---- Export --------------------------------------------------------
 
     /** Render at export resolution and save to the gallery/app storage. */
@@ -1007,7 +1489,7 @@ class EditorViewModel @Inject constructor(
         val bridge = engineBridge
         val session = sessionFile
         if (bridge == null || session == null) {
-            _exportEvents.trySend(ExportEvent.Failed("editor is not ready"))
+            _exportEvents.trySend(ExportEvent.Failed(R.string.error_editor_not_ready))
             return
         }
         // Main thread: the log is main-confined; snapshot before bridging.
@@ -1055,7 +1537,8 @@ class EditorViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _exportEvents.send(ExportEvent.Failed(e.message ?: "export failed"))
+                Log.w(TAG, "export failed", e)
+                _exportEvents.send(ExportEvent.Failed(R.string.error_export))
             } finally {
                 // On cancellation a queued GL upload may still hold the
                 // source bitmap — drop the references and let GC reclaim
@@ -1116,10 +1599,20 @@ class EditorViewModel @Inject constructor(
         /** Strength slider default: strong but shy of finger-lock 1:1. */
         const val DEFAULT_STRENGTH = 0.85f
 
+        private const val TAG = "EditorViewModel"
+
         private const val KEY_SESSION_FILE = "sessionFile"
         private const val KEY_SESSION_B = "sessionFileB"
         private const val KEY_GLOBALS = "globals"
         private const val KEY_CROP = "crop"
+        private const val KEY_PROJECT_ID = "projectId"
+
+        /**
+         * Ceiling on the project preview render. Generous for a 512 px
+         * replay of even a pump-heavy log, short enough that a wedged GL
+         * queue costs a preview rather than the save.
+         */
+        private const val THUMBNAIL_TIMEOUT_MS = 5_000L
 
         /** KPT Goo's strip held 64; so does ours. */
         const val MAX_KEYFRAMES = 64

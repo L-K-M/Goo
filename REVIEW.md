@@ -12,10 +12,12 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 - **G-1** 🔧 🟢 Session files under `cacheDir/sessions` are never pruned.
   Resolved in roadmap #3: `ImageLoader.sweepSessions` deletes everything
   but the live session on each import.
-- **G-2** 🔧 ⬜ Strokes are lost on process death (the log lives only in
-  the ViewModel). Fine for the MVP; project persistence (serialized stroke
-  log — the types are already `@Serializable`) is planned alongside
-  animation (roadmap #7).
+- **G-2** 🔧 🟢 Strokes are lost on process death (the log lives only in
+  the ViewModel). Resolved in PR 17: `StrokeLog.snapshot`/`restore` plus
+  `ProjectStore` persist the document, and a session that has saved a
+  project reopens it after process death (`KEY_PROJECT_ID` in saved
+  state). Work between the last save and the death is still lost — the
+  autosave follow-up under ANALYSIS SOL-34.
 - **G-3** ✨ ⬜ The stamp pass renders a fullscreen quad per stamp at field
   resolution. Fine at ≤1024 fields (~5 Mpx per dozen stamps); a scissored
   sub-quad is the known optimization if device profiling ever disagrees.

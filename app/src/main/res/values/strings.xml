@@ -4,9 +4,11 @@
          SHORT form on purpose: this is the launcher label, where Android
          gives about 12 characters before it ellipsizes. The full name is
          [app_name_full] + [app_model], set as a lockup on the In screen. -->
-    <string name="app_name">Meltorama</string>
-    <string name="app_name_full">MELTORAMA</string>
-    <string name="app_model">2000</string>
+    <!-- The wordmark is the product's name, not a phrase: it stays
+         Meltorama 2000 in every language, so translators never see it. -->
+    <string name="app_name" translatable="false">Meltorama</string>
+    <string name="app_name_full" translatable="false">MELTORAMA</string>
+    <string name="app_model" translatable="false">2000</string>
 
     <string name="home_tagline">GOO YOUR PHOTOS</string>
     <string name="home_subtagline">Squish, smear and stretch your photos\nlike wet paint.</string>
@@ -14,6 +16,22 @@
     <string name="home_samples_label">No photo handy? Goo a sample:</string>
     <string name="sample_goo_guy">Sample: Goo Guy</string>
     <string name="sample_candy_blobs">Sample: Candy Blobs</string>
+
+    <!-- Saved projects on the In screen. "Hold to throw away" is the only
+         place the long press is announced, so it stays in the label. -->
+    <string name="home_projects_label">Pick up where you left off — hold a screen to throw it away:</string>
+    <!-- The shelf is a recents list, and a recents list that quietly drops
+         the oldest entry has to say so somewhere. The count is
+         ProjectShelf.MAX_PROJECTS. -->
+    <plurals name="home_projects_retention">
+        <item quantity="one">The newest session is kept.</item>
+        <item quantity="other">The %1$d newest sessions are kept.</item>
+    </plurals>
+    <string name="project_open">Keep gooing this project</string>
+    <string name="project_delete_title">Throw this goo away?</string>
+    <string name="project_delete_body">The strokes, keyframes, levers and the photo behind them go for good. Pictures you already saved from Out stay in your gallery.</string>
+    <string name="project_delete_confirm">Throw away</string>
+    <string name="project_delete_cancel">Keep it</string>
 
     <string name="editor_back">Back</string>
     <string name="editor_undo">Undo</string>
@@ -23,13 +41,19 @@
     <string name="editor_reset_body">The picture goes back to how it started. Brush strokes can be undone; the effect levers return to center.</string>
     <string name="editor_reset_confirm">Reset</string>
     <string name="editor_reset_cancel">Keep gooing</string>
-    <!-- Leaving ends the session: the document lives in memory only until
-         project persistence lands, so say that plainly rather than the
-         usual vague "unsaved changes". -->
+    <!-- The leave guard, now that projects persist: saving is the offer,
+         and Leave is the destructive one (it wears the bin icon). Say what
+         each verb costs rather than the vague "unsaved changes". -->
     <string name="editor_exit_title">Leave the goo behind?</string>
-    <string name="editor_exit_body">Your strokes, keyframes and effect levers live only in this session — Meltorama can\'t save a project yet, so leaving loses them. Save or share the picture from Out first if you want to keep it.</string>
+    <string name="editor_exit_body">Save keeps this project — strokes, keyframes, effect levers and all — on the In screen, ready to pick up again. Leave throws it away for good.</string>
+    <!-- Shown instead when the project is already the user's (resumed, or
+         saved from the rail): Leave stops editing, it does not delete. -->
+    <string name="editor_exit_body_saved">Save updates this project on the In screen — strokes, keyframes, effect levers and all. Leave stops here, and the project keeps whatever was saved last.</string>
+    <string name="editor_exit_save">Save and leave</string>
     <string name="editor_exit_confirm">Leave</string>
     <string name="editor_exit_cancel">Keep gooing</string>
+    <string name="editor_save">Save this project</string>
+    <string name="project_saved">Saved to the In screen</string>
     <string name="editor_brush_size">Size</string>
     <string name="editor_brush_strength">Strength</string>
 
@@ -44,7 +68,7 @@
     <string name="tool_fuse">Fusion</string>
 
     <string name="home_about">About</string>
-    <string name="about_title">Meltorama 2000 %1$s</string>
+    <string name="about_title" translatable="false">Meltorama 2000 %1$s</string>
     <string name="about_body">Squish, smear and stretch your photos like wet paint — a loving homage to Kai\'s Power Goo (1996), in the retro-future livery it always deserved. Fully offline: no permissions, no network, nothing leaves your device.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense). Unaffiliated with the rights holders of Kai\'s Power Goo or KPT.</string>
     <string name="about_close">Close</string>
     <string name="fusion_change_photo">Swap photo</string>
@@ -90,11 +114,12 @@
 
     <string name="movie_export_title">GOOvie out</string>
     <string name="movie_speed">Speed</string>
-    <!-- Speed chips. Multiplication signs, not "x": the strip runs at 1×. -->
-    <string name="movie_speed_half">½×</string>
-    <string name="movie_speed_normal">1×</string>
-    <string name="movie_speed_double">2×</string>
-    <string name="movie_speed_quadruple">4×</string>
+    <!-- Speed chips. Multiplication signs, not "x": the strip runs at 1×.
+         Symbols, so they read the same in every language. -->
+    <string name="movie_speed_half" translatable="false">½×</string>
+    <string name="movie_speed_normal" translatable="false">1×</string>
+    <string name="movie_speed_double" translatable="false">2×</string>
+    <string name="movie_speed_quadruple" translatable="false">4×</string>
     <string name="movie_loop">Loop forever</string>
     <string name="movie_length">About %1$s seconds long</string>
     <string name="lever_bulge">Bulge</string>
@@ -116,4 +141,21 @@
     <string name="export_saved_app_storage">Saved — use Share to move it to your gallery</string>
     <!-- Generic: the Failed event carries import failures too (photo B). -->
     <string name="export_failed">That didn\'t work:</string>
+
+    <!-- Failure wording lives here, not in the ViewModel: an exception's
+         own text is English, technical, and goes to Logcat instead. Each
+         of these reads as a sentence on its own (the error pane) and after
+         [export_failed] (the snackbar). -->
+    <string name="error_open_image">Meltorama couldn\'t open that photo.</string>
+    <string name="error_open_second_image">Meltorama couldn\'t open that second photo.</string>
+    <string name="error_crop">That crop didn\'t work.</string>
+    <string name="error_crop_memory">Not enough memory to crop this photo.</string>
+    <string name="error_editor_not_ready">The goo table isn\'t ready yet.</string>
+    <string name="error_export">Rendering the picture didn\'t work.</string>
+    <string name="error_movie_export">Filming the GOOvie didn\'t work.</string>
+    <string name="error_movie_save">Saving the GOOvie didn\'t work.</string>
+    <string name="error_project_save">Saving the project didn\'t work.</string>
+    <string name="error_project_missing">That project isn\'t here any more.</string>
+    <string name="error_project_damaged">That project\'s goo can\'t be read.</string>
+    <string name="error_gpu_unsupported">This device\'s GPU can\'t render goo (no float render targets).</string>
 </resources>

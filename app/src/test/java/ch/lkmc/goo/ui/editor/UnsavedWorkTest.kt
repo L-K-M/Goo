@@ -3,6 +3,7 @@ package ch.lkmc.goo.ui.editor
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.StrokeLog
+import ch.lkmc.goo.engine.core.StrokeRevisionId
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -71,5 +72,75 @@ class UnsavedWorkTest {
         assertTrue(state(canReset = true, keyframes = listOf(keyframe())).hasUnsavedWork)
         assertTrue(state(canReset = true, cropped = true).hasUnsavedWork)
         assertTrue(state(keyframes = listOf(keyframe()), cropped = true).hasUnsavedWork)
+    }
+
+    // ---- Saved projects ------------------------------------------------
+    // Now that a document can be on disk (ANALYSIS SOL-34), "unsaved" is a
+    // comparison: work that differs from what was written — and, for an
+    // autosave, work the user never actually chose to keep.
+
+    /** A project on disk that the user asked for: resumed, or Saved. */
+    private fun EditorViewModel.UiState.saved() =
+        copy(savedSignature = signature, projectSaved = true)
+
+    @Test
+    fun `a document that matches the saved one leaves without asking`() {
+        val work = state(canReset = true, keyframes = listOf(keyframe()))
+        assertTrue(work.hasUnsavedWork)
+        // Reopening a project lands here: there IS work, and it is on disk.
+        val reopened = work.saved()
+        assertTrue(reopened.hasWork)
+        assertFalse(reopened.hasUnsavedWork)
+    }
+
+    @Test
+    fun `one more stroke after a save arms the guard again`() {
+        val saved = state(canReset = true).saved()
+        // A committed stroke moves the log to a new revision, and ids are
+        // never reused — which is exactly why the signature can rely on it.
+        val gooedSince = saved.copy(revisionId = StrokeRevisionId(7))
+        assertTrue(gooedSince.hasUnsavedWork)
+    }
+
+    @Test
+    fun `moving a lever after a save arms the guard again`() {
+        val saved = state(canReset = true).saved()
+        assertTrue(saved.copy(globals = GlobalParams(twirl = 0.4f)).hasUnsavedWork)
+    }
+
+    @Test
+    fun `punching a keyframe after a save arms the guard again`() {
+        val saved = state(canReset = true).saved()
+        assertTrue(saved.copy(keyframes = listOf(keyframe())).hasUnsavedWork)
+    }
+
+    @Test
+    fun `a re-crop or a swapped Fusion photo arms the guard again`() {
+        // Neither shows up in any other term: two different crop rects both
+        // read as `cropped`, two different photo Bs both read as "has a B".
+        // documentEpoch is the whole reason the guard sees them at all.
+        val saved = state(canReset = true, cropped = true).saved()
+        assertFalse(saved.hasUnsavedWork)
+        assertTrue(saved.copy(documentEpoch = saved.documentEpoch + 1).hasUnsavedWork)
+    }
+
+    @Test
+    fun `an autosave is insurance, not an answer`() {
+        // Backgrounding wrote this document to disk, so the signature
+        // matches — but the user never chose to keep it. The door still
+        // asks, and Leave is what deletes the autosave.
+        val autosaved = state(canReset = true).let { it.copy(savedSignature = it.signature) }
+        assertFalse(autosaved.projectSaved)
+        assertTrue(autosaved.hasUnsavedWork)
+        // Answering Save (or having resumed the project) settles it.
+        assertFalse(autosaved.copy(projectSaved = true).hasUnsavedWork)
+    }
+
+    @Test
+    fun `saving an untouched photo still leaves silently`() {
+        // Nothing to save, nothing saved: the guard must not appear just
+        // because savedSignature is null on a blank document.
+        assertFalse(state().hasUnsavedWork)
+        assertFalse(state().saved().hasUnsavedWork)
     }
 }

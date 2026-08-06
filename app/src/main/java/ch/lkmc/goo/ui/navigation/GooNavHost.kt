@@ -13,8 +13,17 @@ import kotlinx.serialization.Serializable
 @Serializable
 object HomeRoute
 
+/**
+ * The Goo room opens on exactly one of two things: a photo just picked
+ * ([imageUri]) or a saved project being resumed ([projectId]). Both are
+ * nullable because the route carries whichever one applies — the
+ * ViewModel prefers the project, since a project names its own photo.
+ */
 @Serializable
-data class EditorRoute(val imageUri: String)
+data class EditorRoute(
+    val imageUri: String? = null,
+    val projectId: String? = null,
+)
 
 @Composable
 fun GooNavHost() {
@@ -22,7 +31,8 @@ fun GooNavHost() {
     NavHost(navController = navController, startDestination = HomeRoute) {
         composable<HomeRoute> {
             HomeScreen(
-                onOpenImage = { uri -> navController.navigate(EditorRoute(uri.toString())) },
+                onOpenImage = { uri -> navController.navigate(EditorRoute(imageUri = uri.toString())) },
+                onOpenProject = { id -> navController.navigate(EditorRoute(projectId = id)) },
             )
         }
         composable<EditorRoute> {

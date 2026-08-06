@@ -28,6 +28,14 @@ Terms of art in this repo — KPT heritage and engine internals.
 - **Stroke log** — the document: every stroke's tool + parameters + stamps
   in normalized source coordinates. Undo, export, and crash recovery all
   replay it.
+- **Revision** — one immutable, structurally shared state of the stroke
+  log (`StrokeRevision`), identified by an id that is never reused. Undo
+  moves a cursor over revisions; keyframes pin them.
+- **Project** — a saved document: the source photo's bytes plus the
+  revision table, levers, crop and keyframe pins that turn it back into
+  the session you left (`data/ProjectStore`, one folder per project). A
+  project is what you go on gooing; an export is a picture you are done
+  with.
 - **UnGoo** — KPT's localized distortion eraser: a stamp that lerps the
   field toward zero under the brush.
 - **GOOvie** — KPT Goo's exported keyframe animation; ours are MP4/GIF.

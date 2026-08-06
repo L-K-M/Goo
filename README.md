@@ -52,6 +52,17 @@ and a Fusion brush that paints a second photo through the first.
 - **Unlimited undo/redo**, confirmed Reset, and an engine that treats
   GPU state as a cache — the stroke log is the document, and everything
   rebuilds by replay after context loss.
+- **Saved projects** — save from the rail or on the way out and the whole
+  document is kept (strokes with their undo history, keyframes, levers,
+  crop, Fusion photo), shelved on the In screen as a preview tile to pick
+  back up. The editor autosaves as you work — a checkpoint when you pause,
+  and again when it goes to the background — so neither a system kill nor
+  a crash takes the session with it. The shelf is a recents
+  list — the newest 20 sessions, oldest out, as the screen says. Projects
+  live in app-private storage and stay out of cloud backup: the photos are
+  yours, and they stay on the device.
+- **English and Simplified Chinese**, switchable per app on Android 13+
+  without changing the phone's language.
 
 The full design and the PR-by-PR build history live in
 [PLAN.md](PLAN.md); known trade-offs and deferred work in

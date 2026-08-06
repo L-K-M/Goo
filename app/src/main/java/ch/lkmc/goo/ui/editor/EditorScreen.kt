@@ -27,11 +27,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -48,6 +51,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
@@ -56,6 +60,7 @@ import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Waves
@@ -63,6 +68,7 @@ import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -94,8 +100,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -144,7 +154,7 @@ fun EditorScreen(
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
 
-            state.error != null -> ErrorPane(message = state.error!!, onBack = onBack)
+            state.error != null -> ErrorPane(message = stringResource(state.error!!), onBack = onBack)
 
             state.bitmap != null -> WarpEditor(viewModel = viewModel, state = state, onBack = onBack)
         }
@@ -233,6 +243,10 @@ private fun WarpEditor(
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    // Failure wording arrives as a string RESOURCE on a one-shot event, so
+    // it can't be a stringResource call at composition time. LocalResources
+    // (not LocalContext.getString) is what re-reads on a locale change.
+    val resources = LocalResources.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Hand the ViewModel a way to reach the GL thread while (and only
@@ -317,6 +331,7 @@ private fun WarpEditor(
     val savedGallery = stringResource(R.string.export_saved_gallery)
     val savedMovieGallery = stringResource(R.string.export_saved_movies)
     val savedAppStorage = stringResource(R.string.export_saved_app_storage)
+    val projectSaved = stringResource(R.string.project_saved)
     val failedPrefix = stringResource(R.string.export_failed)
     LaunchedEffect(viewModel) {
         viewModel.exportEvents.collect { event ->
@@ -345,18 +360,50 @@ private fun WarpEditor(
                 }
 
                 is EditorViewModel.ExportEvent.Failed ->
-                    snackbarHostState.showSnackbar("$failedPrefix ${event.message}")
+                    snackbarHostState.showSnackbar(
+                        "$failedPrefix ${resources.getString(event.reason)}",
+                    )
+            }
+        }
+    }
+
+    // Project writes. Saved is the leave dialog's exit: the document is on
+    // disk, so the room can close. A failure keeps the user here (with the
+    // dialog still up) rather than leaving with the work unwritten.
+    LaunchedEffect(viewModel) {
+        viewModel.projectEvents.collect { event ->
+            when (event) {
+                is EditorViewModel.ProjectEvent.Saved ->
+                    if (event.leave) {
+                        confirmExit = false
+                        onBack()
+                    } else {
+                        snackbarHostState.showSnackbar(projectSaved)
+                    }
+
+                is EditorViewModel.ProjectEvent.Failed ->
+                    snackbarHostState.showSnackbar(
+                        "$failedPrefix ${resources.getString(event.reason)}",
+                    )
             }
         }
     }
 
     // GLSurfaceView must see activity pause/resume or its GL thread leaks.
-    DisposableEffect(surface, lifecycleOwner) {
+    //
+    // ON_STOP is also where the document reaches disk. It is the last
+    // callback the platform guarantees before a backgrounded process can
+    // be reclaimed, so an app the OS kills while it is away has already
+    // been saved. (The ViewModel's scope outlives ON_STOP — it is cleared
+    // when the room closes, not when it is hidden — so the write finishes
+    // in the background.)
+    DisposableEffect(surface, lifecycleOwner, viewModel) {
         val surfaceView = surface
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> surfaceView?.onPause()
                 Lifecycle.Event.ON_RESUME -> surfaceView?.onResume()
+                Lifecycle.Event.ON_STOP -> viewModel.autosaveProject()
                 else -> Unit
             }
         }
@@ -423,6 +470,11 @@ private fun WarpEditor(
                 viewModel.toggleGoovie()
             },
             goovieActive = state.goovieMode,
+            onSave = { viewModel.saveProject(EditorViewModel.SaveReason.EXPLICIT) },
+            // Dark once everything on screen is on disk — including
+            // straight after a save, which is how the bead answers
+            // "did that work?" without a second dialog.
+            canSave = state.hasUnsavedWork && !state.savingProject,
             onExport = { showExportSheet = true },
         )
 
@@ -867,20 +919,78 @@ private fun WarpEditor(
 
     if (confirmExit) {
         AlertDialog(
-            onDismissRequest = { confirmExit = false },
+            // A save in flight owns this dialog: dismissing it would drop
+            // the user into the room while the write is still running, and
+            // the Saved event would then navigate out from under them.
+            onDismissRequest = { if (!state.savingProject) confirmExit = false },
             title = { Text(stringResource(R.string.editor_exit_title)) },
-            text = { Text(stringResource(R.string.editor_exit_body)) },
+            text = {
+                // Leave means two different things, so it must not claim
+                // one wording for both: a session the user never chose to
+                // keep is thrown away, while a project they saved (or
+                // resumed) survives at whatever was written last.
+                Text(
+                    stringResource(
+                        if (state.projectSaved) {
+                            R.string.editor_exit_body_saved
+                        } else {
+                            R.string.editor_exit_body
+                        },
+                    ),
+                )
+            },
+            // Save is the confirm slot — the emphasis position, and the
+            // one that keeps the work. The other two share the dismiss
+            // slot so that leaving-for-good sits FIRST, farthest from the
+            // save, with the throw-away icon on it.
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        confirmExit = false
-                        onBack()
-                    },
-                ) { Text(stringResource(R.string.editor_exit_confirm)) }
+                    enabled = !state.savingProject,
+                    onClick = { viewModel.saveProject(EditorViewModel.SaveReason.LEAVE) },
+                ) {
+                    // Writing a project copies the source photo, so this
+                    // is a beat or two of real work on a big picture — the
+                    // dialog says so rather than just going dead.
+                    if (state.savingProject) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.editor_exit_save))
+                }
             },
             dismissButton = {
-                TextButton(onClick = { confirmExit = false }) {
-                    Text(stringResource(R.string.editor_exit_cancel))
+                // FlowRow, not Row: these two share one dialog slot, and at
+                // a large font scale (or in a language that sets them
+                // longer) an unbreakable row would run off the dialog.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        enabled = !state.savingProject,
+                        onClick = {
+                            confirmExit = false
+                            // Undo any autosave behind this session, or
+                            // the bin icon on this button is a lie. A
+                            // project saved on purpose is left alone.
+                            viewModel.discardProject()
+                            onBack()
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DeleteForever,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.editor_exit_confirm))
+                    }
+                    TextButton(
+                        enabled = !state.savingProject,
+                        onClick = { confirmExit = false },
+                    ) {
+                        Text(stringResource(R.string.editor_exit_cancel))
+                    }
                 }
             },
         )
@@ -924,6 +1034,8 @@ private fun TopRail(
     leversActive: Boolean,
     onGoovie: () -> Unit,
     goovieActive: Boolean,
+    onSave: () -> Unit,
+    canSave: Boolean,
     onExport: () -> Unit,
 ) {
     Row(
@@ -1002,6 +1114,18 @@ private fun TopRail(
                 selected = goovieActive,
                 selectable = true,
                 onClick = onGoovie,
+            )
+            // Save the DOCUMENT, next to (not inside) the Out tray that
+            // saves pictures — two different verbs, so two beads. Lit only
+            // when there is something new to write, which also makes it
+            // the rail's honest answer to "did that get saved?".
+            ChromeIconButton(
+                icon = Icons.Filled.Save,
+                contentDescription = stringResource(R.string.editor_save),
+                color = NeonLime,
+                selected = false,
+                enabled = canSave,
+                onClick = onSave,
             )
             ChromeIconButton(
                 icon = Icons.Filled.IosShare,
@@ -1128,15 +1252,34 @@ private fun BrushRail(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        val sizeLabel = stringResource(R.string.editor_brush_size)
+        val strengthLabel = stringResource(R.string.editor_brush_strength)
+        // One label column, measured from the labels themselves rather
+        // than pinned at a width that happened to fit "Size": at 64dp,
+        // "Strength" wrapped to "Strengt" + "h". Measuring keeps the two
+        // sliders aligned in every language and at every font scale —
+        // German and Chinese set these words at very different widths.
+        val measurer = rememberTextMeasurer()
+        val labelStyle = MaterialTheme.typography.labelLarge
+        val density = LocalDensity.current
+        val labelWidth = remember(sizeLabel, strengthLabel, labelStyle, density) {
+            with(density) {
+                listOf(sizeLabel, strengthLabel)
+                    .maxOf { measurer.measure(it, labelStyle).size.width }
+                    .toDp()
+            }
+        }
         LabeledSlider(
-            label = stringResource(R.string.editor_brush_size),
+            label = sizeLabel,
+            labelWidth = labelWidth,
             value = radius,
             onValueChange = onRadiusChange,
             valueRange = EditorViewModel.MIN_RADIUS..EditorViewModel.MAX_RADIUS,
             onAdjustingChange = onAdjustingChange,
         )
         LabeledSlider(
-            label = stringResource(R.string.editor_brush_strength),
+            label = strengthLabel,
+            labelWidth = labelWidth,
             value = strength,
             onValueChange = onStrengthChange,
             valueRange = 0.05f..1f,
@@ -1148,6 +1291,7 @@ private fun BrushRail(
 @Composable
 private fun LabeledSlider(
     label: String,
+    labelWidth: Dp,
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
@@ -1160,9 +1304,14 @@ private fun LabeledSlider(
     ) {
         Text(
             text = label,
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier.width(labelWidth),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // The column is measured to fit, so wrapping can only mean
+            // the measurement disagreed with the layout — clip a hair
+            // rather than break a word across two lines again.
+            maxLines = 1,
+            softWrap = false,
         )
         Slider(
             modifier = Modifier.weight(1f),

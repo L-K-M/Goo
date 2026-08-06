@@ -5,6 +5,7 @@ import ch.lkmc.goo.data.ImageLoader
 import ch.lkmc.goo.data.ImageSaver
 import ch.lkmc.goo.data.MovieSaver
 import ch.lkmc.goo.data.OnboardingPrefs
+import ch.lkmc.goo.data.ProjectStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -35,4 +36,9 @@ object AppModule {
     @Singleton
     fun provideMovieSaver(@ApplicationContext context: Context): MovieSaver =
         MovieSaver(context)
+
+    @Provides
+    @Singleton
+    fun provideProjectStore(@ApplicationContext context: Context): ProjectStore =
+        ProjectStore(context)
 }

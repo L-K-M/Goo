@@ -8,6 +8,7 @@ import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import android.util.Log
 import androidx.core.graphics.createBitmap
+import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.GlobalParams
@@ -51,8 +52,12 @@ import javax.microedition.khronos.opengles.GL10
  * optimization is possible if profiling ever disagrees.
  */
 class GlWarpRenderer(
-    /** Called on the GL thread when the context can't run the engine. */
-    private val onUnsupported: (String) -> Unit,
+    /**
+     * Called on the GL thread when the context can't run the engine, with
+     * the string RESOURCE to show — the renderer has no locale, and the
+     * message reaches a user.
+     */
+    private val onUnsupported: (Int) -> Unit,
 ) : GLSurfaceView.Renderer {
 
     // ---- State owned by the GL thread ----------------------------------
@@ -645,7 +650,7 @@ class GlWarpRenderer(
         if (maxTex[0] > 0) maxTextureSize = maxTex[0]
         if (!PingPongField.supported(extensions)) {
             contextReady = false
-            onUnsupported("This device's GPU can't render goo (no float render targets).")
+            onUnsupported(R.string.error_gpu_unsupported)
             return
         }
         contextReady = true
