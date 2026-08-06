@@ -59,8 +59,7 @@ and a Fusion brush that paints a second photo through the first.
   on the In screen as a preview tile to pick back up. No save prompts, no
   "unsaved changes", and nothing deleted behind your back: the In screen
   shows how much space your goo takes and how much is free, and you throw
-  away the ones you don't want — one at a time or all at once. The shelf is a recents
-  list — the newest 20 sessions, oldest out, as the screen says. Projects
+  away the ones you don't want — one at a time or all at once. Projects
   live in app-private storage and stay out of cloud backup: the photos are
   yours, and they stay on the device.
 - **English and Simplified Chinese**, switchable per app on Android 13+
