@@ -15,6 +15,7 @@ import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.MovieSpec
+import ch.lkmc.goo.engine.core.ReplayCheckpoints
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.StampBounds
 import ch.lkmc.goo.engine.core.Stroke
@@ -75,6 +76,13 @@ class GlWarpRenderer(
     private var viewHeight = 1
     private var strokesToReplay: List<Stroke> = emptyList()
     private var contextReady = false
+
+    // A saved field state and the stroke prefix it stands for, so undo
+    // does not replay a pumped hold's few hundred stamps to reach a
+    // state it had a moment ago (REVIEW.md G-6). Both are null together;
+    // either being stale only costs a full replay.
+    private var checkpoint: FieldSnapshot? = null
+    private var checkpointStrokes: List<Stroke>? = null
 
     /** Extension list of the current context; set once per onSurfaceCreated. */
     private var extensions = ""
@@ -248,7 +256,15 @@ class GlWarpRenderer(
         strokesToReplay = strokesToReplay + stroke
     }
 
-    /** Clear the field and replay [strokes] — undo/redo/reset path. */
+    /**
+     * Replay [strokes] into the field — undo/redo/reset path.
+     *
+     * Starts from the checkpoint when one still covers a prefix of the
+     * log (REVIEW.md G-6) and from identity otherwise, then takes a new
+     * checkpoint if [ReplayCheckpoints] says the saving has become worth
+     * a blit. Everything about it is a cache: if the snapshot is
+     * unusable or stale the result is identical, only slower.
+     */
     fun rebuild(strokes: List<Stroke>) {
         strokesToReplay = strokes
         // Deliberately does NOT touch the endpoint cache: it is keyed by
@@ -259,8 +275,43 @@ class GlWarpRenderer(
         // recreate field STORAGE (context loss, new image) null the cache
         // themselves in recreateGlObjects.
         val f = field ?: return
-        f.clear()
-        for (stroke in strokes) stampBatch(stroke, stroke.stamps)
+        val plan = ReplayCheckpoints.plan(strokes, checkpointStrokes)
+        val restored = plan.restoreCheckpoint &&
+            checkpoint?.let { f.restoreFrom(it) } == true
+        val from = if (restored) plan.replayFrom else 0
+        if (!restored) f.clear()
+        for (i in from until strokes.size) {
+            if (i == plan.snapshotAfter) takeCheckpoint(f, strokes, i)
+            val stroke = strokes[i]
+            stampBatch(stroke, stroke.stamps)
+        }
+    }
+
+    /** Snapshot the field as it stands, standing for `strokes[0 until count]`. */
+    private fun takeCheckpoint(f: PingPongField, strokes: List<Stroke>, count: Int) {
+        val snapshot = checkpoint?.takeIf { it.width == f.width && it.height == f.height }
+            ?: FieldSnapshot(f.width, f.height, PingPongField.hasHalfFloat(extensions))
+                .also { checkpoint?.delete(); checkpoint = it }
+        if (!snapshot.isUsable) {
+            // The driver refused the framebuffer; stop asking on every
+            // rebuild and let replay run from identity forever after.
+            checkpoint = null
+            checkpointStrokes = null
+            return
+        }
+        f.copyInto(snapshot)
+        // Copy the prefix: the caller's list may be a view onto a log
+        // that keeps changing, and a checkpoint that silently redefines
+        // which strokes it stands for would be a correctness bug rather
+        // than a slow cache.
+        checkpointStrokes = strokes.subList(0, count).toList()
+    }
+
+    /** Forget the checkpoint; the field storage it described is gone. */
+    private fun dropCheckpoint() {
+        checkpoint?.delete()
+        checkpoint = null
+        checkpointStrokes = null
     }
 
     /**
@@ -712,6 +763,10 @@ class GlWarpRenderer(
         endpointB = null
         loadedRevisionA = null
         loadedRevisionB = null
+        // Same reasoning: drop the checkpoint WITHOUT deleting it, since
+        // its texture name belongs to the context that just died.
+        checkpoint = null
+        checkpointStrokes = null
         rebuildImageState()
     }
 
@@ -862,6 +917,11 @@ class GlWarpRenderer(
         endpointB = null
         loadedRevisionA = null
         loadedRevisionB = null
+        // The checkpoint describes the OLD field's contents (and possibly
+        // its dimensions, since a new image resizes the field), so it has
+        // to go with it. rebuild() below takes a fresh one if the log has
+        // earned it.
+        dropCheckpoint()
         uploadImageB()
         rebuild(strokesToReplay)
     }

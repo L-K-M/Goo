@@ -159,27 +159,59 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
      * them first would be pure waste. That is what makes a whole-surface
      * pass — `renderPassIn(TexelRect.full(…))` — cost exactly what it
      * used to, with no blit tax, however stale the buffer was.
+     */
+    private fun syncWriteBuffer(coveredBy: TexelRect) {
+        val stale = staleRect
+        if (stale.isEmpty) return
+        if (!coveredBy.contains(stale)) blit(readFramebuffer, writeFramebuffer, stale)
+        staleRect = TexelRect.EMPTY
+    }
+
+    /**
+     * Copy the current state into [snapshot] — the save half of a replay
+     * checkpoint (REVIEW.md G-6). No-op if the snapshot failed to
+     * allocate, since it is a cache and the caller can always replay.
+     */
+    fun copyInto(snapshot: FieldSnapshot) {
+        if (!snapshot.isUsable) return
+        require(snapshot.width == width && snapshot.height == height) {
+            "snapshot ${snapshot.width}x${snapshot.height} != field ${width}x$height"
+        }
+        blit(readFramebuffer, snapshot.fbo, TexelRect.full(width, height))
+    }
+
+    /**
+     * Replace the current state with [snapshot]'s. Returns false when the
+     * snapshot is unusable and the caller must fall back to [clear] plus
+     * a full replay.
+     */
+    fun restoreFrom(snapshot: FieldSnapshot): Boolean {
+        if (!snapshot.isUsable) return false
+        if (snapshot.width != width || snapshot.height != height) return false
+        blit(snapshot.fbo, readFramebuffer, TexelRect.full(width, height))
+        // Only the read side was filled, so the write side now disagrees
+        // everywhere and the next pass must repair all of it.
+        staleRect = TexelRect.full(width, height)
+        return true
+    }
+
+    /**
+     * 1:1 copy of [rect] between two framebuffers.
      *
      * `GL_NEAREST` is required, not merely sufficient: ES 3.0 rejects
      * `GL_LINEAR` blits of floating-point color buffers, and the copy is
      * 1:1 anyway. Scissor must be off — a blit is clipped by it.
      */
-    private fun syncWriteBuffer(coveredBy: TexelRect) {
-        val stale = staleRect
-        if (stale.isEmpty) return
-        if (coveredBy.contains(stale)) {
-            staleRect = TexelRect.EMPTY
-            return
-        }
+    private fun blit(from: Int, to: Int, rect: TexelRect) {
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
-        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, readFramebuffer)
-        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, writeFramebuffer)
+        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, from)
+        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, to)
         GLES30.glBlitFramebuffer(
-            stale.x0, stale.y0, stale.x1, stale.y1,
-            stale.x0, stale.y0, stale.x1, stale.y1,
+            rect.x0, rect.y0, rect.x1, rect.y1,
+            rect.x0, rect.y0, rect.x1, rect.y1,
             GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
         )
-        staleRect = TexelRect.EMPTY
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
     }
 
     /**

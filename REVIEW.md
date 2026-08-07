@@ -48,13 +48,30 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   bound first. Today >12 MP sources export at ~12 MP; revisit when a real
   user asks for native 48 MP output.
 
-- **G-6** ⚠️ ⬜ Pumped tools (Grow/Shrink/Smooth/UnGoo) emit ~60
+- **G-6** ⚠️ 🟢 Pumped tools (Grow/Shrink/Smooth/UnGoo) emit ~60
   stamps/s while held, so long holds inflate the stroke log and the
   full-replay cost undo/redo/export pay (a 5 s hold ≈ 300 field passes).
   Stamps can't be naively merged — warp-of-warp compounding is the pump
   feel — so the real fix is field snapshot checkpoints every N strokes
   (replay from nearest checkpoint instead of identity). Do when replay
   latency becomes user-visible.
+  Done for the interactive path: `rebuild` (undo/redo/Reset) now starts
+  from a `FieldSnapshot` when one still covers a prefix of the log,
+  `engine/core/ReplayCheckpoints` deciding when a snapshot is worth its
+  blit. Two departures from the sketch above, both because "every N
+  strokes" measures the wrong thing: the trigger is **stamps**, since
+  the whole motivating case is a single stroke carrying 300 of them, and
+  the checkpoint deliberately lags the head by `TAIL_STROKES` so the
+  first undo doesn't destroy the thing that makes undo fast. Undoing
+  deeper than the tail invalidates it and pays one full replay, after
+  which a new checkpoint forms — the cache is pure optimization, and
+  every way of being wrong about it costs only the replay that used to
+  happen unconditionally.
+  Not done: export and keyframe endpoint materialization still replay
+  from identity. Export builds its own field at a different size (so a
+  preview checkpoint cannot apply), and endpoints are already cached by
+  revision id. Revisit if a 64-keyframe strip over a heavy log becomes
+  the complaint.
 
 - **G-7** ⚠️ ⬜ `renderMovie` runs as one GL runnable, and
   `GLSurfaceView`'s `onPause()`/`surfaceDestroyed()` block the MAIN
