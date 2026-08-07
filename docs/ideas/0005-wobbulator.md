@@ -64,11 +64,22 @@ contract untouched. A sibling type carries the modulation:
 @Serializable
 data class GlobalWobble(
     /** Cycles per GOOvie loop, 0 = still. Integers keep loops seamless. */
-    val rate: IntArray = IntArray(6),
+    val rate: List<Int> = List(6) { 0 },
     /** Excursion either side of the lever's set position, [0,1]. */
-    val depth: FloatArray = FloatArray(6),
+    val depth: List<Float> = List(6) { 0f },
 )
 ```
+
+Lists rather than `IntArray`/`FloatArray`, deliberately: a `data class`
+holding arrays gets `equals`/`hashCode` that compare by *reference*, so
+two identical wobble rigs would not be equal. That is not academic here —
+this is document state, and "unsaved" in this app means `savedSignature`
+differs from disk (PR 17). A wobble rig that never compares equal to
+itself would report unwritten changes forever and defeat the autosave
+checkpoint policy. `GlobalParams` avoids the same trap by holding six
+named floats and only becoming an array at the uniform boundary
+(`toArray()`); if the six-of-each shape reads better as named fields
+here too, that is the closer parallel and the safer one.
 
 **The evaluation.** One pure, testable function — the natural home is
 beside `MovieSpec`, which already owns frame counts and timing and is
