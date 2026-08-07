@@ -82,7 +82,7 @@ class StampBoundsTest {
         val stroke = Stroke(tool, radius, strength = 1f, stamps = emptyList())
         after.applyStamp(stroke, Stamp(cx, cy, dx = 0.03f, dy = -0.02f))
 
-        val rect = StampBounds.of(cx, cy, radius, aspect, w, h)
+        val rect = StampBounds.of(cx, cy, radius, aspect, w, h, tool.profile)
         for (y in 0 until h) {
             for (x in 0 until w) {
                 val delta = maxChange(before, after, x, y)
@@ -117,7 +117,7 @@ class StampBoundsTest {
             val after = DisplacementField(w, h, aspect).also { copyInto(before, it) }
             val stroke = Stroke(tool, radius = 0.2f, strength = 1f, stamps = emptyList())
             after.applyStamp(stroke, Stamp(0.5f, 0.5f, dx = 0.03f, dy = -0.02f))
-            val rect = StampBounds.of(0.5f, 0.5f, 0.2f, aspect, w, h)
+            val rect = StampBounds.of(0.5f, 0.5f, 0.2f, aspect, w, h, tool.profile)
             for (y in 0 until h) {
                 for (x in 0 until w) {
                     if (x >= rect.x0 && x < rect.x1 && y >= rect.y0 && y < rect.y1) continue

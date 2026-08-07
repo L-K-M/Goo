@@ -80,20 +80,38 @@ float centerRamp(float d) {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// smoothOdd (DisplacementField): odd, C1, zero at 0, ±1 by |x| = 1.
+float smoothOdd(float x) {
+    float a = min(abs(x), 1.0);
+    float shaped = a * a * (3.0 - 2.0 * a);
+    return x < 0.0 ? -shaped : shaped;
+}
+
+// sign() that is +1 at zero, matching the Kotlin helper.
+float signPos(float x) { return x < 0.0 ? -1.0 : 1.0; }
+
 void main() {
     vec2 fromCenter = v_uv - u_center;
     fromCenter.x *= u_aspect;
-    float distA = length(fromCenter);
+    // FalloffProfile.DRIP (3) compresses the distance BELOW the center
+    // so the lobe reaches downward; every other profile is radial.
+    // 0.45 = BrushDynamics.DRIP_LOBE.
+    vec2 metric = fromCenter;
+    if (u_profile == 3 && metric.y > 0.0) metric.y *= 0.45;
+    float distA = length(metric);
     float d = distA / u_radius;
     float w = falloff(d) * u_strength;
+    // The radial direction is measured on the TRUE offset, not the
+    // anisotropic metric — only the weight is reshaped.
+    float distR = length(fromCenter);
     // Field texel: xy = displacement, z = Fusion mask (see
     // DisplacementField — CHANNELS is 3; the texture's w is unused).
     vec3 cur = texture(u_field, v_uv).xyz;
     vec3 next;
     if (u_mode == 5) {              // FUSE: mask flow, displacement as-is
-        // 0.30 = BrushDynamics.FUSE_STEP (0.22 below = BLEND_STEP) —
+        // 0.3  = BrushDynamics.FUSE_STEP (0.22 below = BLEND_STEP) —
         // documented-duplication convention, keep in sync.
-        next = vec3(cur.xy, clamp(cur.z + w * 0.30, 0.0, 1.0));
+        next = vec3(cur.xy, clamp(cur.z + w * 0.3, 0.0, 1.0));
     } else if (u_mode == 3) {       // RELAX
         vec3 blur = 0.25 * (
             texture(u_field, v_uv + vec2(u_fieldTexel.x, 0.0)).xyz +
@@ -107,12 +125,49 @@ void main() {
         vec2 b;
         if (u_mode == 0) {          // DIRECTIONAL
             b = -u_delta * w;
-        } else {                    // INFLATE (1) / DEFLATE (2)
-            float m = w * centerRamp(d) * 0.004;
-            vec2 outward = distA < 1e-6
-                ? vec2(0.0)
-                : vec2((fromCenter.x / distA) / u_aspect, fromCenter.y / distA);
-            b = (u_mode == 1 ? -1.0 : 1.0) * outward * m;
+        } else if (u_mode == 7) {   // COMB: teeth cut across the drag
+            // 3.0 = BrushDynamics.COMB_TEETH, 6.2831855 = TAU.
+            vec2 a = vec2(u_delta.x * u_aspect, u_delta.y);
+            float len = length(a);
+            if (len < 1e-9) {
+                b = vec2(0.0);
+            } else {
+                vec2 across = vec2(-a.y / len, a.x / len);
+                float s = dot(fromCenter, across) / u_radius;
+                float teeth = 0.5 + 0.5 * cos(6.2831855 * s * 3.0);
+                b = -u_delta * w * teeth;
+            }
+        } else if (u_mode == 9) {   // FAULT: opposed shear across the seam
+            // 0.01 = BrushDynamics.FAULT_STEP_UV.
+            vec2 a = vec2(u_delta.x * u_aspect, u_delta.y);
+            float len = length(a);
+            if (len < 1e-9) {
+                b = vec2(0.0);
+            } else {
+                vec2 t = a / len;
+                float side = smoothOdd(dot(fromCenter, vec2(-t.y, t.x)) / u_radius);
+                float m = side * w * 0.01;
+                b = vec2((t.x / u_aspect) * m, t.y * m);
+            }
+        } else {                    // radial family: 1, 2, 6, 8
+            // 0.004 = RADIAL_STEP_UV, 0.0035 = SWIRL_STEP_UV,
+            // 0.01 = RIPPLE_STEP_UV, 3.0 = RIPPLE_BANDS.
+            float ramp = w * centerRamp(d);
+            if (distR < 1e-6) {
+                b = vec2(0.0);
+            } else if (u_mode == 6) {           // VORTEX
+                vec2 t = vec2(-fromCenter.y / distR, fromCenter.x / distR);
+                float m = ramp * 0.0035 * signPos(u_delta.x);
+                b = vec2((t.x / u_aspect) * m, t.y * m);
+            } else {
+                vec2 outward =
+                    vec2((fromCenter.x / distR) / u_aspect, fromCenter.y / distR);
+                if (u_mode == 8) {              // RIPPLE
+                    b = outward * (ramp * 0.01 * sin(6.2831855 * 3.0 * d));
+                } else {                        // INFLATE (1) / DEFLATE (2)
+                    b = (u_mode == 1 ? -1.0 : 1.0) * outward * (ramp * 0.004);
+                }
+            }
         }
         // Mask rides the same lookup — painted fusion moves with the goo.
         vec3 prev = texture(u_field, v_uv + b).xyz;
@@ -158,7 +213,7 @@ void main() {
      * GlobalField.displacement transliterated. u_g order is
      * GlobalParams.toArray(): bulge, twirl, squeeze, stretch, spike,
      * static. Literals mirror GlobalField constants — keep in sync:
-     *   2.5  = TWIRL_MAX_RAD    0.35 = BULGE_SCALE   0.30 = AXIS_SCALE
+     *   2.5  = TWIRL_MAX_RAD    0.35 = BULGE_SCALE   0.3  = AXIS_SCALE
      *   0.08 = SPIKE_SCALE      8    = SPIKE_COUNT
      *   0.05 = STATIC_SCALE     24   = STATIC_CELLS
      * The integer hash is bit-identical to GlobalField.hash — value
@@ -239,11 +294,11 @@ vec2 globalDisp(vec2 uv) {
         dy += ax * s + ay * c - ay;
     }
     if (u_g[2] != 0.0) {
-        dx += ax * u_g[2] * 0.30;
-        dy += -ay * u_g[2] * 0.30 * 0.5;
+        dx += ax * u_g[2] * 0.3;
+        dy += -ay * u_g[2] * 0.3 * 0.5;
     }
     if (u_g[3] != 0.0) {
-        dy += -ay * u_g[3] * 0.30;
+        dy += -ay * u_g[3] * 0.3;
     }
     if (u_g[4] != 0.0 && r > 1e-6) {
         float phi = atan(ay, ax);

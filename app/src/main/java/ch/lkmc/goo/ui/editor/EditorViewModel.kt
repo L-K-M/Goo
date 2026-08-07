@@ -29,6 +29,7 @@ import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.MovieSpeed
+import ch.lkmc.goo.engine.core.PumpStamps
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
@@ -708,7 +709,7 @@ class EditorViewModel @Inject constructor(
         if (tool.stampsOnDown) {
             // Radial/field tools and Fusion all have useful stationary
             // semantics. Directional brushes still wait for movement.
-            val first = emit(listOf(Stamp(u, v, 0f, 0f)))
+            val first = emit(listOf(PumpStamps.at(tool, u, v, tick = 1)))
             if (first.isNotEmpty()) {
                 liveParams?.let { params ->
                     engineBridge?.invoke { stampBatch(params, first) }
@@ -716,7 +717,11 @@ class EditorViewModel @Inject constructor(
             }
         }
         if (tool.pumped) {
-            startPump()
+            // Continue the tick count rather than restarting it: a tool
+            // that stamped on touch-down has already spent tick 1, and
+            // repeating it would apply Melt's first run twice and shift
+            // the whole acceleration ramp by one.
+            startPump(firstTick = PumpStamps.firstPumpTick(tool))
         }
         return true
     }
@@ -746,17 +751,19 @@ class EditorViewModel @Inject constructor(
         return batch
     }
 
-    private fun startPump() {
+    private fun startPump(firstTick: Int) {
         pumpJob?.cancel()
         pumpJob = viewModelScope.launch {
+            var tick = firstTick
             while (true) {
                 // beginStroke already applied the one-shot click. Wait before
                 // repeating so a quick tap is exactly one application.
                 delay(BrushDynamics.PUMP_INTERVAL_MS)
                 val (u, v) = pumpPoint ?: break
                 val params = liveParams ?: break
-                val batch = emit(listOf(Stamp(u, v, 0f, 0f)))
+                val batch = emit(listOf(PumpStamps.at(params.tool, u, v, tick)))
                 engineBridge?.invoke { stampBatch(params, batch) }
+                tick++
             }
         }
     }

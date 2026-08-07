@@ -1,6 +1,35 @@
 package ch.lkmc.goo.engine.core
 
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
+
+/**
+ * Turns of a circle, for the periodic kernels. Spelled the way Kotlin
+ * renders this float32 (6.2831853 and 6.2831855 are the same value) so
+ * the GLSL literal can be written identically and
+ * `GlShaderContractTest` can derive one from the other.
+ */
+internal const val TAU = 6.2831855f
+
+/**
+ * Odd, C1, zero at 0 and ±1 by |x| = 1 — the two sides of a fault.
+ * Mirrored literally in `STAMP_FRAG`.
+ */
+internal fun smoothOdd(x: Float): Float {
+    val a = abs(x).coerceAtMost(1f)
+    val shaped = a * a * (3f - 2f * a)
+    return if (x < 0f) -shaped else shaped
+}
+
+/**
+ * sign() that is +1 at zero, deliberately unlike `kotlin.math.sign`
+ * (which returns 0 there) — a chirality of 0 must still swirl rather
+ * than stall. Named apart so nobody reaches for it expecting stdlib
+ * semantics. Mirrored as `signPos` in GLSL.
+ */
+internal fun signOrPositive(x: Float): Float = if (x < 0f) -1f else 1f
 
 /**
  * CPU reference implementation of the displacement field (PLAN.md §4.1).
@@ -67,9 +96,23 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                 val u = (ix + 0.5f) / width
                 val du = (u - stamp.cx) * aspect
                 val dv = v - stamp.cy
-                val distA = sqrt(du * du + dv * dv)
+                // DRIP is the one anisotropic profile: below the center
+                // the measured distance is compressed, so the lobe
+                // reaches downward (FalloffProfile.DRIP).
+                val mv = if (profile == FalloffProfile.DRIP && dv > 0f) {
+                    dv * BrushDynamics.DRIP_LOBE
+                } else {
+                    dv
+                }
+                val distA = sqrt(du * du + mv * mv)
                 val dist = distA / stroke.radius
                 val w = BrushFalloff.weight(dist, profile) * stroke.strength
+                // The radial direction is measured on the TRUE offset,
+                // not the anisotropic metric — only the weight is
+                // reshaped. (DRIP only ever pairs with DIRECTIONAL, so
+                // the two agree in practice; kept separate so the shader
+                // can be a transliteration rather than an equivalent.)
+                val distR = sqrt(du * du + dv * dv)
                 when (mode) {
                     StampMode.FUSE -> {
                         // Mask flow only; displacement passes through.
@@ -79,7 +122,10 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                             .coerceIn(0f, 1f)
                     }
 
-                    StampMode.DIRECTIONAL, StampMode.INFLATE, StampMode.DEFLATE -> {
+                    StampMode.DIRECTIONAL, StampMode.INFLATE, StampMode.DEFLATE,
+                    StampMode.VORTEX, StampMode.COMB, StampMode.RIPPLE,
+                    StampMode.FAULT,
+                    -> {
                         // b(p): falloff-weighted brush displacement,
                         // backward-mapped (negative = content moves with
                         // the gesture / bulges outward).
@@ -88,21 +134,94 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         if (mode == StampMode.DIRECTIONAL) {
                             bx = -stamp.dx * w
                             by = -stamp.dy * w
-                        } else {
-                            // Outward unit direction in aspect space,
-                            // converted back to a UV delta; ramped to zero
-                            // at the center where it is undefined.
-                            val m = w * BrushFalloff.centerRamp(dist) *
-                                BrushDynamics.RADIAL_STEP_UV
-                            if (distA < 1e-6f) {
+                        } else if (mode == StampMode.COMB) {
+                            // Teeth cut ACROSS the drag: project onto the
+                            // perpendicular of the (aspect-space) delta.
+                            // The phase is a function of position relative
+                            // to the stroke axis, not of stamp index, so
+                            // consecutive stamps agree and the strands run
+                            // unbroken; where the drag curves the axis
+                            // rotates and they fan, as a comb does.
+                            val ax = stamp.dx * aspect
+                            val ay = stamp.dy
+                            val len = sqrt(ax * ax + ay * ay)
+                            if (len < 1e-9f) {
                                 bx = 0f
                                 by = 0f
                             } else {
-                                val ox = (du / distA) / aspect
-                                val oy = dv / distA
-                                val s = if (mode == StampMode.INFLATE) -1f else 1f
-                                bx = s * ox * m
-                                by = s * oy * m
+                                val acrossX = -ay / len
+                                val acrossY = ax / len
+                                val s = (du * acrossX + dv * acrossY) / stroke.radius
+                                val teeth = 0.5f + 0.5f *
+                                    cos(TAU * s * BrushDynamics.COMB_TEETH)
+                                bx = -stamp.dx * w * teeth
+                                by = -stamp.dy * w * teeth
+                            }
+                        } else if (mode == StampMode.FAULT) {
+                            // The path is a boundary, not a trail: the two
+                            // sides slide along it in opposite directions.
+                            // Reversing the drawn path flips both the
+                            // tangent and the side function, and the two
+                            // sign changes cancel — the same geometric
+                            // seam makes the same fault either way.
+                            val ax = stamp.dx * aspect
+                            val ay = stamp.dy
+                            val len = sqrt(ax * ax + ay * ay)
+                            if (len < 1e-9f) {
+                                bx = 0f
+                                by = 0f
+                            } else {
+                                val tx = ax / len
+                                val ty = ay / len
+                                // Normal = tangent turned a right angle.
+                                val side = smoothOdd((du * -ty + dv * tx) / stroke.radius)
+                                val m = side * w * BrushDynamics.FAULT_STEP_UV
+                                bx = (tx / aspect) * m
+                                by = ty * m
+                            }
+                        } else {
+                            // The radial family: INFLATE/DEFLATE push along
+                            // the outward direction, VORTEX along its right
+                            // angle, RIPPLE along it with an alternating
+                            // sign. All share the center ramp, which exists
+                            // because the direction is undefined at the
+                            // exact center.
+                            val ramp = w * BrushFalloff.centerRamp(dist)
+                            if (distR < 1e-6f) {
+                                bx = 0f
+                                by = 0f
+                            } else {
+                                val ox = (du / distR) / aspect
+                                val oy = dv / distR
+                                when (mode) {
+                                    StampMode.VORTEX -> {
+                                        // Turn the unit vector a right angle
+                                        // IN ASPECT SPACE, then divide the
+                                        // aspect out — rotating the UV-space
+                                        // vector would shear non-square
+                                        // images. Chirality is dx's sign.
+                                        val tx = -dv / distR
+                                        val ty = du / distR
+                                        val m = ramp * BrushDynamics.SWIRL_STEP_UV *
+                                            signOrPositive(stamp.dx)
+                                        bx = (tx / aspect) * m
+                                        by = ty * m
+                                    }
+
+                                    StampMode.RIPPLE -> {
+                                        val band = sin(TAU * BrushDynamics.RIPPLE_BANDS * dist)
+                                        val m = ramp * BrushDynamics.RIPPLE_STEP_UV * band
+                                        bx = ox * m
+                                        by = oy * m
+                                    }
+
+                                    else -> {
+                                        val m = ramp * BrushDynamics.RADIAL_STEP_UV
+                                        val s = if (mode == StampMode.INFLATE) -1f else 1f
+                                        bx = s * ox * m
+                                        by = s * oy * m
+                                    }
+                                }
                             }
                         }
                         // D'(p) = b(p) + D(p + b(p)); the mask rides the

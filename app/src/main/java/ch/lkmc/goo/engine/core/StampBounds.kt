@@ -97,6 +97,7 @@ object StampBounds {
         aspect: Float,
         width: Int,
         height: Int,
+        profile: FalloffProfile = FalloffProfile.SMOOTHSTEP,
         margin: Int = MARGIN,
     ): TexelRect {
         require(width > 0 && height > 0) { "field must be non-empty: ${width}x$height" }
@@ -107,7 +108,18 @@ object StampBounds {
         // Aspect space → UV: the u half-extent divides the aspect out, the
         // v half-extent is already in UV units.
         val halfU = radius / aspect
-        val halfV = radius
+        val halfTop = radius
+        // DRIP is not a disc. It compresses the distance it measures below
+        // the center by DRIP_LOBE, so the weight only reaches zero at
+        // `radius / DRIP_LOBE` — about 2.2 radii down. Deriving the extent
+        // from the same constant is what keeps the two from drifting
+        // apart; a hard-coded 2.2 here would silently clip the wax the
+        // day someone retunes the lobe.
+        val halfBottom = if (profile == FalloffProfile.DRIP) {
+            radius / BrushDynamics.DRIP_LOBE
+        } else {
+            radius
+        }
 
         // Widen by the margin in Long space and clamp to the field ONCE,
         // at the end. Clamping the raw edges first would collapse a disc
@@ -115,8 +127,8 @@ object StampBounds {
         // margin would then reopen it into a bogus sliver.
         val x0 = (saturate((cx - halfU) * width, roundDown = true) - margin).clampTo(width)
         val x1 = (saturate((cx + halfU) * width, roundDown = false) + margin).clampTo(width)
-        val y0 = (saturate((cy - halfV) * height, roundDown = true) - margin).clampTo(height)
-        val y1 = (saturate((cy + halfV) * height, roundDown = false) + margin).clampTo(height)
+        val y0 = (saturate((cy - halfTop) * height, roundDown = true) - margin).clampTo(height)
+        val y1 = (saturate((cy + halfBottom) * height, roundDown = false) + margin).clampTo(height)
 
         return if (x1 <= x0 || y1 <= y0) TexelRect.EMPTY else TexelRect(x0, y0, x1, y1)
     }

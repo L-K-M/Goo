@@ -1,6 +1,6 @@
 # 0010 — Comb brush
 
-- **Status:** proposed
+- **Status:** accepted — built as the second brush palette (roadmap #20)
 - **Date:** 2026-08-07
 
 **One-liner.** A Smear with teeth: one drag lays down a dozen parallel
