@@ -190,7 +190,16 @@ enum class BrushTool(
      * FEATHER because a graft wants soft edges — the same falloff Smudge
      * uses, doing clone-UI duty for free.
      */
-    ECHO(StampMode.DIRECTIONAL, FalloffProfile.FEATHER, 1f, pumped = false),
+    ECHO(
+        StampMode.DIRECTIONAL,
+        FalloffProfile.FEATHER,
+        1f,
+        pumped = false,
+        // Explicit, not defaulted: planting is not painting, and a test
+        // depends on it. If the default ever flips, the first touch of
+        // an Echo stroke would stamp at the anchor instead of arming it.
+        stampsOnDown = false,
+    ),
     ;
 
     /**

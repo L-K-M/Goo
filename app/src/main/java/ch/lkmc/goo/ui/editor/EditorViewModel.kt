@@ -816,6 +816,11 @@ class EditorViewModel @Inject constructor(
         stopPump()
         val params = liveParams ?: return null
         resampler = null
+        // Every other per-stroke field is torn down here; the echo offset
+        // belongs with them. Nothing reads it between strokes today, but
+        // "beginStroke always reassigns it first" is a caller contract,
+        // not an invariant of this class.
+        echoDelta = null
         liveParams = null
         if (liveStamps.isEmpty()) return null
         val stroke = params.copy(stamps = liveStamps.toList())
