@@ -117,15 +117,43 @@ levers, and Zero-all zeroes it.
   non-zero. That is the real cost of this feature and it should be
   scoped honestly: render continuously only while at least one depth is
   non-zero, and stop on `ON_PAUSE` like everything else.
-- **It is a vestibular hazard.** A full-frame oscillation at 2 Hz is
-  precisely the kind of motion that makes some people ill, and it would
-  start the moment a knob is turned. The proposal: the *editor preview*
-  respects the system reduced-motion setting — with animations disabled
-  the preview holds at phase 0 and the knob shows a small "preview
-  paused" state — while the *exported movie* always wobbles, because the
-  export is the artefact the user asked for and freezing it would be a
-  bug. Settings work (ANALYSIS K3-15/SOL-35) should probably land first,
-  since that is where such a control belongs.
+- **Cycles-per-loop hides a frequency, and the frequency is the safety
+  problem.** This is the most serious flaw in the proposal as first
+  drafted, and it is arithmetic rather than opinion. A segment is
+  `GoovieTimeline.SECONDS_PER_SEGMENT` = 1.2 s, the shortest strip is
+  two keyframes (one segment), and the export speed control goes to 4×
+  — so the shortest loop this app can produce is **0.3 s**. Eight cycles
+  in 0.3 s is **26.7 Hz**, which is not a stylistic choice; it is the
+  middle of the photosensitive-seizure risk band, and it would be baked
+  into a file the author then shares with people who never chose it.
+
+  So the detents cannot be a fixed list. **Cap the frequency, not the
+  cycle count**: `rate / loopSeconds ≤ 3 Hz`, the WCAG 2.3.1 "three
+  flashes or below threshold" line, evaluated against the loop the
+  document will actually export (`MovieSpec.durationSeconds` already
+  computes it from keyframe count, speed and fps). Rates above the cap
+  are simply not offered for that document, and shortening the loop or
+  raising the export speed takes the high detents away again. The
+  guarantee is then a property of the file, on every device, for every
+  viewer.
+
+  For the same reason the *export* must **not** consult the exporting
+  device's reduced-motion setting. That would make one document produce
+  different files on different phones — the reproducibility this whole
+  proposal rests on — and would silently hand back a still image to a
+  user who deliberately authored an animation. Bounding the hazard at
+  the source is strictly stronger: it protects the audience even when
+  the author has no accessibility settings enabled at all.
+- **Vestibular comfort in the editor is a separate question** with a
+  separate answer. Full-frame oscillation makes some people ill well
+  below any seizure threshold, and it would start the moment a knob is
+  turned. The *editor preview* should respect the system reduced-motion
+  setting — with animations disabled it holds at phase 0 and the knob
+  shows a small "preview paused" state. That is about the person
+  authoring; the frequency cap above is about everyone downstream, and
+  neither substitutes for the other. Settings work (ANALYSIS
+  K3-15/SOL-35) should probably land first, since that is where such a
+  control belongs.
 - **Six knobs is a lot of console.** The levers panel is already six
   full-height levers on a phone. A knob row under them is plausible at
   360 dp only if it is genuinely small — and K3-1 records that the top
@@ -140,10 +168,15 @@ levers, and Zero-all zeroes it.
 
 - **Free-running rates (2.7 cycles per loop).** More expressive, and it
   breaks the seamless loop that is half the point. Detented integers.
-- **Waveforms other than sine (square, ramp, sample-and-hold).** A
-  square wave on Twirl is a flicker, and a ramp does not return. Sine
-  and — arguably — triangle are the only two that loop *and* stay
-  watchable. Ship one.
+- **Waveforms other than sine (square, ramp, sample-and-hold).** Not
+  because they fail to loop — a sawtooth at an integer rate returns to
+  its starting value exactly as a sine does; the seam is fine. The
+  problem is inside the loop: both square and ramp are *discontinuous
+  once per cycle*, so the picture jump-cuts `rate` times per loop rather
+  than moving. On a full-frame warp that is a flicker, and a flicker is
+  the thing the frequency cap above exists to keep out. Sine and — 
+  arguably — triangle are the two that are both periodic and
+  continuous. Ship one.
 - **Wobbling the brush size or strength instead.** That modulates
   authoring rather than the document, so it cannot be replayed from the
   stroke log deterministically. The levers are wobble-able precisely
