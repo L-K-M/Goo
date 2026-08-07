@@ -5,8 +5,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Turns of a circle, for the periodic kernels. Mirrored in GLSL. */
-internal const val TAU = 6.2831853f
+/**
+ * Turns of a circle, for the periodic kernels. Spelled the way Kotlin
+ * renders this float32 (6.2831853 and 6.2831855 are the same value) so
+ * the GLSL literal can be written identically and
+ * `GlShaderContractTest` can derive one from the other.
+ */
+internal const val TAU = 6.2831855f
 
 /**
  * Odd, C1, zero at 0 and ±1 by |x| = 1 — the two sides of a fault.
@@ -18,8 +23,13 @@ internal fun smoothOdd(x: Float): Float {
     return if (x < 0f) -shaped else shaped
 }
 
-/** sign() that is +1 at zero, so a chirality of 0 never stalls a swirl. */
-internal fun sign(x: Float): Float = if (x < 0f) -1f else 1f
+/**
+ * sign() that is +1 at zero, deliberately unlike `kotlin.math.sign`
+ * (which returns 0 there) — a chirality of 0 must still swirl rather
+ * than stall. Named apart so nobody reaches for it expecting stdlib
+ * semantics. Mirrored as `signPos` in GLSL.
+ */
+internal fun signOrPositive(x: Float): Float = if (x < 0f) -1f else 1f
 
 /**
  * CPU reference implementation of the displacement field (PLAN.md §4.1).
@@ -193,7 +203,7 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                                         val tx = -dv / distR
                                         val ty = du / distR
                                         val m = ramp * BrushDynamics.SWIRL_STEP_UV *
-                                            sign(stamp.dx)
+                                            signOrPositive(stamp.dx)
                                         bx = (tx / aspect) * m
                                         by = ty * m
                                     }
