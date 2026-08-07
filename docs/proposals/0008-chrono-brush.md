@@ -1,10 +1,11 @@
-# Tool idea 0004 — Chrono (paint back in time, but not all the way)
+# 0008 — Chrono brush (paint back to a keyframe)
 
-> **Status: proposal.** No engine code ships with this document. If the
-> idea is taken, it becomes its own implementation PR with a roadmap row
-> in PLAN.md — and, given what it does to the stroke log's shape, quite
-> possibly an ADR. Ideas live in `docs/ideas/`; decisions live in
-> `docs/decisions/`.
+- **Status:** proposed
+- **Date:** 2026-08-07
+
+Given what this one does to the shape of the stroke log, an accepted
+Chrono almost certainly wants an ADR in `docs/decisions/` alongside its
+roadmap row.
 
 **One-liner.** UnGoo erases back to the original photo. Chrono erases
 back to a **keyframe** — pick a frame off the strip and paint that
@@ -109,7 +110,7 @@ accepted deliberately:
 
 ## Cost, risks, honest trade-offs
 
-- **This is the most invasive idea in `docs/ideas/`.** Every other
+- **This is the most invasive proposal in `docs/proposals/`.** Every other
   proposal here is a new kernel; this one changes what a stroke *is*.
   The stroke log is the document, and the document stops being a linear
   chain of self-contained edits. That deserves the ADR.
