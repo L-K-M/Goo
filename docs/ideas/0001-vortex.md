@@ -54,8 +54,11 @@ branch. The cheapest interesting thing left on the table.
 
 ## How it works in this engine
 
-A new `StampMode.SWIRL` (shaderId 6) beside INFLATE/DEFLATE. The radial
-branch in `STAMP_FRAG` already builds everything needed:
+A new mode *pair* beside INFLATE/DEFLATE — `StampMode.SWIRL_CW`
+(shaderId 6) and `StampMode.SWIRL_CCW` (shaderId 7) — for the reason
+given under the `BrushTool` rows below: the sign of a radial mode lives
+in the mode here, not in the strength. The radial branch in
+`STAMP_FRAG` already builds everything else needed:
 
 ```glsl
 // existing, INFLATE/DEFLATE:
@@ -70,7 +73,9 @@ vec2 t = vec2(-fromCenter.y / distA, fromCenter.x / distA);
 // UV; it is a basis conversion, not a tag following the value that was
 // there before the rotation. Same conversion as `outward` above.
 vec2 tangent = vec2(t.x / u_aspect, t.y);
-b = sign * tangent * w * centerRamp(d) * SWIRL_STEP_UV;
+// Sign from the mode, exactly as INFLATE/DEFLATE do it one branch up
+// with `(u_mode == 1 ? -1.0 : 1.0)`.
+b = (u_mode == 6 ? 1.0 : -1.0) * tangent * w * centerRamp(d) * SWIRL_STEP_UV;
 ```
 
 `centerRamp` exists for precisely this class of singularity — the
@@ -90,9 +95,13 @@ Two modes rather than one mode and a negative `strengthScale`. Today
 every scale is positive and the sign lives in the mode (INFLATE vs
 DEFLATE); a negative scale would be a one-line change and slightly
 sneaky, making "the sign is a mode" true in two different ways. Two
-shader ids is dumber and matches how Grow/Shrink already do it, so
-`sign` in the shader snippet above is a compile-time branch on
-`u_mode`, not a uniform.
+shader ids is dumber and matches how Grow/Shrink already do it, so the
+sign in the shader snippet above is read off `u_mode` rather than
+arriving as a second uniform of its own. That is a *runtime* branch —
+`u_mode` is a uniform, and nothing constant-folds it — but a
+uniform-coherent one: every fragment in the pass takes the same side,
+which is the cheap kind. INFLATE/DEFLATE already pay exactly this, one
+branch up.
 
 One new constant beside `RADIAL_STEP_UV`:
 
