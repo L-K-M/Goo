@@ -1,9 +1,7 @@
-# Tool idea 0008 — Boing (the tween grows a personality)
+# 0011 — Boing (tween easing)
 
-> **Status: proposal.** No engine code ships with this document. If the
-> idea is taken, it becomes its own implementation PR with a roadmap row
-> in PLAN.md. Ideas live in `docs/ideas/`; decisions live in
-> `docs/decisions/`.
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 **One-liner.** Give each GOOvie segment an easing curve — including one
 that *overshoots the keyframe and springs back* — and the animation stops
