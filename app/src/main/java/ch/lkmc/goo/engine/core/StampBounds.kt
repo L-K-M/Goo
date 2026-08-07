@@ -113,10 +113,10 @@ object StampBounds {
         // at the end. Clamping the raw edges first would collapse a disc
         // that misses the field entirely onto the near edge, and the
         // margin would then reopen it into a bogus sliver.
-        val x0 = (saturate((cx - halfU) * width, floor = true) - margin).clampTo(width)
-        val x1 = (saturate((cx + halfU) * width, floor = false) + margin).clampTo(width)
-        val y0 = (saturate((cy - halfV) * height, floor = true) - margin).clampTo(height)
-        val y1 = (saturate((cy + halfV) * height, floor = false) + margin).clampTo(height)
+        val x0 = (saturate((cx - halfU) * width, roundDown = true) - margin).clampTo(width)
+        val x1 = (saturate((cx + halfU) * width, roundDown = false) + margin).clampTo(width)
+        val y0 = (saturate((cy - halfV) * height, roundDown = true) - margin).clampTo(height)
+        val y1 = (saturate((cy + halfV) * height, roundDown = false) + margin).clampTo(height)
 
         return if (x1 <= x0 || y1 <= y0) TexelRect.EMPTY else TexelRect(x0, y0, x1, y1)
     }
@@ -128,9 +128,9 @@ object StampBounds {
      * side of the field, which is a blank-frame bug rather than a slow
      * one. Long also leaves headroom for the margin arithmetic below.
      */
-    private fun saturate(edge: Float, floor: Boolean): Long {
+    private fun saturate(edge: Float, roundDown: Boolean): Long {
         if (edge.isNaN()) return 0
-        val rounded = if (floor) floor(edge) else ceil(edge)
+        val rounded = if (roundDown) floor(edge) else ceil(edge)
         return when {
             rounded <= LIMIT_LOW -> LIMIT_LOW.toLong()
             rounded >= LIMIT_HIGH -> LIMIT_HIGH.toLong()
