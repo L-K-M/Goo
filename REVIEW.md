@@ -18,9 +18,22 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   project reopens it after process death (`KEY_PROJECT_ID` in saved
   state). Work between the last save and the death is still lost — the
   autosave follow-up under ANALYSIS SOL-34.
-- **G-3** ✨ ⬜ The stamp pass renders a fullscreen quad per stamp at field
+- **G-3** ✨ 🟢 The stamp pass renders a fullscreen quad per stamp at field
   resolution. Fine at ≤1024 fields (~5 Mpx per dozen stamps); a scissored
   sub-quad is the known optimization if device profiling ever disagrees.
+  Done: the quad is now scissored to the brush disc
+  (`engine/core/StampBounds`, `PingPongField.renderPassIn`). What made it
+  safe to skip those fragments is that they were never doing anything —
+  outside the disc the falloff is 0 and every `STAMP_FRAG` branch reduces
+  to an identity copy of the fragment's own texel. Ping-pong is what made
+  it *look* necessary, since the destination then keeps the state from two
+  passes ago; the field now repairs exactly that difference with a blit of
+  the previous stamp's rect, so per-stamp cost goes from the whole field
+  to twice the brush disc. A typical radius-0.1 stamp on a 1024² field
+  touches under 4% of it (`StampBoundsTest`). Not done for profiling
+  reasons — profiling never disagreed — but because stamp COUNT is the
+  scaling problem G-6 and the symmetry proposal both run into, and this
+  is the per-stamp half of it.
 
 - **G-4** ✨ ⏸️ Pool the per-batch stamp lists in the touch path (GLM 5.2
   round 1, PR #2, info-level). Each batch crosses the UI→GL thread
