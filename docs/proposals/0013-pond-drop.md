@@ -1,6 +1,7 @@
-# Tool proposal: Pond Drop
+# 0013 — Pond Drop
 
-Status: pitch, not an implementation
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 ## The pitch
 
