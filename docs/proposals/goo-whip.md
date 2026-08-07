@@ -86,12 +86,14 @@ generate a fixed-step decaying virtual path:
 ```text
 rawSpeed = length(releaseVelocity)
 return no tail when rawSpeed < START_SPEED
-v[0] = releaseVelocity * (min(rawSpeed, MAX_WHIP_SPEED) / rawSpeed)
+clampedSpeed = min(rawSpeed, MAX_WHIP_SPEED)
+quantizedSpeed = round(clampedSpeed / SPEED_QUANTUM) * SPEED_QUANTUM
+v[0] = releaseVelocity * (quantizedSpeed / rawSpeed)
 p[0] = releasePoint
 
 for i in 0 until MAX_WHIP_STEPS:
+    p[i + 1] = p[i] + v[i] * FIXED_DT
     v[i + 1] = v[i] * DECAY
-    p[i + 1] = p[i] + v[i + 1] * FIXED_DT
     stop when length(v[i + 1]) < STOP_SPEED
 ```
 
