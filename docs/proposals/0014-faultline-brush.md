@@ -1,6 +1,7 @@
-# Tool proposal: Faultline
+# 0014 — Faultline brush
 
-Status: pitch, not an implementation
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 ## The pitch
 
