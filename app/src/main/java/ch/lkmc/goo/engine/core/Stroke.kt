@@ -184,6 +184,13 @@ enum class BrushTool(
 
     /** Draw a seam; the two sides slide past each other (0014). */
     FAULT(StampMode.FAULT, FalloffProfile.SMOOTHSTEP, 1f, pumped = false),
+
+    /**
+     * Clone: paint this photo through itself, offset (proposal 0004).
+     * FEATHER because a graft wants soft edges — the same falloff Smudge
+     * uses, doing clone-UI duty for free.
+     */
+    ECHO(StampMode.DIRECTIONAL, FalloffProfile.FEATHER, 1f, pumped = false),
     ;
 
     /**

@@ -23,6 +23,7 @@ import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.EchoOffset
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
@@ -110,6 +111,12 @@ class EditorViewModel @Inject constructor(
         val brushStrength: Float = DEFAULT_STRENGTH,
         /** Mirror toggle: every stamp gets a vertically reflected twin. */
         val mirrored: Boolean = false,
+        /**
+         * Echo's source anchor in image UV, or null when none is
+         * planted. With Echo selected and no anchor, the next touch
+         * plants one instead of painting.
+         */
+        val echoAnchor: Pair<Float, Float>? = null,
         /** Global-effect levers — live document state, not history. */
         val globals: GlobalParams = GlobalParams(),
         /** First-ever image: float the "drag to goo" hint until a stroke. */
@@ -330,6 +337,9 @@ class EditorViewModel @Inject constructor(
     private var pumpJob: Job? = null
     private var pumpPoint: Pair<Float, Float>? = null
     private var mirrorLive = false
+
+    /** Echo's constant per-stroke delta; null for every other tool. */
+    private var echoDelta: Pair<Float, Float>? = null
 
     /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
@@ -688,6 +698,21 @@ class EditorViewModel @Inject constructor(
         // Gooing inside the strip is allowed — that IS how you author the
         // next keyframe. What isn't possible is painting into a tween: the
         // stamps go to the live field, so drop the preview to live first.
+        // Echo paints from a planted source. With none planted, the
+        // touch plants one rather than starting a stroke — the smallest
+        // gesture that keeps one-finger painting sacrosanct, in place of
+        // the proposal's long-press (which needs gesture plumbing this
+        // build cannot exercise).
+        if (state.tool == BrushTool.ECHO) {
+            val anchor = state.echoAnchor
+            if (anchor == null || !EchoOffset.isUseful(u, v, anchor.first, anchor.second)) {
+                _uiState.update { it.copy(echoAnchor = Pair(u, v)) }
+                return false
+            }
+            echoDelta = EchoOffset.delta(u, v, anchor.first, anchor.second)
+        } else {
+            echoDelta = null
+        }
         goLive()
         val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
@@ -742,6 +767,13 @@ class EditorViewModel @Inject constructor(
     private fun emit(fresh: List<Stamp>): List<Stamp> {
         if (fresh.isEmpty()) return fresh
         val tool = liveParams?.tool ?: return emptyList()
+        // Echo overrides the resampler's drag deltas with one constant
+        // offset, which is what makes the graft a rigid translation of
+        // the source region instead of a smear (see EchoOffset).
+        @Suppress("NAME_SHADOWING")
+        val fresh = echoDelta?.let { (dx, dy) ->
+            fresh.map { it.copy(dx = dx, dy = dy) }
+        } ?: fresh
         val batch = if (mirrorLive) {
             fresh.flatMap { listOf(it, tool.mirrorStamp(it)) }
         } else {
@@ -816,6 +848,11 @@ class EditorViewModel @Inject constructor(
 
     fun setBrushStrength(value: Float) {
         _uiState.update { it.copy(brushStrength = value.coerceIn(0.05f, 1f)) }
+    }
+
+    /** Forget Echo's source, so the next touch plants a new one. */
+    fun clearEchoAnchor() {
+        _uiState.update { it.copy(echoAnchor = null) }
     }
 
     fun toggleMirror() {
