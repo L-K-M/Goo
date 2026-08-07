@@ -706,6 +706,12 @@ class EditorViewModel @Inject constructor(
         if (state.tool == BrushTool.ECHO) {
             val anchor = state.echoAnchor
             if (anchor == null || !EchoOffset.isUseful(u, v, anchor.first, anchor.second)) {
+                // Clear the previous stroke's offset on the way out.
+                // Nothing reads it after a false return today, but a
+                // stale delta surviving an aborted begin is the kind of
+                // thing that only bites once the calling convention
+                // changes, and by then it corrupts stamps silently.
+                echoDelta = null
                 _uiState.update { it.copy(echoAnchor = Pair(u, v)) }
                 return false
             }
@@ -843,16 +849,16 @@ class EditorViewModel @Inject constructor(
         // CANCEL); discarding would leave visible warp no log entry knows
         // about, breaking undo and export.
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
-        _uiState.update { it.copy(tool = tool) }
+        // Leaving Echo forgets its source. An anchor the user cannot see
+        // and did not plant this session is a clone that grafts from
+        // somewhere surprising; re-arming is one tap.
+        _uiState.update {
+            it.copy(tool = tool, echoAnchor = if (tool == BrushTool.ECHO) it.echoAnchor else null)
+        }
     }
 
     fun setBrushStrength(value: Float) {
         _uiState.update { it.copy(brushStrength = value.coerceIn(0.05f, 1f)) }
-    }
-
-    /** Forget Echo's source, so the next touch plants a new one. */
-    fun clearEchoAnchor() {
-        _uiState.update { it.copy(echoAnchor = null) }
     }
 
     fun toggleMirror() {
