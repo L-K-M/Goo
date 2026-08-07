@@ -1,6 +1,7 @@
-# Tool proposal: Goo Portals
+# 0012 — Goo Portals
 
-Status: pitch, not an implementation
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 ## The pitch
 
