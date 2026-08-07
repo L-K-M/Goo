@@ -248,18 +248,18 @@ fun GooviePanel(
                     // default, so an eased segment is visible without
                     // scrubbing it.
                     val easing = keyframes.getOrNull(selected)?.easing ?: Easing.LINEAR
+                    // One condition, used twice: a non-linear easing
+                    // stranded on the last pin (by a delete or a
+                    // reorder) is inert, and a bead that lit while
+                    // disabled would invite the user to wonder what they
+                    // broke. Two copies of this would drift.
+                    val canEase = selected >= 0 && selected < keyframes.lastIndex
                     ChromeIconButton(
                         icon = Icons.Filled.Timeline,
                         contentDescription = stringResource(easing.labelRes()),
                         color = NeonLime,
-                        // Lit only where the curve can actually do
-                        // something: a non-linear easing stranded on the
-                        // last pin (by a delete or a reorder) is inert,
-                        // and lighting a disabled bead invites the user
-                        // to wonder what they broke.
-                        selected = easing != Easing.LINEAR &&
-                            selected >= 0 && selected < keyframes.lastIndex,
-                        enabled = selected >= 0 && selected < keyframes.lastIndex,
+                        selected = easing != Easing.LINEAR && canEase,
+                        enabled = canEase,
                         onClick = onCycleEasing,
                         size = 38.dp,
                     )
