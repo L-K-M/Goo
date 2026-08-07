@@ -63,9 +63,30 @@ class EasingTest {
         val samples = (0..100).map { Easing.BOING.at(it / 100f) }
         val peak = samples.max()
         assertTrue("expected an overshoot, peaked at $peak", peak > 1f)
-        // And it must be on its way back by the end, not still climbing.
-        assertTrue("must settle onto the pose", samples.last() <= peak)
+        // Descending INTO the pose, not still climbing at the end. The
+        // obvious assertion here — last() <= peak — is tautological,
+        // since last() is exactly 1 and peak is above it, so it would
+        // pass for a curve that rose all the way to the endpoint and
+        // then dropped.
+        assertTrue("must be settling, not still climbing", samples[99] > samples.last())
         assertEquals(1f, samples.last(), 0f)
+    }
+
+    @Test
+    fun `boing is visibly different from ease, not just arithmetically`() {
+        // A curve named Boing has to READ as one. An overshoot of a few
+        // percent is an overshoot by the numbers and indistinguishable
+        // from EASE on screen, which is the failure this pins: the peak
+        // must clear the pose by an amount someone would notice.
+        val peak = (0..1000).maxOf { Easing.BOING.at(it / 1000f) }
+        assertTrue("peak $peak is too subtle to read as a bounce", peak >= 1.08f)
+        // And it must differ from EASE somewhere obvious, not only at
+        // the peak.
+        val biggestGap = (0..100).maxOf {
+            val p = it / 100f
+            kotlin.math.abs(Easing.BOING.at(p) - Easing.EASE.at(p))
+        }
+        assertTrue("BOING and EASE are near-identical (max gap $biggestGap)", biggestGap > 0.1f)
     }
 
     @Test

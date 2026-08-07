@@ -996,21 +996,6 @@ class EditorViewModel @Inject constructor(
      * should hold it. Without this, edits made after a punch could only
      * ever become a NEW keyframe.
      */
-    /**
-     * Step the selected keyframe's outgoing segment to the next curve.
-     * A no-op on the last keyframe, where nothing leaves.
-     */
-    fun cycleSelectedEasing() {
-        _uiState.update { s ->
-            val i = s.selectedKeyframe
-            if (i !in s.keyframes.indices || i == s.keyframes.lastIndex) return@update s
-            val list = s.keyframes.toMutableList()
-            val next = Easing.entries[(list[i].easing.ordinal + 1) % Easing.entries.size]
-            list[i] = list[i].copy(easing = next)
-            s.copy(keyframes = list)
-        }
-    }
-
     fun repunchSelectedKeyframe() {
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
         _uiState.update { s ->
@@ -1033,6 +1018,21 @@ class EditorViewModel @Inject constructor(
                 // Same as a punch: the pin now matches what's on screen.
                 goovieLive = false,
             )
+        }
+    }
+
+    /**
+     * Step the selected keyframe's outgoing segment to the next curve.
+     * A no-op on the last keyframe, where nothing leaves.
+     */
+    fun cycleSelectedEasing() {
+        _uiState.update { s ->
+            val i = s.selectedKeyframe
+            if (i !in s.keyframes.indices || i == s.keyframes.lastIndex) return@update s
+            val list = s.keyframes.toMutableList()
+            val next = Easing.entries[(list[i].easing.ordinal + 1) % Easing.entries.size]
+            list[i] = list[i].copy(easing = next)
+            s.copy(keyframes = list)
         }
     }
 
