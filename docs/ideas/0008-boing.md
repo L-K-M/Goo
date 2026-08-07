@@ -65,7 +65,10 @@ fun Easing.at(p: Float): Float = when (this) {
     LINEAR -> p
     EASE -> p * p * (3f - 2f * p)
     // Back-out: overshoots to ~1 + OVERSHOOT, returns to exactly 1.
-    BOING -> 1f + (1f + OVERSHOOT) * cube(p - 1f) + OVERSHOOT * sq(p - 1f)
+    BOING -> {
+        val q = p - 1f
+        1f + (1f + OVERSHOOT) * q * q * q + OVERSHOOT * q * q
+    }
 }
 ```
 
