@@ -53,6 +53,10 @@ class SecondWaveKernelsTest {
     fun `unwind turns the opposite way from vortex`() {
         val cw = at(stamp(BrushTool.VORTEX, dx = BrushTool.VORTEX.chirality), 0.7f, 0.5f)
         val ccw = at(stamp(BrushTool.UNWIND, dx = BrushTool.UNWIND.chirality), 0.7f, 0.5f)
+        // Both components, not just the dominant one: negating only y
+        // would still pass a y-only assertion while leaving a radial
+        // asymmetry between the two directions.
+        assertEquals(-cw.first, ccw.first, 1e-7f)
         assertEquals(-cw.second, ccw.second, 1e-7f)
     }
 

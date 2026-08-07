@@ -57,6 +57,9 @@ object PumpStamps {
      * is sampled on the stamp's own x rather than a stored seed, so a
      * melt needs nothing added to the document to replay identically. A
      * wide brush separates into fingers rather than sliding as one sheet.
+     *
+     * `valueNoise` returns [0, 1], so the multiplier stays within
+     * [0.35, 1]: a run can shorten but never invert into an upward pull.
      */
     fun meltRun(tick: Int, u: Float): Float {
         val wander = GlobalField.valueNoise(u * BrushDynamics.DRIP_CELLS, 0f, seed = 4u)
