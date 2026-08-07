@@ -88,9 +88,11 @@ rawSpeed = length(releaseVelocity)
 return no tail when rawSpeed < START_SPEED
 clampedSpeed = min(rawSpeed, MAX_WHIP_SPEED)
 quantizedSpeed = round(clampedSpeed / SPEED_QUANTUM) * SPEED_QUANTUM
+return no tail when quantizedSpeed == 0
 v[0] = releaseVelocity * (quantizedSpeed / rawSpeed)
 p[0] = releasePoint
 
+# p and v hold MAX_WHIP_STEPS + 1 entries, including index 0.
 for i in 0 until MAX_WHIP_STEPS:
     p[i + 1] = p[i] + v[i] * FIXED_DT
     v[i + 1] = v[i] * DECAY
