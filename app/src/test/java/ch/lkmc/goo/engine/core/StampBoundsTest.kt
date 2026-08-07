@@ -251,6 +251,22 @@ class StampBoundsTest {
     }
 
     @Test
+    fun containsDecidesWhetherARepairIsWorthMaking() {
+        val big = TexelRect(0, 0, 100, 100)
+        val small = TexelRect(10, 10, 20, 20)
+        assertTrue(big.contains(small))
+        assertFalse(small.contains(big))
+        assertTrue(big.contains(big))
+        // Nothing to repair is trivially covered; nothing can cover
+        // something out of an empty rect.
+        assertTrue(big.contains(TexelRect.EMPTY))
+        assertTrue(TexelRect.EMPTY.contains(TexelRect.EMPTY))
+        assertFalse(TexelRect.EMPTY.contains(small))
+        // Overlapping but not covering.
+        assertFalse(TexelRect(0, 0, 15, 100).contains(small))
+    }
+
+    @Test
     fun invertedRectsReadAsEmptyRatherThanNegative() {
         val inverted = TexelRect(20, 20, 10, 10)
         assertTrue(inverted.isEmpty)

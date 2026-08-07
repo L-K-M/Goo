@@ -31,12 +31,17 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
      * Where the write buffer is out of date with respect to the read
      * buffer — the invariant [renderPassIn] maintains.
      *
-     * A fullscreen pass writes every texel, so it leaves nothing stale. A
-     * scissored pass writes only its rect, and after the swap the buffer
-     * that becomes the next write target still holds the state from
-     * *before* that pass, differing exactly inside the rect. Recording
-     * that rect lets the next scissored pass repair it with a small blit
-     * instead of a fullscreen copy — which is the whole of REVIEW.md G-3.
+     * A pass writes only its rect, and after the swap the buffer that
+     * becomes the next write target still holds the state from *before*
+     * that pass — so it differs from the new state exactly inside that
+     * rect. Recording it lets the next pass repair the difference with a
+     * small blit instead of a fullscreen copy, which is the whole of
+     * REVIEW.md G-3.
+     *
+     * Note this is a property of the buffer that pass *read*, not of the
+     * one it wrote: a whole-surface pass leaves the outgoing buffer stale
+     * everywhere, not nowhere. It costs nothing regardless, because
+     * [syncWriteBuffer] skips a repair the next draw would overwrite.
      */
     private var staleRect: TexelRect = TexelRect.EMPTY
 
@@ -110,14 +115,33 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
      * A rect that is empty means the stamp cannot reach the field at all
      * (an off-canvas mirror twin, say) and the pass is skipped outright —
      * including the swap, so the caller's field is left exactly as it was.
+     *
+     * `inline` is load-bearing, not decoration: `draw` captures the stamp
+     * and the uniform locations, so a non-inline version would allocate a
+     * `Function1` per stamp on the GL thread — the allocation the touch
+     * path is explicitly kept free of (PLAN.md §4.1, REVIEW G-4). That is
+     * why [beginPass] and [endPass] exist as `@PublishedApi internal`
+     * rather than private helpers.
      */
-    fun renderPassIn(rect: TexelRect, draw: (readTexture: Int) -> Unit) {
+    inline fun renderPassIn(rect: TexelRect, draw: (readTexture: Int) -> Unit) {
         if (rect.isEmpty) return
-        syncWriteBuffer()
+        beginPass(rect)
+        draw(readTexture)
+        endPass(rect)
+    }
+
+    /** [renderPassIn]'s prologue; internal only so it can be inlined. */
+    @PublishedApi
+    internal fun beginPass(rect: TexelRect) {
+        syncWriteBuffer(coveredBy = rect)
         bindWrite()
         GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
         GLES30.glScissor(rect.x0, rect.y0, rect.width, rect.height)
-        draw(readTexture)
+    }
+
+    /** [renderPassIn]'s epilogue; internal only so it can be inlined. */
+    @PublishedApi
+    internal fun endPass(rect: TexelRect) {
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         swap()
         // The buffer that just became the write target is the one this
@@ -130,13 +154,23 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
      * Copy the stale region from the read buffer into the write buffer so
      * a scissored draw can leave the rest alone.
      *
+     * Skipped entirely when [coveredBy] already contains the stale
+     * region: those texels are about to be written anyway, so repairing
+     * them first would be pure waste. That is what makes a whole-surface
+     * pass — `renderPassIn(TexelRect.full(…))` — cost exactly what it
+     * used to, with no blit tax, however stale the buffer was.
+     *
      * `GL_NEAREST` is required, not merely sufficient: ES 3.0 rejects
      * `GL_LINEAR` blits of floating-point color buffers, and the copy is
      * 1:1 anyway. Scissor must be off — a blit is clipped by it.
      */
-    private fun syncWriteBuffer() {
+    private fun syncWriteBuffer(coveredBy: TexelRect) {
         val stale = staleRect
         if (stale.isEmpty) return
+        if (coveredBy.contains(stale)) {
+            staleRect = TexelRect.EMPTY
+            return
+        }
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, readFramebuffer)
         GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, writeFramebuffer)

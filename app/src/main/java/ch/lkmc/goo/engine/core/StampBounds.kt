@@ -23,6 +23,14 @@ data class TexelRect(val x0: Int, val y0: Int, val x1: Int, val y1: Int) {
     /** Texels covered — the quantity the scissor optimization is about. */
     val area: Long get() = width.toLong() * height.toLong()
 
+    /**
+     * True when this rect covers all of [other] — so a draw clipped to
+     * this rect will overwrite every texel of it, and any repair of
+     * [other] beforehand would be wasted.
+     */
+    fun contains(other: TexelRect): Boolean =
+        other.isEmpty || (!isEmpty && x0 <= other.x0 && y0 <= other.y0 && x1 >= other.x1 && y1 >= other.y1)
+
     /** The smallest rect containing both; an empty operand contributes nothing. */
     fun union(other: TexelRect): TexelRect = when {
         isEmpty -> other
