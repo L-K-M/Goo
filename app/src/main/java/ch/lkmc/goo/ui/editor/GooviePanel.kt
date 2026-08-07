@@ -252,7 +252,13 @@ fun GooviePanel(
                         icon = Icons.Filled.Timeline,
                         contentDescription = stringResource(easing.labelRes()),
                         color = NeonLime,
-                        selected = easing != Easing.LINEAR,
+                        // Lit only where the curve can actually do
+                        // something: a non-linear easing stranded on the
+                        // last pin (by a delete or a reorder) is inert,
+                        // and lighting a disabled bead invites the user
+                        // to wonder what they broke.
+                        selected = easing != Easing.LINEAR &&
+                            selected >= 0 && selected < keyframes.lastIndex,
                         enabled = selected >= 0 && selected < keyframes.lastIndex,
                         onClick = onCycleEasing,
                         size = 38.dp,
