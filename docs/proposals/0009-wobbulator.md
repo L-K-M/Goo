@@ -1,9 +1,7 @@
-# Tool idea 0005 — The Wobbulator
+# 0009 — The Wobbulator
 
-> **Status: proposal.** No engine code ships with this document. If the
-> idea is taken, it becomes its own implementation PR with a roadmap row
-> in PLAN.md. Ideas live in `docs/ideas/`; decisions live in
-> `docs/decisions/`.
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 **One-liner.** A second row of small knobs under the six levers that
 makes any lever *oscillate* — the photo breathes, throbs and shimmers on
