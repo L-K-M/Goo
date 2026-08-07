@@ -1,6 +1,7 @@
-# Tool proposal: Taffy Pins
+# 0016 — Taffy Pins
 
-Status: ambitious pitch, not an implementation
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 ## The pitch
 
