@@ -92,6 +92,11 @@ object Symmetry {
                 rdx = stamp.dx
                 rdy = stamp.dy
             }
+            // Constructed rather than `stamp.copy(...)`, matching
+            // mirrorStamp. Every field of a Stamp is geometric, so if one
+            // is ever added, a copy would carry it through a rotation
+            // untransformed and silently wrong; naming them all makes
+            // that a compile error and a decision instead.
             out.add(Stamp(cx = 0.5f + rx / aspect, cy = 0.5f + ry, dx = rdx, dy = rdy))
         }
         return out

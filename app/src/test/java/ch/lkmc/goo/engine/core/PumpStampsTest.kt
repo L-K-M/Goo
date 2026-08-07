@@ -1,6 +1,7 @@
 package ch.lkmc.goo.engine.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -127,8 +128,9 @@ class PumpStampsTest {
 
     @Test
     fun `ticks count from one`() {
-        runCatching { PumpStamps.at(BrushTool.MELT, 0.5f, 0.5f, tick = 0) }
-            .onSuccess { error("tick 0 should be rejected") }
+        assertThrows(IllegalArgumentException::class.java) {
+            PumpStamps.at(BrushTool.MELT, 0.5f, 0.5f, tick = 0)
+        }
     }
 
     // ---- The invariant the anisotropic profile depends on --------------

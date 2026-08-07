@@ -3,6 +3,7 @@ package ch.lkmc.goo.engine.core
 import kotlin.math.abs
 import kotlin.math.sqrt
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -157,8 +158,9 @@ class SymmetryTest {
     @Test
     fun `the dial refuses counts past the cap`() {
         val s = Stamp(0.5f, 0.5f, 0f, 0f)
-        runCatching { Symmetry.expand(smear, s, 1f, Symmetry.MAX_SECTORS + 1) }
-            .onSuccess { error("expected the cap to be enforced") }
+        assertThrows(IllegalArgumentException::class.java) {
+            Symmetry.expand(smear, s, 1f, Symmetry.MAX_SECTORS + 1)
+        }
     }
 
     @Test
