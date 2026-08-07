@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -51,6 +52,7 @@ import ch.lkmc.goo.engine.core.GoovieHint
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.goovieHint
 import ch.lkmc.goo.ui.components.chromePanel
+import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.ui.components.ChromeIconButton
 import ch.lkmc.goo.ui.components.darken
 import ch.lkmc.goo.ui.components.lighten
@@ -90,6 +92,7 @@ fun GooviePanel(
     exportProgress: Float,
     onCapture: () -> Unit,
     onRepunch: () -> Unit,
+    onCycleEasing: () -> Unit,
     onSelect: (Int) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
@@ -239,6 +242,21 @@ fun GooviePanel(
                         onClick = onRepunch,
                         size = 38.dp,
                     )
+                    // How the segment LEAVING the selected keyframe
+                    // moves. Disabled on the last pin, where nothing
+                    // leaves; lit whenever the curve is not the linear
+                    // default, so an eased segment is visible without
+                    // scrubbing it.
+                    val easing = keyframes.getOrNull(selected)?.easing ?: Easing.LINEAR
+                    ChromeIconButton(
+                        icon = Icons.Filled.Timeline,
+                        contentDescription = stringResource(easing.labelRes()),
+                        color = NeonLime,
+                        selected = easing != Easing.LINEAR,
+                        enabled = selected >= 0 && selected < keyframes.lastIndex,
+                        onClick = onCycleEasing,
+                        size = 38.dp,
+                    )
                     ChromeIconButton(
                         icon = Icons.Filled.Close,
                         contentDescription = stringResource(R.string.goovie_delete),
@@ -351,4 +369,11 @@ private fun KeyframeBead(
             color = if (selected) MeltVoid else Color.White.copy(alpha = 0.75f),
         )
     }
+}
+
+/** The strip bead's label for a segment curve. */
+private fun Easing.labelRes(): Int = when (this) {
+    Easing.LINEAR -> R.string.goovie_easing_linear
+    Easing.EASE -> R.string.goovie_easing_ease
+    Easing.BOING -> R.string.goovie_easing_boing
 }
