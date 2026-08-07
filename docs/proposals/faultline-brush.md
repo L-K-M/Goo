@@ -82,28 +82,33 @@ opposite directions.
 Faultline is one new analytic `StampMode`. The existing `Stamp` carries all
 the inputs it needs: center in `cx/cy` and local path direction in `dx/dy`.
 
-For a field texel `p`, stamp center `c`, and aspect-space tangent `t`:
+For a field texel `p`, stamp center `c`, aspect-space radius `r`, and
+aspect-space tangent `t`, let `bBack` be the new **backward sample
+displacement**, not the visual forward motion of the content:
 
 ```text
 q = aspectSpace(p - c)
 t = normalize(aspectSpace(stampDelta))
 n = perpendicular(t)
-side = smoothOdd(dot(q, n) / radius)
-window = circularFalloff(length(q) / radius)
-b = t * side * window * strength * polarity * FAULT_STEP
-D'(p) = b(p) + D(p + b(p))
+side = smoothOdd(dot(q, n) / r)
+window = circularFalloff(length(q) / r)
+bBack = t * side * window * strength * polarity * FAULT_STEP
+D'(p) = bBack(p) + D(p + bBack(p))
 ```
 
 `smoothOdd` is zero on the seam and approaches opposite signs on its two
-sides. The circular window bounds each stamp; overlapping stamps turn the row
+sides. Both `q` and `r` are in aspect-space units, matching `Stroke.radius`.
+The circular window bounds each stamp; overlapping stamps turn the row
 of local responses into one continuous curved fault. The backward-map sign
-must be established by CPU reference tests rather than inferred from this
-forward-motion description.
+must be established by CPU reference tests rather than inferred from the
+content's visual motion. The `p + bBack` lookup is the engine's existing
+`b(p) + D(p + b(p))` composition; a minus would only be correct if the symbol
+described a forward warp, which it does not here.
 
 Reversing the path flips both `t` and `n`. That also flips `side`, so the two
 sign changes cancel in `t * side`: the same geometric path makes the same
-fault in either drawing direction. The Slip bead multiplies `b` by an explicit
-polarity when the user wants the opposite result.
+fault in either drawing direction. The Slip bead multiplies `bBack` by an
+explicit polarity when the user wants the opposite result.
 
 Aspect-space conversion is load-bearing. Normalizing the raw UV delta would
 make the shear angle wrong on non-square photos. Mirror must transform both
