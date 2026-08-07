@@ -776,14 +776,13 @@ class EditorViewModel @Inject constructor(
         // Echo overrides the resampler's drag deltas with one constant
         // offset, which is what makes the graft a rigid translation of
         // the source region instead of a smear (see EchoOffset).
-        @Suppress("NAME_SHADOWING")
-        val fresh = echoDelta?.let { (dx, dy) ->
+        val stamps = echoDelta?.let { (dx, dy) ->
             fresh.map { it.copy(dx = dx, dy = dy) }
         } ?: fresh
         val batch = if (mirrorLive) {
-            fresh.flatMap { listOf(it, tool.mirrorStamp(it)) }
+            stamps.flatMap { listOf(it, tool.mirrorStamp(it)) }
         } else {
-            fresh
+            stamps
         }
         liveStamps.addAll(batch)
         return batch

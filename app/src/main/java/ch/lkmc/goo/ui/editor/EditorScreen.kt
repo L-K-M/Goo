@@ -683,6 +683,12 @@ private fun WarpEditor(
                     profile = state.tool.profile,
                     view = view,
                 )
+                EchoAnchorOverlay(
+                    anchor = state.echoAnchor.takeIf { state.tool == BrushTool.ECHO },
+                    imageWidth = bmp.width,
+                    imageHeight = bmp.height,
+                    view = view,
+                )
             }
 
             // Reset view: appears whenever the photo is off its fitted
