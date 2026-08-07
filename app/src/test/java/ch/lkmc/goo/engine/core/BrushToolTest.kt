@@ -29,26 +29,33 @@ class BrushToolTest {
     }
 
     @Test
-    fun `pumped tools are exactly the hold-in-place field tools`() {
-        // Drag tools (directional smears AND the Fusion through-paint)
-        // stamp along the path; hold-tools pump on a clock.
-        val pumpedModes = setOf(
-            StampMode.INFLATE, StampMode.DEFLATE, StampMode.RELAX, StampMode.ERASE,
+    fun `pumped tools are exactly the hold-in-place tools`() {
+        // This used to be derived from the mode — INFLATE/DEFLATE/RELAX/
+        // ERASE pump, everything else drags. Melt broke that derivation
+        // rather than violating the idea: it is a DIRECTIONAL-mode tool
+        // that acts on a clock at a point, because gravity is a function
+        // of time held rather than distance dragged. So the set is
+        // enumerated now, deliberately: whether a tool pumps is a
+        // question about its GESTURE, and adding a row should be a
+        // decision someone makes, not one the mode makes for them.
+        val pumped = setOf(
+            BrushTool.GROW, BrushTool.SHRINK, BrushTool.SMOOTH, BrushTool.UNGOO,
+            BrushTool.VORTEX, BrushTool.UNWIND, BrushTool.MELT,
         )
         BrushTool.entries.forEach { tool ->
-            assertEquals(
-                tool.mode in pumpedModes,
-                tool.pumped,
-                "pumped mismatch for $tool",
-            )
+            assertEquals(tool in pumped, tool.pumped, "pumped mismatch for $tool")
         }
     }
 
     @Test
-    fun `touch-down stamps include hold tools and Fusion but not directional drags`() {
+    fun `touch-down stamps are the pumped tools plus the ones a tap means something to`() {
+        // Fusion reveals under a tap; a Pond ripple IS a tap. Directional
+        // drags still wait for movement, since a stationary smear must
+        // not disturb the image.
+        val tapMeaningful = setOf(BrushTool.FUSE, BrushTool.POND)
         BrushTool.entries.forEach { tool ->
             assertEquals(
-                tool.pumped || tool == BrushTool.FUSE,
+                tool.pumped || tool in tapMeaningful,
                 tool.stampsOnDown,
                 "touch-down mismatch for $tool",
             )

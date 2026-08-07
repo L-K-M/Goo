@@ -21,9 +21,9 @@ import kotlinx.serialization.Serializable
  * never silently re-map shader behavior.
  */
 @Serializable
-enum class StampMode(val shaderId: Int) {
+enum class StampMode(val shaderId: Int, val mirrorsDelta: Boolean = false) {
     /** b(p) = -delta·strength·w, composed warp-of-warp. */
-    DIRECTIONAL(0),
+    DIRECTIONAL(0, mirrorsDelta = true),
 
     /** Radial magnify: b points at the stamp center (sample nearer it). */
     INFLATE(1),
@@ -44,6 +44,38 @@ enum class StampMode(val shaderId: Int) {
      * with everything else for free.
      */
     FUSE(5),
+
+    /**
+     * Tangential swirl (proposal 0001): b is the outward radial unit
+     * vector turned a right angle in aspect space, so content orbits the
+     * stamp center. `dx`'s SIGN carries chirality rather than a
+     * magnitude — which is why this mirrors its delta: reflecting a
+     * whirlpool must reverse the way it turns, and the existing mirror
+     * flip does exactly that for free.
+     */
+    VORTEX(6, mirrorsDelta = true),
+
+    /**
+     * Smear with teeth (proposal 0010): DIRECTIONAL modulated by a
+     * cosine of the texel's offset ACROSS the drag axis, so one pass
+     * lays down parallel strands instead of one smooth push.
+     */
+    COMB(7, mirrorsDelta = true),
+
+    /**
+     * Concentric ripple (proposal 0013): radial displacement whose sign
+     * alternates over three bands, returning to zero at the rim. Adds a
+     * closed rhythmic band the rest of the palette has no way to make.
+     */
+    RIPPLE(8),
+
+    /**
+     * Opposed shear across the stroke path (proposal 0014): the two
+     * sides of the drawn line slide past each other along it. `dx`/`dy`
+     * carry the local path tangent, so the delta mirrors like any other
+     * direction.
+     */
+    FAULT(9, mirrorsDelta = true),
 }
 
 /** Brush falloff curve over normalized distance; `u_profile` wire values. */
@@ -57,6 +89,25 @@ enum class FalloffProfile(val shaderId: Int) {
 
     /** Flat to 70% radius, then smoothstep down (Move drags rigidly). */
     PLATEAU(2),
+
+    /**
+     * The one profile that is not radially symmetric (Melt, proposal
+     * 0003). It reshapes the DISTANCE rather than the curve: below the
+     * stamp center the measured distance is compressed by
+     * [BrushDynamics.DRIP_LOBE], so the same weight is reached further
+     * down and the lobe reaches toward the bottom of the picture.
+     *
+     * The direction of that factor is the tool. Below 1 reaches down;
+     * above 1 would reach *up*, giving a brush that pulls harder above
+     * the finger than below it. Counterintuitive but not subtle: weight
+     * decreases with distance, so shrinking the distance a direction is
+     * measured in is what makes a brush act further that way.
+     *
+     * [BrushFalloff.weight] stays a function of one scalar and is
+     * untouched — the anisotropy lives in how `distA` is computed, in
+     * both the CPU reference and the shader.
+     */
+    DRIP(3),
 }
 
 /**
@@ -109,7 +160,42 @@ enum class BrushTool(
         pumped = false,
         stampsOnDown = true,
     ),
+
+    /** Hold to wind a whirlpool clockwise (proposal 0001). */
+    VORTEX(StampMode.VORTEX, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
+
+    /** Vortex the other way; chirality rides the stamp's dx sign. */
+    UNWIND(StampMode.VORTEX, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
+
+    /** Hold and the picture runs downward like wax (proposal 0003). */
+    MELT(StampMode.DIRECTIONAL, FalloffProfile.DRIP, 1f, pumped = true),
+
+    /** Drag to lay down parallel strands — hair, fur, fire (0010). */
+    COMB(StampMode.COMB, FalloffProfile.SMOOTHSTEP, 1f, pumped = false),
+
+    /** Tap to drop concentric ripples; drag for a wake (0013). */
+    POND(
+        StampMode.RIPPLE,
+        FalloffProfile.SMOOTHSTEP,
+        1f,
+        pumped = false,
+        stampsOnDown = true,
+    ),
+
+    /** Draw a seam; the two sides slide past each other (0014). */
+    FAULT(StampMode.FAULT, FalloffProfile.SMOOTHSTEP, 1f, pumped = false),
     ;
+
+    /**
+     * Chirality for the two swirl rows, carried in each stamp's `dx`.
+     * Zero for everything else, where `dx` means what it always did.
+     */
+    val chirality: Float
+        get() = when (this) {
+            VORTEX -> 1f
+            UNWIND -> -1f
+            else -> 0f
+        }
 
     /**
      * The stamp's twin under the Mirror toggle: reflected across the
@@ -119,7 +205,7 @@ enum class BrushTool(
     fun mirrorStamp(s: Stamp): Stamp = Stamp(
         cx = 1f - s.cx,
         cy = s.cy,
-        dx = if (mode == StampMode.DIRECTIONAL) -s.dx else s.dx,
+        dx = if (mode.mirrorsDelta) -s.dx else s.dx,
         dy = s.dy,
     )
 }
@@ -144,6 +230,54 @@ object BrushDynamics {
 
     /** Pump cadence for [BrushTool.pumped] tools. */
     const val PUMP_INTERVAL_MS = 16L
+
+    /**
+     * Tangential UV displacement per pumped swirl stamp at strength 1.
+     * A DISPLACEMENT, not an angle — the same units and order as
+     * [RADIAL_STEP_UV]. Because a fixed tangential step is an arc
+     * length, the angle it sweeps falls off as `m / r`: rotation is
+     * differential, which is what makes it a whirlpool and not a
+     * turntable. At mid-radius of a 0.1 brush that is ~0.035 rad per
+     * stamp, so a one-second hold is ~120° before compounding.
+     */
+    const val SWIRL_STEP_UV = 0.0035f
+
+    /** UV run added per pumped melt stamp, before acceleration. */
+    const val DRIP_STEP_UV = 0.0009f
+
+    /**
+     * Ceiling on one melt stamp's run. Warp-of-warp assumes stamps are
+     * small; past this the composition folds instead of stretching.
+     */
+    const val DRIP_MAX_UV = 0.02f
+
+    /** Below-center distance compression for [FalloffProfile.DRIP]. */
+    const val DRIP_LOBE = 0.45f
+
+    /** Noise cells across the image width — the width of one wax run. */
+    const val DRIP_CELLS = 40f
+
+    /**
+     * Comb teeth per brush RADIUS, not per image. Counting them against
+     * normalized brush geometry is what makes the strand pattern
+     * identical in the preview and in the full-resolution export
+     * (PLAN.md §5 decision 4, applied to a texture).
+     *
+     * The field is ≤1024 texels and bilinearly sampled, so a tooth
+     * narrower than ~3 texels shimmers rather than reading as a strand.
+     * That caps the usable range at roughly one octave, which is the
+     * reason this is a constant and not a third lever.
+     */
+    const val COMB_TEETH = 3f
+
+    /** Radial UV displacement at a ripple's first band, strength 1. */
+    const val RIPPLE_STEP_UV = 0.010f
+
+    /** Signed bands inside one ripple, outermost returning to zero. */
+    const val RIPPLE_BANDS = 3f
+
+    /** Along-seam UV slip per fault stamp at strength 1. */
+    const val FAULT_STEP_UV = 0.010f
 }
 
 /**

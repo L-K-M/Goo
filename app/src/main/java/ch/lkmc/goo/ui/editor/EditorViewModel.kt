@@ -23,6 +23,7 @@ import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.GlobalField
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
@@ -708,7 +709,7 @@ class EditorViewModel @Inject constructor(
         if (tool.stampsOnDown) {
             // Radial/field tools and Fusion all have useful stationary
             // semantics. Directional brushes still wait for movement.
-            val first = emit(listOf(Stamp(u, v, 0f, 0f)))
+            val first = emit(listOf(pumpStamp(tool, u, v, tick = 1)))
             if (first.isNotEmpty()) {
                 liveParams?.let { params ->
                     engineBridge?.invoke { stampBatch(params, first) }
@@ -749,16 +750,49 @@ class EditorViewModel @Inject constructor(
     private fun startPump() {
         pumpJob?.cancel()
         pumpJob = viewModelScope.launch {
+            var tick = 1
             while (true) {
                 // beginStroke already applied the one-shot click. Wait before
                 // repeating so a quick tap is exactly one application.
                 delay(BrushDynamics.PUMP_INTERVAL_MS)
                 val (u, v) = pumpPoint ?: break
                 val params = liveParams ?: break
-                val batch = emit(listOf(Stamp(u, v, 0f, 0f)))
+                val batch = emit(listOf(pumpStamp(params.tool, u, v, tick)))
                 engineBridge?.invoke { stampBatch(params, batch) }
+                tick++
             }
         }
+    }
+
+    /**
+     * The stamp a pumped tool drops on tick [tick] of a hold.
+     *
+     * Most pumped tools carry no delta at all — the kernel is radial and
+     * the finger's position is the whole input. Two do:
+     *
+     * - the swirls put their CHIRALITY in `dx`'s sign, so a mirrored
+     *   twin (which negates `dx`) counter-rotates for free;
+     * - Melt puts a downward RUN in `dy` that grows with the hold, which
+     *   is what makes wax accelerate as it falls. Because the run is
+     *   recorded per stamp, replay, undo and export reproduce the melt
+     *   exactly with no accumulator anywhere — the acceleration lives in
+     *   the log, not in a clock.
+     *
+     * The run wanders column to column through the same integer-hash
+     * value noise the Static lever uses, so a wide brush separates into
+     * fingers instead of sliding as one sheet. Noise is sampled on the
+     * stamp's own x, so it needs no seed to stay reproducible.
+     */
+    private fun pumpStamp(tool: BrushTool, u: Float, v: Float, tick: Int): Stamp {
+        if (tool.chirality != 0f) return Stamp(u, v, tool.chirality, 0f)
+        if (tool != BrushTool.MELT) return Stamp(u, v, 0f, 0f)
+        val wander = GlobalField.valueNoise(u * BrushDynamics.DRIP_CELLS, 0f, seed = 4u)
+        val run = (tick * BrushDynamics.DRIP_STEP_UV)
+            .coerceAtMost(BrushDynamics.DRIP_MAX_UV) * (0.35f + 0.65f * wander)
+        // Down is +v: stamp-space UV has a top-left origin, and the
+        // DIRECTIONAL kernel negates the delta, so a positive dy samples
+        // from higher up and the content appears lower.
+        return Stamp(u, v, 0f, run)
     }
 
     private fun stopPump() {

@@ -47,7 +47,9 @@ import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Dehaze
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
@@ -56,7 +58,11 @@ import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RotateLeft
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.SouthEast
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Waves
@@ -1307,6 +1313,12 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.SMOOTH -> R.string.tool_smooth
     BrushTool.UNGOO -> R.string.tool_ungoo
     BrushTool.FUSE -> R.string.tool_fuse
+    BrushTool.VORTEX -> R.string.tool_vortex
+    BrushTool.UNWIND -> R.string.tool_unwind
+    BrushTool.MELT -> R.string.tool_melt
+    BrushTool.COMB -> R.string.tool_comb
+    BrushTool.POND -> R.string.tool_pond
+    BrushTool.FAULT -> R.string.tool_fault
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -1319,6 +1331,12 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.SMOOTH -> Icons.Filled.Waves
     BrushTool.UNGOO -> Icons.Filled.AutoFixHigh
     BrushTool.FUSE -> Icons.Filled.PhotoLibrary
+    BrushTool.VORTEX -> Icons.Filled.RotateRight
+    BrushTool.UNWIND -> Icons.Filled.RotateLeft
+    BrushTool.MELT -> Icons.Filled.SouthEast
+    BrushTool.COMB -> Icons.Filled.Dehaze
+    BrushTool.POND -> Icons.Filled.RadioButtonChecked
+    BrushTool.FAULT -> Icons.Filled.CompareArrows
 }
 
 /** Each tool wears its own tube of neon — families share a color. */
@@ -1332,6 +1350,12 @@ private fun BrushTool.neonColor(): Color = when (this) {
     BrushTool.SMOOTH -> NeonLime
     BrushTool.UNGOO -> NeonLime
     BrushTool.FUSE -> NeonViolet
+    BrushTool.VORTEX -> NeonTangerine
+    BrushTool.UNWIND -> NeonAmber
+    BrushTool.MELT -> NeonMagenta
+    BrushTool.COMB -> NeonLime
+    BrushTool.POND -> NeonCyan
+    BrushTool.FAULT -> NeonViolet
 }
 
 @Composable

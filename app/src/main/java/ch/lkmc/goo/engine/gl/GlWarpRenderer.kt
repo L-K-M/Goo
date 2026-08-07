@@ -234,6 +234,9 @@ class GlWarpRenderer(
                 aspect = imageAspect,
                 width = target.width,
                 height = target.height,
+                // Melt's lobe is not a disc — it reaches well below the
+                // stamp, and a symmetric rect would clip the wax.
+                profile = stroke.tool.profile,
             )
             target.renderPassIn(rect) { readTexture ->
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, readTexture)

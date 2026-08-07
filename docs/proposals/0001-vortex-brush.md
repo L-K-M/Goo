@@ -1,6 +1,6 @@
 # 0001 — Vortex brush
 
-- **Status:** proposed
+- **Status:** accepted — built as the second brush palette (roadmap #20)
 - **Date:** 2026-08-07
 
 Consolidates two independently written proposals for the same tool

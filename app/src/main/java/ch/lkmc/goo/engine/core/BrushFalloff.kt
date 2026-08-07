@@ -32,6 +32,10 @@ object BrushFalloff {
     fun weight(d: Float, profile: FalloffProfile): Float = when (profile) {
         FalloffProfile.SMOOTHSTEP -> weight(d)
         FalloffProfile.FEATHER -> weight(d).let { it * it }
+        // DRIP's shape is the plain curve; what makes it a teardrop is
+        // the anisotropic DISTANCE it is handed (FalloffProfile.DRIP),
+        // which is computed by the caller so this stays scalar.
+        FalloffProfile.DRIP -> weight(d)
         FalloffProfile.PLATEAU ->
             if (d <= PLATEAU_EDGE) 1f
             else weight((d - PLATEAU_EDGE) / (1f - PLATEAU_EDGE))
