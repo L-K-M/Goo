@@ -30,9 +30,11 @@ constraints before making the edit.
 5. Release to commit one atomic pin pull. Hold pins may remain for another
    pull; Back leaves the mode.
 
-Four weak frame-corner anchors are implicit so an unconstrained pull does not
-translate the entire photograph. Explicit hold pins override that broad frame
-stability where the user cares about exact points.
+Four implicit frame-corner anchors keep an unconstrained pull from translating
+the entire photograph. The solver gives those controls a lower fixed weight
+multiplier than explicit hold pins, so they stabilize the frame without
+dominating the interior. Explicit hold pins remain exact constraints where the
+user cares about exact points.
 
 The mode uses **Reach** and **Rubber** controls rather than pretending ordinary
 brush Size and Strength explain it. Reach controls how local the influence is.
@@ -123,6 +125,14 @@ The last line is the existing warp-of-warp composition rule. It applies the
 new pin deformation first and then looks up the prior displacement and Fusion
 mask at the prewarped position.
 
+The MLS weight function needs two explicit guards. A point at a target control
+returns that control's source point directly instead of evaluating an infinite
+inverse-distance weight. Every other squared distance is bounded by a small
+fixed epsilon before division. Those branches prevent a control-point
+singularity from putting a NaN into the field; CPU and GLSL use the same
+epsilon and exact-hit rule. Per-control weight multipliers are also part of the
+payload semantics so implicit corner anchors can be weaker than user pins.
+
 At most ten controls (five explicit holds, four implicit corners, one pull)
 keep the shader loop bounded. The candidate pass can run full-field while the
 drag is active. Commit writes the composed result into the normal ping-pong
@@ -138,6 +148,7 @@ The pin pull still belongs in the revision log, but it needs more data than
 PinWarp(
     sourceControls,
     targetControls,
+    controlWeights,
     reach,
     rubber,
     solverVersion,
@@ -151,10 +162,13 @@ exclusive invariant instead of accepting an empty edit.
 
 This avoids replacing the normalized revision graph, changing keyframe pin
 identity, or adding bitmap snapshots. Old saved projects load because the new
-payload has a default. A project containing Taffy Pins needs a schema bump;
-an older app should fail on the unknown tool enum rather than silently open a
-flattened field. Downgrade behavior must be tested because persistence is a
-shipped contract.
+payload has a default. A project containing Taffy Pins needs a schema bump.
+On downgrade, the old app's unknown-enum decode takes its existing generic
+project-open failure path: decoding returns no project, the editor stays
+closed, and no save can overwrite the folder. It cannot name a future tool it
+does not know, but it fails safely instead of opening a flattened field or
+crashing. That behavior must be pinned before shipping because persistence is
+a shipped contract.
 
 Replay branches once per log entry:
 
@@ -183,9 +197,13 @@ the renderer.
   Reach limit keep the outer frame stable, but they cannot infer where a body
   ends. The proposal deliberately avoids claiming content awareness.
 - Full-field MLS evaluation costs more per preview frame than a scissored
-  brush stamp. The small fixed control cap and a preview-quality field are the
-  performance guardrails; profile on low-end GLES 3 hardware before polishing
-  the UI.
+  brush stamp. Each 2D rigid-MLS sample needs O(pin count) weighted
+  accumulations plus a vector normalization. The paper's closed form avoids a
+  general matrix inverse or polar decomposition, but doing even that bounded
+  work at every field texel is still substantial. The small fixed control cap
+  and a preview-quality field are the performance guardrails; also prototype a
+  coarser control grid with interpolation, as the paper recommends, and
+  profile on low-end GLES 3 hardware before polishing the UI.
 - Pins under a transformed view must be mapped through the inverse view exactly
   like brush input. Their overlay then maps forward with the view so handles
   stay attached while zooming or rotating.
@@ -207,6 +225,8 @@ the renderer.
   fixed and validated before a command enters the log.
 - CPU and GLSL reference cases agree within the project's established float
   tolerance.
+- Exact control-point hits and near-zero distances produce finite values in
+  both implementations.
 - Context rebuild, project reload, still export, and GOOvie endpoint
   materialization reproduce the committed preview.
 - Old schema-1 projects continue to load unchanged; malformed and unsupported
