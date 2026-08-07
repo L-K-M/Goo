@@ -66,6 +66,9 @@ vec2 outward = vec2((fromCenter.x / distA) / u_aspect, fromCenter.y / distA);
 // (rotate first, divide the aspect out second — rotating the UV-space
 // vector would shear on non-square images).
 vec2 t = vec2(-fromCenter.y / distA, fromCenter.x / distA);
+// The divide converts whichever component is x IN ASPECT SPACE back to
+// UV; it is a basis conversion, not a tag following the value that was
+// there before the rotation. Same conversion as `outward` above.
 vec2 tangent = vec2(t.x / u_aspect, t.y);
 b = sign * tangent * w * centerRamp(d) * SWIRL_STEP_UV;
 ```
