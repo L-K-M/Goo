@@ -21,9 +21,25 @@ import kotlinx.serialization.Serializable
  * never silently re-map shader behavior.
  */
 @Serializable
-enum class StampMode(val shaderId: Int, val mirrorsDelta: Boolean = false) {
+enum class StampMode(
+    val shaderId: Int,
+    /**
+     * A mirrored twin negates this mode's `dx`. True both for modes whose
+     * delta is a direction (reflecting a push reverses its x) and for
+     * VORTEX, whose `dx` is a handedness that reflection reverses.
+     */
+    val mirrorsDelta: Boolean = false,
+    /**
+     * A rotated twin rotates this mode's delta, because the delta is a
+     * VECTOR in the image plane. Deliberately not the same set as
+     * [mirrorsDelta]: VORTEX's `dx` is a chirality flag, and rotation
+     * preserves handedness, so rotating it would destroy the sign
+     * instead of transforming it.
+     */
+    val rotatesDelta: Boolean = false,
+) {
     /** b(p) = -delta·strength·w, composed warp-of-warp. */
-    DIRECTIONAL(0, mirrorsDelta = true),
+    DIRECTIONAL(0, mirrorsDelta = true, rotatesDelta = true),
 
     /** Radial magnify: b points at the stamp center (sample nearer it). */
     INFLATE(1),
@@ -60,7 +76,7 @@ enum class StampMode(val shaderId: Int, val mirrorsDelta: Boolean = false) {
      * cosine of the texel's offset ACROSS the drag axis, so one pass
      * lays down parallel strands instead of one smooth push.
      */
-    COMB(7, mirrorsDelta = true),
+    COMB(7, mirrorsDelta = true, rotatesDelta = true),
 
     /**
      * Concentric ripple (proposal 0013): radial displacement whose sign
@@ -75,7 +91,7 @@ enum class StampMode(val shaderId: Int, val mirrorsDelta: Boolean = false) {
      * carry the local path tangent, so the delta mirrors like any other
      * direction.
      */
-    FAULT(9, mirrorsDelta = true),
+    FAULT(9, mirrorsDelta = true, rotatesDelta = true),
 }
 
 /** Brush falloff curve over normalized distance; `u_profile` wire values. */

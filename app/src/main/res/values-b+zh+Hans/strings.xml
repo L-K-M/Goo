@@ -68,6 +68,8 @@
     <string name="fusion_remove_photo">移除照片</string>
     <string name="fusion_loading_photo">正在把新的融合照片融进来…</string>
     <string name="tool_mirror">镜像</string>
+    <string name="tool_sectors">万花筒</string>
+    <string name="tool_sectors_count">万花筒 ×%1$d</string>
 
     <string name="editor_levers">整体效果</string>
     <string name="editor_hint_smear">在照片上拖动就能捏它</string>
