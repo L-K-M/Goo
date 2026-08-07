@@ -16,6 +16,7 @@ import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.Stamp
+import ch.lkmc.goo.engine.core.StampBounds
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
@@ -44,12 +45,14 @@ import javax.microedition.khronos.opengles.GL10
  * and the last stroke snapshot, so EGL context loss costs a replay, never
  * work.
  *
- * The stamp pass renders a fullscreen quad per stamp at field resolution.
- * The field is deliberately small (≤[FIELD_MAX_DIM] on the long side —
- * displacement is smooth by nature, half preview resolution is beyond
- * Liquify-mesh fidelity), so a dozen stamps a frame cost ~5 Mpx of fill:
- * comfortable 60fps headroom on mid-range GPUs. A scissored sub-quad
- * optimization is possible if profiling ever disagrees.
+ * The stamp pass draws a fullscreen quad per stamp but scissors it to the
+ * brush disc ([StampBounds]), because every fragment outside that disc
+ * would write back the texel it just read. The field is deliberately
+ * small (≤[FIELD_MAX_DIM] on the long side — displacement is smooth by
+ * nature, half preview resolution is beyond Liquify-mesh fidelity), so
+ * the unscissored version already fit in a frame; scissoring is what
+ * keeps a long pumped hold or an N-fold symmetry fan-out affordable,
+ * where stamp COUNT rather than field size is the problem.
  */
 class GlWarpRenderer(
     /**
@@ -214,7 +217,17 @@ class GlWarpRenderer(
         GLES30.glUniform1i(uField, 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         for (stamp in stamps) {
-            target.renderPass { readTexture ->
+            // Only the brush disc can change; everything else the pass
+            // would write is an identity copy of itself (REVIEW.md G-3).
+            val rect = StampBounds.of(
+                cx = stamp.cx,
+                cy = stamp.cy,
+                radius = stroke.radius,
+                aspect = imageAspect,
+                width = target.width,
+                height = target.height,
+            )
+            target.renderPassIn(rect) { readTexture ->
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, readTexture)
                 GLES30.glUniform2f(uCenter, stamp.cx, stamp.cy)
                 GLES30.glUniform2f(uDelta, stamp.dx, stamp.dy)

@@ -1,6 +1,7 @@
 package ch.lkmc.goo.engine.gl
 
 import android.opengl.GLES30
+import ch.lkmc.goo.engine.core.TexelRect
 
 /**
  * The displacement field on the GPU: two float textures with framebuffers,
@@ -23,7 +24,26 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
     private var readIndex = 0
 
     val readTexture: Int get() = textures[readIndex]
+    private val readFramebuffer: Int get() = framebuffers[readIndex]
     private val writeFramebuffer: Int get() = framebuffers[1 - readIndex]
+
+    /**
+     * Where the write buffer is out of date with respect to the read
+     * buffer — the invariant [renderPassIn] maintains.
+     *
+     * A pass writes only its rect, and after the swap the buffer that
+     * becomes the next write target still holds the state from *before*
+     * that pass — so it differs from the new state exactly inside that
+     * rect. Recording it lets the next pass repair the difference with a
+     * small blit instead of a fullscreen copy, which is the whole of
+     * REVIEW.md G-3.
+     *
+     * Note this is a property of the buffer that pass *read*, not of the
+     * one it wrote: a whole-surface pass leaves the outgoing buffer stale
+     * everywhere, not nowhere. It costs nothing regardless, because
+     * [syncWriteBuffer] skips a repair the next draw would overwrite.
+     */
+    private var staleRect: TexelRect = TexelRect.EMPTY
 
     init {
         // RGBA since Fusion: xy displacement + z mask (w spare). The same
@@ -61,30 +81,119 @@ class PingPongField(val width: Int, val height: Int, halfFloatRenderable: Boolea
 
     /** Zero both buffers: the identity warp. */
     fun clear() {
+        // The scissor box would otherwise survive from a scissored stamp
+        // and leave most of the field uncleared.
+        GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         for (fb in framebuffers) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fb)
             GLES30.glClearColor(0f, 0f, 0f, 0f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        // Both buffers hold zero, so neither is stale with respect to the
+        // other, whichever way the next swap goes.
+        staleRect = TexelRect.EMPTY
     }
 
     /**
-     * Bind the write framebuffer + viewport, run [draw] (which samples
-     * [readTexture]), then swap so the result becomes the new read side.
+     * Bind the write framebuffer, clip [draw] to [rect], and swap so the
+     * result becomes the new read side. [draw] samples the read texture.
+     *
+     * This is the only pass primitive: a whole-surface pass is
+     * `renderPassIn(TexelRect.full(width, height), …)`, which the same
+     * invariant covers, so there is no separate unscissored path to keep
+     * in step.
+     *
+     * Correctness rests on a property of `STAMP_FRAG` rather than on
+     * hope. Outside the brush disc every branch reduces to an identity
+     * copy of the fragment's own texel — which is exactly what the
+     * fullscreen version spent its fill rate on. Skipping those fragments
+     * would normally break ping-pong, because the destination texture
+     * still holds the state from two passes ago; the blit below repairs
+     * precisely that difference, and nothing more.
+     *
+     * A rect that is empty means the stamp cannot reach the field at all
+     * (an off-canvas mirror twin, say) and the pass is skipped outright —
+     * including the swap, so the caller's field is left exactly as it was.
+     *
+     * `inline` is load-bearing, not decoration: `draw` captures the stamp
+     * and the uniform locations, so a non-inline version would allocate a
+     * `Function1` per stamp on the GL thread — the allocation the touch
+     * path is explicitly kept free of (PLAN.md §4.1, REVIEW G-4). That is
+     * why [beginPass] and [endPass] exist as `@PublishedApi internal`
+     * rather than private helpers.
      */
-    inline fun renderPass(draw: (readTexture: Int) -> Unit) {
-        bindWrite()
+    inline fun renderPassIn(rect: TexelRect, draw: (readTexture: Int) -> Unit) {
+        if (rect.isEmpty) return
+        beginPass(rect)
         draw(readTexture)
-        swap()
+        endPass(rect)
     }
 
-    fun bindWrite() {
+    /** [renderPassIn]'s prologue; internal only so it can be inlined. */
+    @PublishedApi
+    internal fun beginPass(rect: TexelRect) {
+        syncWriteBuffer(coveredBy = rect)
+        bindWrite()
+        GLES30.glEnable(GLES30.GL_SCISSOR_TEST)
+        GLES30.glScissor(rect.x0, rect.y0, rect.width, rect.height)
+    }
+
+    /** [renderPassIn]'s epilogue; internal only so it can be inlined. */
+    @PublishedApi
+    internal fun endPass(rect: TexelRect) {
+        GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
+        swap()
+        // The buffer that just became the write target is the one this
+        // pass read from: it matches the new state everywhere except
+        // where we drew.
+        staleRect = rect
+    }
+
+    /**
+     * Copy the stale region from the read buffer into the write buffer so
+     * a scissored draw can leave the rest alone.
+     *
+     * Skipped entirely when [coveredBy] already contains the stale
+     * region: those texels are about to be written anyway, so repairing
+     * them first would be pure waste. That is what makes a whole-surface
+     * pass — `renderPassIn(TexelRect.full(…))` — cost exactly what it
+     * used to, with no blit tax, however stale the buffer was.
+     *
+     * `GL_NEAREST` is required, not merely sufficient: ES 3.0 rejects
+     * `GL_LINEAR` blits of floating-point color buffers, and the copy is
+     * 1:1 anyway. Scissor must be off — a blit is clipped by it.
+     */
+    private fun syncWriteBuffer(coveredBy: TexelRect) {
+        val stale = staleRect
+        if (stale.isEmpty) return
+        if (coveredBy.contains(stale)) {
+            staleRect = TexelRect.EMPTY
+            return
+        }
+        GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
+        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, readFramebuffer)
+        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, writeFramebuffer)
+        GLES30.glBlitFramebuffer(
+            stale.x0, stale.y0, stale.x1, stale.y1,
+            stale.x0, stale.y0, stale.x1, stale.y1,
+            GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
+        )
+        staleRect = TexelRect.EMPTY
+    }
+
+    /**
+     * The viewport stays the whole field even under a scissor: the quad's
+     * NDC → UV mapping is what makes `v_uv` the fragment's own texel
+     * center, and shrinking the viewport to the rect would rescale it.
+     * The scissor discards fragments; it does not move them.
+     */
+    private fun bindWrite() {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, writeFramebuffer)
         GLES30.glViewport(0, 0, width, height)
     }
 
-    fun swap() {
+    private fun swap() {
         readIndex = 1 - readIndex
     }
 
