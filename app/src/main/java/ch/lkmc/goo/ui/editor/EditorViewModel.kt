@@ -34,6 +34,7 @@ import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
 import ch.lkmc.goo.engine.core.StrokeResampler
+import ch.lkmc.goo.engine.core.Symmetry
 import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
@@ -110,6 +111,12 @@ class EditorViewModel @Inject constructor(
         val brushStrength: Float = DEFAULT_STRENGTH,
         /** Mirror toggle: every stamp gets a vertically reflected twin. */
         val mirrored: Boolean = false,
+        /**
+         * Kaleidoscope dial: every stamp is fanned into this many copies
+         * rotated about the image center. 1 = off. Composes with
+         * [mirrored] rather than replacing it (see [Symmetry]).
+         */
+        val sectors: Int = 1,
         /** Global-effect levers — live document state, not history. */
         val globals: GlobalParams = GlobalParams(),
         /** First-ever image: float the "drag to goo" hint until a stroke. */
@@ -330,6 +337,10 @@ class EditorViewModel @Inject constructor(
     private var pumpJob: Job? = null
     private var pumpPoint: Pair<Float, Float>? = null
     private var mirrorLive = false
+
+    /** Symmetry dial and image aspect, frozen for the live stroke. */
+    private var sectorsLive = 1
+    private var aspectLive = 1f
 
     /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
@@ -693,6 +704,8 @@ class EditorViewModel @Inject constructor(
         val radius = state.brushRadius
         val tool = state.tool
         mirrorLive = state.mirrored
+        sectorsLive = state.sectors
+        aspectLive = aspect
         liveParams = Stroke(
             tool = tool,
             radius = radius,
@@ -742,10 +755,13 @@ class EditorViewModel @Inject constructor(
     private fun emit(fresh: List<Stamp>): List<Stamp> {
         if (fresh.isEmpty()) return fresh
         val tool = liveParams?.tool ?: return emptyList()
-        val batch = if (mirrorLive) {
-            fresh.flatMap { listOf(it, tool.mirrorStamp(it)) }
-        } else {
+        // Symmetry copies are produced HERE, so everything downstream
+        // sees an ordinary stroke: the log, undo, export replay and
+        // GOOvie caches need no symmetry logic and no format change.
+        val batch = if (sectorsLive <= 1 && !mirrorLive) {
             fresh
+        } else {
+            fresh.flatMap { Symmetry.family(tool, it, aspectLive, sectorsLive, mirrorLive) }
         }
         liveStamps.addAll(batch)
         return batch
@@ -820,6 +836,16 @@ class EditorViewModel @Inject constructor(
 
     fun toggleMirror() {
         _uiState.update { it.copy(mirrored = !it.mirrored) }
+    }
+
+    /** Step the kaleidoscope dial to the next sector count, wrapping. */
+    fun cycleSectors() {
+        _uiState.update {
+            val next = Symmetry.SECTORS.indexOf(it.sectors).let { i ->
+                Symmetry.SECTORS[(i + 1) % Symmetry.SECTORS.size]
+            }
+            it.copy(sectors = next)
+        }
     }
 
     // ---- History -------------------------------------------------------
