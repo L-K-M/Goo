@@ -82,16 +82,17 @@ five lines, which is where the tests go.
 `BrushTool` gains:
 
 ```kotlin
-VORTEX(StampMode.SWIRL, FalloffProfile.SMOOTHSTEP,  1f, pumped = true),
-UNWIND(StampMode.SWIRL, FalloffProfile.SMOOTHSTEP, -1f, pumped = true),
+VORTEX(StampMode.SWIRL_CW,  FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
+UNWIND(StampMode.SWIRL_CCW, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
 ```
 
-…if `strengthScale` is allowed to go negative. Today every scale is
-positive and the sign lives in the mode (INFLATE vs DEFLATE), so the
-honest options are a negative scale (one-line change, slightly sneaky)
-or `SWIRL_CW`/`SWIRL_CCW` as two shader ids (dumber, matches how
-Grow/Shrink already do it). Prefer the second: it keeps "the sign is a
-mode" as an invariant rather than making it true in two different ways.
+Two modes rather than one mode and a negative `strengthScale`. Today
+every scale is positive and the sign lives in the mode (INFLATE vs
+DEFLATE); a negative scale would be a one-line change and slightly
+sneaky, making "the sign is a mode" true in two different ways. Two
+shader ids is dumber and matches how Grow/Shrink already do it, so
+`sign` in the shader snippet above is a compile-time branch on
+`u_mode`, not a uniform.
 
 One new constant beside `RADIAL_STEP_UV`:
 
@@ -100,9 +101,22 @@ One new constant beside `RADIAL_STEP_UV`:
 const val SWIRL_STEP_UV = 0.0035f
 ```
 
-Sized so a one-second hold at full strength is roughly a half turn at
-the rim of the brush — fast enough to be fun on the first try, slow
-enough that the wind-up is visible.
+**This is a displacement, not an angle** — the same units and the same
+order of magnitude as the shipped `RADIAL_STEP_UV = 0.004f`, which is
+the sanity check that it is sized right. A fixed UV step along the
+tangent is an *arc length*, so the angle it sweeps falls off with
+distance from the stamp center: `Δθ ≈ m / r`. Rotation is therefore
+differential, not rigid — which is what makes it a whirlpool rather
+than a turntable.
+
+Worked at mid-radius of a 0.1 brush (`r = 0.05`, where `falloff(0.5)`
+is 0.5 and `centerRamp` is already 1): `m = 0.0035 × 0.5 = 0.00175`, so
+`Δθ ≈ 0.035` rad per stamp, and a one-second hold at the 16 ms pump
+cadence is ~60 stamps ≈ 2.1 rad ≈ 120° — before warp-of-warp
+compounding, which adds more. Tighter than that near the center, looser
+toward the rim, and exactly zero *at* the rim, where the falloff is 0.
+Fast enough to be fun on the first try, slow enough that the wind-up is
+visible.
 
 ## Cost, risks, honest trade-offs
 
