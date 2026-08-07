@@ -51,6 +51,10 @@ lives in `engine/core` as pure JVM classes.
 
 ## Conventions and footguns
 
+- Tool/feature proposals live in `docs/proposals/` as numbered
+  pre-decision docs (same Status/Date header as ADRs); an accepted
+  proposal graduates into PLAN.md's roadmap table, a declined one stays
+  with its status flipped to `declined` so the reasoning isn't lost.
 - **Tests are JVM-only** (`testDebugUnitTest`); keep decision logic out of
   composables and the GL renderer so it stays testable. No androidTest
   directory exists; adding one means adding the emulator CI job too.
