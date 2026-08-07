@@ -84,7 +84,9 @@ aspect-space source convention. Clamp and quantize the resulting speed, then
 generate a fixed-step decaying virtual path:
 
 ```text
-v[0] = clamp(releaseVelocity, MAX_WHIP_SPEED)
+rawSpeed = length(releaseVelocity)
+return no tail when rawSpeed < START_SPEED
+v[0] = releaseVelocity * (min(rawSpeed, MAX_WHIP_SPEED) / rawSpeed)
 p[0] = releasePoint
 
 for i in 0 until MAX_WHIP_STEPS:
