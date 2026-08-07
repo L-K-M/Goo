@@ -1,9 +1,7 @@
-# Tool idea 0006 — Comb
+# 0010 — Comb brush
 
-> **Status: proposal.** No engine code ships with this document. If the
-> idea is taken, it becomes its own implementation PR with a roadmap row
-> in PLAN.md. Ideas live in `docs/ideas/`; decisions live in
-> `docs/decisions/`.
+- **Status:** proposed
+- **Date:** 2026-08-07
 
 **One-liner.** A Smear with teeth: one drag lays down a dozen parallel
 strands instead of one smooth push, so a photo can be combed into hair,
