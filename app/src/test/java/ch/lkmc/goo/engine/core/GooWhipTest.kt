@@ -168,6 +168,12 @@ class GooWhipTest {
     }
 
     @Test
+    fun `quantize refuses a non-finite speed rather than reading it as still`() {
+        assertFails { GooWhip.quantize(Float.NaN) }
+        assertFails { GooWhip.quantize(Float.POSITIVE_INFINITY) }
+    }
+
+    @Test
     fun `a non-positive aspect is rejected rather than thrown into`() {
         assertFails { GooWhip.tail(0.5f, 0.5f, 3f, 0f, 0f) }
         assertFails { GooWhip.tail(0.5f, 0.5f, 3f, 0f, -1f) }

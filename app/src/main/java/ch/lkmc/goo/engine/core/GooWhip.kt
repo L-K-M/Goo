@@ -126,8 +126,16 @@ object GooWhip {
         return out
     }
 
-    /** Release speed rounded to [SPEED_QUANTUM] and capped at [MAX_SPEED]. */
+    /**
+     * Release speed rounded to [SPEED_QUANTUM] and capped at [MAX_SPEED].
+     *
+     * Rejects a non-finite speed rather than absorbing it: NaN survives
+     * `coerceAtMost` and then `roundToInt` turns it into 0, so without
+     * this a caller outside [tail] would read "the finger was not
+     * moving" out of what is actually a broken measurement.
+     */
     fun quantize(speed: Float): Float {
+        require(speed.isFinite()) { "speed must be finite: $speed" }
         val capped = speed.coerceAtMost(MAX_SPEED)
         return (capped / SPEED_QUANTUM).roundToInt() * SPEED_QUANTUM
     }
