@@ -4,6 +4,7 @@ import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -116,11 +117,13 @@ class GlobalWobbleTest {
         // project and the movie renders differently" would take.
         val base = GlobalParams(bulge = 0.1f)
         val w = rig(0 to 3, 4 to 1)
-        val reloaded = GlobalWobble.unpack(w.pack())
+        // assertNotNull returns the non-null value, so the bang goes
+        // away entirely rather than being justified.
+        val reloaded = assertNotNull(GlobalWobble.unpack(w.pack()))
         assertEquals(w, reloaded)
         for (step in 0..50) {
             val p = step / 50f
-            assertEquals(leversAt(base, w, p), leversAt(base, reloaded!!, p))
+            assertEquals(leversAt(base, w, p), leversAt(base, reloaded, p))
         }
     }
 
