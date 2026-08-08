@@ -167,7 +167,12 @@ private fun WobbleKnob(
     // a cycle count to be measured against, so the knob is simply absent
     // rather than present and inert.
     val offered = rates.filter { it > 0 }
-    val on = !lever.isStill
+    // Show what the encoder will actually use. Shortening the strip
+    // lowers the cap under a rate that was legal when it was dialled,
+    // and a knob reading 4 while the movie renders 2 is a knob lying
+    // about the document.
+    val shown = lever.rate.coerceAtMost(offered.lastOrNull() ?: 0)
+    val on = shown > 0 && lever.depth > 0f
     val description = stringResource(R.string.lever_wobble, label)
     Box(
         modifier = Modifier
@@ -177,7 +182,7 @@ private fun WobbleKnob(
             .background(if (on) color.copy(alpha = 0.35f) else MeltVoid)
             .border(1.dp, if (on) color else color.copy(alpha = 0.3f), CircleShape)
             .clickable(enabled = offered.isNotEmpty()) {
-                val next = offered.getOrNull(offered.indexOf(lever.rate) + 1) ?: 0
+                val next = offered.getOrNull(offered.indexOf(shown) + 1) ?: 0
                 onChange(
                     LeverWobble(
                         rate = next,
@@ -199,7 +204,7 @@ private fun WobbleKnob(
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = if (lever.rate == 0) "~" else "${lever.rate}",
+            text = if (shown == 0) "~" else "$shown",
             style = MaterialTheme.typography.labelMedium,
             color = if (offered.isEmpty()) {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)

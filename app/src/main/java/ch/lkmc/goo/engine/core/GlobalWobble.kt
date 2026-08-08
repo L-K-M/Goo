@@ -72,8 +72,12 @@ data class GlobalWobble(
      */
     fun cappedFor(loopSeconds: Float): GlobalWobble {
         val ceiling = maxSafeRate(loopSeconds)
-        if (levers.all { it.rate <= ceiling }) return this
-        return GlobalWobble(levers.map { it.copy(rate = it.rate.coerceAtMost(ceiling)) })
+        if (levers.all { it.rate in 0..ceiling }) return this
+        // coerceIn, not coerceAtMost: this is documented as the encoder's
+        // own safety net, so it has to be total. A negative rate from an
+        // unsanitized rig would otherwise pass a `<= ceiling` test and
+        // reach the walk as a backwards-running wobble.
+        return GlobalWobble(levers.map { it.copy(rate = it.rate.coerceIn(0, ceiling)) })
     }
 
     /**

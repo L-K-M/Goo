@@ -112,7 +112,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -124,7 +123,6 @@ import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.LeverWobble
-import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.leversAt
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
@@ -307,18 +305,30 @@ private fun WarpEditor(
     // Phase comes from a FRAME COUNT over the document's own loop, not
     // from a wall clock, so what the preview shows is the same walk the
     // export performs.
-    LaunchedEffect(surface, state.globals, state.wobble, state.keyframes.size) {
+    // Deliberately NOT keyed on the levers: setGlobals fires on every
+    // frame of a lever drag, and a keyed effect would cancel and restart
+    // the clock each time, freezing the wobble exactly while the user is
+    // trying to judge how a lever sits against it.
+    val wobbleGlobals by rememberUpdatedState(state.globals)
+    LaunchedEffect(surface, state.wobble, state.keyframes.size) {
         if (state.wobble.isStill) return@LaunchedEffect
         val loop = GlobalWobble.previewLoopSeconds(state.keyframes.size)
+        if (loop <= 0f) return@LaunchedEffect
         val rig = state.wobble.cappedFor(loop)
-        val frames = (loop * MovieSpec.FPS).roundToInt().coerceAtLeast(2)
-        var frame = 0
+        // Phase comes from ELAPSED TIME, not from a count of frames.
+        // withFrameNanos fires at the display's refresh rate — 90 or
+        // 120 Hz on most phones now — so counting its callbacks against
+        // MovieSpec.FPS would run the preview three or four times too
+        // fast on exactly the devices this app is for, and the dial
+        // would be set against a lie.
+        var startNanos = 0L
         while (true) {
-            withFrameNanos { }
-            val phase = frame.toFloat() / (frames - 1)
-            val modulated = leversAt(state.globals, rig, phase)
+            val nanos = withFrameNanos { it }
+            if (startNanos == 0L) startNanos = nanos
+            val seconds = (nanos - startNanos) / 1_000_000_000f
+            val phase = (seconds / loop).mod(1f)
+            val modulated = leversAt(wobbleGlobals, rig, phase)
             surface?.engine { setGlobalParams(modulated) }
-            frame = (frame + 1) % frames
         }
     }
 

@@ -219,6 +219,22 @@ class GlobalWobbleTest {
     }
 
     @Test
+    fun `the encoder's cap is total, not merely an upper bound`() {
+        // cappedFor is documented as the safety net at the point a file
+        // is written, so it has to handle a rig that never went through
+        // sanitized() — a hand-edited project, say. A negative rate would
+        // otherwise pass a "<= ceiling" test and reach the walk.
+        val hostile = GlobalWobble(
+            listOf(LeverWobble(-5, 1f), LeverWobble(99, 1f)) + List(4) { LeverWobble() },
+        )
+        val capped = hostile.cappedFor(MovieSpec.durationSeconds(4))
+        for (lever in capped.levers) {
+            assertTrue(lever.rate >= 0, "negative rate survived: ${lever.rate}")
+            assertTrue(lever.rate <= GlobalWobble.maxSafeRate(MovieSpec.durationSeconds(4)))
+        }
+    }
+
+    @Test
     fun `the saved-state pack round-trips`() {
         val rig = GlobalWobble()
             .with(0, LeverWobble(3, 0.4f))
