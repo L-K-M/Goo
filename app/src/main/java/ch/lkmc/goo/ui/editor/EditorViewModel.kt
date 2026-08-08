@@ -979,7 +979,6 @@ class EditorViewModel @Inject constructor(
         withLenses { it[index] = change(it[index]) }
     }
 
-
     // ---- GOOvies -------------------------------------------------------
     // A keyframe pins (revision, globals): the immutable StrokeRevision
     // it was punched from, plus the levers. Endpoints materialize by

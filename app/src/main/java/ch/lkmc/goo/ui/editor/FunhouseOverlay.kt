@@ -92,10 +92,18 @@ fun FunhouseOverlay(
                     down.consume()
                     val (u0, v0) = toUv(down.position.x, down.position.y)
                     val hit = hitTest(currentLenses, u0, v0, aspect)
+                    // Snapshot the selection for the whole gesture. It has
+                    // to be live to START one (the previous line's fix)
+                    // and frozen to CLASSIFY one: onSelect below changes
+                    // it while this coroutine is suspended awaiting the
+                    // lift, so a live read at the end would find that
+                    // every tap landed on "the already-selected lens" and
+                    // cycle the type of the lens it had only just picked.
+                    val selectedAtDown = currentSelected
                     // Grabbing an unselected lens selects it, so the first
                     // drag of a lens you were not holding still moves the
                     // one you touched rather than the one you last used.
-                    if (hit != null && hit != currentSelected) onSelect(hit)
+                    if (hit != null && hit != selectedAtDown) onSelect(hit)
 
                     fun travelled(u: Float, v: Float): Float = sqrt(
                         ((u - u0) * aspect) * ((u - u0) * aspect) + (v - v0) * (v - v0),
@@ -160,7 +168,7 @@ fun FunhouseOverlay(
                         when (hit) {
                             // A tap on the lens you are already holding is
                             // the "what else can you be" verb.
-                            currentSelected -> if (hit != null) onCycle(hit)
+                            selectedAtDown -> if (hit != null) onCycle(hit)
                             null -> onPlace(u0, v0)
                             else -> Unit // selection already happened
                         }
