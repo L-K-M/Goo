@@ -116,6 +116,27 @@ class PortalsTest {
     }
 
     @Test
+    fun `Stamp still has exactly the four fields a transform must carry`() {
+        // Three places construct a Stamp field-by-field rather than with
+        // copy() — mirrorStamp, Symmetry.expand and Portals.twin — so
+        // that adding a geometric field is a compile error instead of a
+        // silently untransformed copy. That guard has a hole: a field
+        // with a DEFAULT compiles fine at all three sites and quietly
+        // takes its default in every twin.
+        //
+        // This closes it. The count is the tripwire: if it changes, go
+        // and decide what the new field does under a reflection, a
+        // rotation and a translation, then update this number.
+        // INSTANCE fields only: the Compose compiler plugin adds a
+        // static `$stable` (and a Companion holder) to data classes in
+        // this module, and counting those would pin a detail of the
+        // plugin rather than of the type.
+        val fields = Stamp::class.java.declaredFields
+            .filterNot { it.isSynthetic || java.lang.reflect.Modifier.isStatic(it.modifiers) }
+        assertEquals("Stamp fields changed: ${fields.map { it.name }}", 4, fields.size)
+    }
+
+    @Test
     fun `every mode keeps its delta through a portal`() {
         // mirrorsDelta and rotatesDelta both exist because reflection
         // reverses direction and rotation turns it. Translation does

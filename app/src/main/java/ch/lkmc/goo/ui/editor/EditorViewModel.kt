@@ -765,6 +765,14 @@ class EditorViewModel @Inject constructor(
         // Placement is not gated on a tool at all — Portals modifies
         // every brush, which is the whole argument for it.
         if (state.portalsOn && (state.portalA == null || state.portalB == null)) {
+            // Cleared on every path that leaves without starting a
+            // stroke, for the reason the echo offset a few lines down
+            // already is: "beginStroke always reassigns it first" is a
+            // caller contract, not an invariant of this class, and a
+            // stale shift surviving an aborted begin would only bite
+            // once that contract changed — by which time it silently
+            // twins a stroke through rings that are no longer there.
+            portalShiftLive = null
             plantPortal(u, v, aspect, state)
             return false
         }
@@ -785,6 +793,7 @@ class EditorViewModel @Inject constructor(
                 // thing that only bites once the calling convention
                 // changes, and by then it corrupts stamps silently.
                 echoDelta = null
+                portalShiftLive = null
                 _uiState.update { it.copy(echoAnchor = Pair(u, v)) }
                 return false
             }
