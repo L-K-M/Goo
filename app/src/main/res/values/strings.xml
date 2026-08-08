@@ -14,6 +14,9 @@
     <string name="home_subtagline">Squish, smear and stretch your photos\nlike wet paint.</string>
     <string name="home_enter_goo">GOO!</string>
     <string name="home_samples_label">No photo handy? Goo a sample:</string>
+    <!-- Secondary action under the GOO! dome. "Snap" rather than "Take a
+         photo" because the dome above it is already the long way in. -->
+    <string name="home_take_photo">Snap one now</string>
     <string name="sample_goo_guy">Sample: Goo Guy</string>
     <string name="sample_candy_blobs">Sample: Candy Blobs</string>
 

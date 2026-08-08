@@ -33,11 +33,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +55,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.foundation.layout.width
+import ch.lkmc.goo.data.CameraCapture
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -100,6 +106,34 @@ fun HomeScreen(
     val pickImage = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let(onOpenImage) }
+
+    // Snap a photo. The camera app does the capturing — Meltorama holds
+    // no camera permission and asks for none (see CameraCapture).
+    val context = LocalContext.current
+    val hasCamera = remember(context) { CameraCapture.isAvailable(context) }
+    // The URI has to survive the trip to the camera app and back, and the
+    // callback is handed only a success flag. Remembered rather than
+    // captured, or a process death mid-capture would return to a null.
+    var pendingCapture by rememberSaveable { mutableStateOf<Uri?>(null) }
+    // TakePicture is used as-is, with no subclass adding
+    // FLAG_GRANT_WRITE_URI_PERMISSION. That workaround is everywhere
+    // online and is obsolete here: androidx.activity 1.13.0's
+    // createIntent already calls addFlags(1) and addFlags(2) — read and
+    // write — which was checked against the bytecode rather than
+    // assumed, because whether the camera app can write to our URI is
+    // the difference between this feature working and silently
+    // returning an empty file on half the devices in the world.
+    val takePicture = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+    ) { saved ->
+        val uri = pendingCapture
+        pendingCapture = null
+        // False means cancelled or failed. The scratch file is left for
+        // CameraCapture's own sweep rather than deleted here: a camera
+        // app that reports failure after writing something is exactly
+        // the case this must not guess about.
+        if (saved && uri != null) onOpenImage(uri)
+    }
 
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // The editor writes projects behind this screen's back, so the shelf
@@ -236,6 +270,34 @@ fun HomeScreen(
                     size = 128.dp,
                     breathe = true,
                 )
+                // Secondary, and smaller, on purpose: the dome IS the
+                // screen's identity and the shortest path to gooing is
+                // still a photo you already have. Hidden entirely where
+                // nothing can answer the intent, rather than offered and
+                // then failing.
+                if (hasCamera) {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    TextButton(
+                        onClick = {
+                            val file = CameraCapture.nextFile(context)
+                            val uri = CameraCapture.uriFor(context, file)
+                            pendingCapture = uri
+                            takePicture.launch(uri)
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PhotoCamera,
+                            contentDescription = null,
+                            tint = NeonCyan,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.home_take_photo),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NeonCyan,
+                        )
+                    }
+                }
                 if (state.projects.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(32.dp))
                     Text(

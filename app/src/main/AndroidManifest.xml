@@ -2,9 +2,25 @@
 <!-- No permissions, deliberately: the app is fully offline (PLAN.md §5.2).
      Photos come in through the system Photo Picker (no storage permission)
      and go out through MediaStore inserts (no permission on API 29+; the
-     26-28 legacy save path is scoped to app-owned collections). -->
+     26-28 legacy save path is scoped to app-owned collections).
+
+     The camera is the same bargain. ACTION_IMAGE_CAPTURE hands the job to
+     whatever camera app the user already has, so Meltorama never touches
+     the camera and never asks for CAMERA. Declaring that permission would
+     make things WORSE, not better: Android then requires it to be granted
+     before the action will run at all. See CameraCapture. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Package visibility (API 30+), not a permission: without this the
+         camera intent cannot be RESOLVED, only launched, so the Snap
+         button could not be hidden on a device with no camera app and
+         would throw when tapped instead. -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
 
     <application
         android:name=".GooApp"
