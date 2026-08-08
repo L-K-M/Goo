@@ -36,6 +36,7 @@
     <string name="editor_undo">撤销</string>
     <string name="editor_redo">重做</string>
     <string name="editor_reset">重置黏糊</string>
+    <string name="editor_goo_me">给我来点黏糊 — 随机发一手</string>
     <string name="editor_reset_title">全部去黏？</string>
     <string name="editor_reset_body">照片会回到最初的样子。笔触可以撤销；效果推杆回到中间。</string>
     <string name="editor_reset_confirm">重置</string>
