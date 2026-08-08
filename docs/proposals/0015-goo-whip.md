@@ -1,6 +1,6 @@
 # 0015 — Goo Whip
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #27)
 - **Date:** 2026-08-07
 
 ## The pitch

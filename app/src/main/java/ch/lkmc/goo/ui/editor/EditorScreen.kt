@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
@@ -100,6 +101,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -121,6 +123,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
@@ -577,6 +580,11 @@ private fun WarpEditor(
                         // over a canvas that can't paint is a lie.
                         var stroking = outside <= viewModel.uiState.value.brushRadius &&
                             viewModel.beginStroke(u0, v0)
+                        // Whip needs the release velocity, and only the
+                        // platform tracker gets that right across event
+                        // batching and irregular sample timing.
+                        val velocity = VelocityTracker()
+                        velocity.addPosition(down.uptimeMillis, down.position)
                         down.consume()
                         val params = if (stroking) viewModel.liveStrokeParams() else null
                         var navigating = false
@@ -639,6 +647,16 @@ private fun WarpEditor(
                                 // discarding would snap pixels back and
                                 // need a rebuild. Undo covers regrets.
                                 if (stroking) {
+                                    // The flick's tail joins the stroke
+                                    // BEFORE it is committed, so the whole
+                                    // mark enters the document as one
+                                    // entry — one undo takes all of it,
+                                    // and a replay never has to know a
+                                    // velocity existed.
+                                    val whip = whipStamps(viewModel, velocity, view, fit)
+                                    if (whip.isNotEmpty() && params != null) {
+                                        surface?.engine { stampBatch(params, whip) }
+                                    }
                                     viewModel.endStroke()?.let { stroke ->
                                         // Feed the committed stroke to the
                                         // renderer's recovery snapshot (its
@@ -649,6 +667,10 @@ private fun WarpEditor(
                                 break
                             }
                             if (stroking && params != null) {
+                                change.historical.forEach { h ->
+                                    velocity.addPosition(h.uptimeMillis, h.position)
+                                }
+                                velocity.addPosition(change.uptimeMillis, change.position)
                                 // Historical samples first: fast flicks
                                 // batch several path points into one event,
                                 // and skipping them would leave gaps.
@@ -1338,6 +1360,30 @@ private data class CropAction(val rect: CropRect?)
 
 private const val DEGREES_TO_RADIANS = (Math.PI / 180.0).toFloat()
 
+/**
+ * Turn a tracked release velocity into a Whip tail (proposal 0015).
+ *
+ * The tracker measures view pixels per second; the engine wants image
+ * UV per second, so the vector goes back through the view's rotation and
+ * zoom (as a VECTOR — no translation) and then through the fitted photo
+ * rectangle. Zooming in therefore does not make flicks throw further:
+ * the same finger movement over the same photo content is the same whip.
+ */
+private fun whipStamps(
+    viewModel: EditorViewModel,
+    tracker: VelocityTracker,
+    view: ViewTransform,
+    fit: FitTransform,
+): List<Stamp> {
+    if (fit.fittedWidth <= 0f || fit.fittedHeight <= 0f) return emptyList()
+    val pixels = tracker.calculateVelocity()
+    val (canvasX, canvasY) = view.invertVector(pixels.x, pixels.y)
+    return viewModel.whipTail(
+        velU = canvasX / fit.fittedWidth,
+        velV = canvasY / fit.fittedHeight,
+    )
+}
+
 @StringRes
 private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.SMEAR -> R.string.tool_smear
@@ -1357,6 +1403,7 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.FAULT -> R.string.tool_fault
     BrushTool.ECHO -> R.string.tool_echo
     BrushTool.FREEZE -> R.string.tool_freeze
+    BrushTool.WHIP -> R.string.tool_whip
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -1377,6 +1424,7 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.FAULT -> Icons.Filled.CompareArrows
     BrushTool.ECHO -> Icons.Filled.ContentCopy
     BrushTool.FREEZE -> Icons.Filled.AcUnit
+    BrushTool.WHIP -> Icons.Filled.Bolt
 }
 
 /** Each tool wears its own tube of neon — families share a color. */
@@ -1401,6 +1449,7 @@ private fun BrushTool.neonColor(): Color = when (this) {
     // brake that looks like the accelerators is a brake nobody reaches
     // for.
     BrushTool.FREEZE -> NeonViolet
+    BrushTool.WHIP -> NeonTangerine
 }
 
 @Composable

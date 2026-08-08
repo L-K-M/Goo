@@ -42,6 +42,19 @@ data class ViewTransform(
     }
 
     /**
+     * [invert] for a VECTOR rather than a point — a velocity, a delta.
+     *
+     * Same rotation and scale, no translation: translating a difference
+     * would add the pan twice over, once through each endpoint. Whip's
+     * release velocity comes through here (proposal 0015).
+     */
+    fun invertVector(dx: Float, dy: Float): Pair<Float, Float> {
+        val c = cos(rotation)
+        val s = sin(rotation)
+        return Pair((c * dx + s * dy) / scale, (-s * dx + c * dy) / scale)
+    }
+
+    /**
      * One two-finger gesture step: pan by ([panX], [panY]), zoom by
      * [zoom] and rotate by [rotationDelta] about the view-space
      * [centroidX], [centroidY] — the standard formulation where the
