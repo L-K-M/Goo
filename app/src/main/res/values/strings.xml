@@ -186,6 +186,6 @@
     <string name="funhouse_size">Size</string>
     <string name="funhouse_hint">Drag to move · hold to throw away</string>
     <string name="lever_wobble">Wobble %1$s</string>
-    <string name="tool_freeze">Aspic</string>
+    <string name="tool_freeze">Freeze</string>
     <string name="tool_whip">Whip</string>
 </resources>
