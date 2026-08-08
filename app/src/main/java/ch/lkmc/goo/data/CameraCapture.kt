@@ -59,10 +59,19 @@ object CameraCapture {
      */
     fun isAvailable(context: Context): Boolean {
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        return intent.resolveActivity(context.packageManager) != null ||
-            context.packageManager
-                .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-                .isNotEmpty()
+        // One call, not two. This paired `queryIntentActivities` with an
+        // `Intent.resolveActivity` fallback, which cannot add anything:
+        // that method resolves with MATCH_DEFAULT_ONLY itself, so it
+        // returns non-null exactly when this list is non-empty. Belt and
+        // braces holding up the same trousers.
+        //
+        // (Not removed for being deprecated, which review suggested and
+        // which is not so — `Intent.resolveActivity(PackageManager)`
+        // carries no @Deprecated in the current SDK, and lint did not
+        // flag it. Removed for being redundant.)
+        return context.packageManager
+            .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            .isNotEmpty()
     }
 
     /**
