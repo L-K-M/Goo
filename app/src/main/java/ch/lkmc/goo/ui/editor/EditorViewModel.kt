@@ -28,6 +28,7 @@ import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.EchoOffset
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GlobalWobble
+import ch.lkmc.goo.engine.core.LeverWobble
 import ch.lkmc.goo.engine.core.GooMe
 import ch.lkmc.goo.engine.core.GooWhip
 import ch.lkmc.goo.engine.core.GoovieTimeline
@@ -1030,6 +1031,20 @@ class EditorViewModel @Inject constructor(
      * Set the modulation rig. Same rules as the levers it rides on:
      * document state, not history, and Reset stills it.
      */
+    /**
+     * Set one lever's modulation, against the rig as it stands NOW.
+     *
+     * Exists because the obvious `setWobble(state.wobble.with(i, w))` at
+     * the call site reads a composition snapshot: Zero-all writes six
+     * levers in a synchronous loop with no recomposition between them, so
+     * every call would apply its change to the SAME original rig and only
+     * the last would survive. The photo would keep breathing after the
+     * user asked it to stop.
+     */
+    fun setLeverWobble(index: Int, lever: LeverWobble) {
+        setWobble(_uiState.value.wobble.with(index, lever))
+    }
+
     fun setWobble(wobble: GlobalWobble) {
         goLive()
         val safe = wobble.sanitized()

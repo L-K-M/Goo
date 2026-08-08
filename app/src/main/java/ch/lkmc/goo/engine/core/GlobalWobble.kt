@@ -2,6 +2,9 @@ package ch.lkmc.goo.engine.core
 
 import kotlinx.serialization.Serializable
 import kotlin.math.sin
+// TAU is a package-level constant in DisplacementField.kt — same
+// package, so no import; named here because it is not obvious where a
+// bare TAU comes from.
 
 /**
  * One lever's modulation (proposal 0009).

@@ -946,7 +946,9 @@ private fun WarpEditor(
                     rates = GlobalWobble.ratesFor(
                         GlobalWobble.previewLoopSeconds(state.keyframes.size),
                     ),
-                    onWobble = { i, w -> viewModel.setWobble(state.wobble.with(i, w)) },
+                    // Not state.wobble.with(...): that snapshot is stale
+                    // the moment Zero-all writes more than one lever.
+                    onWobble = viewModel::setLeverWobble,
                 )
                 EditorPanel.GOOVIE -> GooviePanel(
                     keyframes = state.keyframes,

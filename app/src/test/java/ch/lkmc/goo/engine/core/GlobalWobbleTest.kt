@@ -107,11 +107,20 @@ class GlobalWobbleTest {
         // Phase comes from the frame index, never a wall clock, so an
         // export reproduces the preview exactly and two renders of one
         // document are identical.
+        //
+        // Compared across two INDEPENDENT rigs — one rebuilt from the
+        // other's saved pack — rather than a value against itself. The
+        // self-comparison was tautological for a pure function and would
+        // have survived a regression that made the result depend on
+        // instance identity, which is exactly the shape "reloaded the
+        // project and the movie renders differently" would take.
         val base = GlobalParams(bulge = 0.1f)
-        val w = rig(0 to 3)
+        val w = rig(0 to 3, 4 to 1)
+        val reloaded = GlobalWobble.unpack(w.pack())
+        assertEquals(w, reloaded)
         for (step in 0..50) {
             val p = step / 50f
-            assertEquals(leversAt(base, w, p), leversAt(base, w, p))
+            assertEquals(leversAt(base, w, p), leversAt(base, reloaded!!, p))
         }
     }
 
