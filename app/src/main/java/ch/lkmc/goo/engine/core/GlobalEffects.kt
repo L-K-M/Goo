@@ -174,7 +174,16 @@ object GlobalField {
         // document. Positions here are in the SAME aspect space as the
         // levers above, which is why the lens contribution can simply be
         // summed in before the one conversion back to UV.
-        for (lens in p.activeLenses()) {
+        // Iterated in place rather than through activeLenses(): this
+        // function is documented allocation-free and is evaluated per
+        // texel, so materializing a list here would allocate once per
+        // texel per stamp. The renderer still uses activeLenses(), where
+        // it costs one list per FRAME.
+        var placed = 0
+        for (lens in p.lenses) {
+            if (lens.isIdentity) continue
+            if (placed >= Lens.CAPACITY) break
+            placed++
             val lx = (u - lens.u) * aspect
             val ly = v - lens.v
             val d = sqrt(lx * lx + ly * ly)

@@ -142,6 +142,9 @@ fun FunhouseOverlay(
                                     return@withTimeoutOrNull Settle.MOVED
                                 }
                             }
+                            // Unreachable: the loop above only leaves by
+                            // returning. Present so the lambda has a
+                            // declared result type to infer from.
                             @Suppress("UNREACHABLE_CODE")
                             Settle.LIFTED
                         }
