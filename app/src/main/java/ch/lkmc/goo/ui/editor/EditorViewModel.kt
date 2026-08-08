@@ -1028,10 +1028,6 @@ class EditorViewModel @Inject constructor(
     // stroke-only. The screen syncs the renderer whenever they change.
 
     /**
-     * Set the modulation rig. Same rules as the levers it rides on:
-     * document state, not history, and Reset stills it.
-     */
-    /**
      * Set one lever's modulation, against the rig as it stands NOW.
      *
      * Exists because the obvious `setWobble(state.wobble.with(i, w))` at
@@ -1045,6 +1041,10 @@ class EditorViewModel @Inject constructor(
         setWobble(_uiState.value.wobble.with(index, lever))
     }
 
+    /**
+     * Set the modulation rig. Same rules as the levers it rides on:
+     * document state, not history, and Reset stills it.
+     */
     fun setWobble(wobble: GlobalWobble) {
         goLive()
         val safe = wobble.sanitized()

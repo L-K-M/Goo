@@ -173,6 +173,18 @@ class GlobalWobbleTest {
     }
 
     @Test
+    fun `three hertz exactly is offered, and is the most that ever is`() {
+        // WCAG 2.3.1 is "three flashes or below threshold" — three is
+        // allowed, so a one-second loop offers 3 and not 2. Pinned
+        // because the floor in maxSafeRate makes that a boundary the
+        // next person to touch this will want to know was deliberate.
+        assertEquals(3, GlobalWobble.maxSafeRate(1f))
+        assertEquals(3f, 3 / 1f)
+        // And just under a second cannot reach it.
+        assertEquals(2, GlobalWobble.maxSafeRate(0.99f))
+    }
+
+    @Test
     fun `a document that cannot loop offers nothing to wobble`() {
         // Fewer than two keyframes is not a loop, so there is nothing for
         // a cycle count to be measured against — and no safe cap either.
@@ -234,7 +246,7 @@ class GlobalWobbleTest {
         // sanitized() — a hand-edited project, say. A negative rate would
         // otherwise pass a "<= ceiling" test and reach the walk.
         val hostile = GlobalWobble(
-            listOf(LeverWobble(-5, 1f), LeverWobble(99, 1f)) + List(4) { LeverWobble() },
+            listOf(LeverWobble(-5, 1f), LeverWobble(99, 1f)) + List(GlobalWobble.SIZE - 2) { LeverWobble() },
         )
         val capped = hostile.cappedFor(MovieSpec.durationSeconds(4))
         for (lever in capped.levers) {

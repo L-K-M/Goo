@@ -949,6 +949,7 @@ private fun WarpEditor(
                     // Not state.wobble.with(...): that snapshot is stale
                     // the moment Zero-all writes more than one lever.
                     onWobble = viewModel::setLeverWobble,
+                    onStillAll = { viewModel.setWobble(GlobalWobble()) },
                 )
                 EditorPanel.GOOVIE -> GooviePanel(
                     keyframes = state.keyframes,

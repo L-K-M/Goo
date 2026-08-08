@@ -62,6 +62,8 @@ fun LeversPanel(
      */
     rates: List<Int>,
     onWobble: (index: Int, LeverWobble) -> Unit,
+    /** Still every lever at once — one write, not six. */
+    onStillAll: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -99,7 +101,10 @@ fun LeversPanel(
                     onChange(GlobalParams())
                     // Zero all means still, too: a panel that reads all
                     // centred while the picture keeps breathing is a lie.
-                    for (i in 0 until GlobalWobble.SIZE) onWobble(i, LeverWobble())
+                    // One call rather than six — the loop it replaces ran
+                    // a full document write, renderer push and saved-state
+                    // serialization per lever for what is one reset.
+                    onStillAll()
                 },
             ) { Text(stringResource(R.string.lever_zero_all)) }
         }
