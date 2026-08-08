@@ -164,11 +164,17 @@ class RewindTest {
 
     @Test
     fun `a saved project keeps the target even after the keyframe is gone`() {
-        // THE test for this feature. While the keyframe exists it pins
-        // the target anyway, so a snapshot that only walked history and
-        // pins would look correct in every session where the user did
-        // not delete the frame they painted from — and would silently
-        // write an unreplayable file the moment they did.
+        // Round-tripping a Rewind stroke with its target present, and
+        // NOT the retention walk — the target here is still on the
+        // history parent chain, so this passes even with target
+        // following removed entirely.
+        //
+        // It said "THE test for this feature" until review pointed out
+        // that it cannot fail for the reason it claimed. That is the
+        // same defect shape this file warns about elsewhere: a check
+        // that reads as coverage and is not. The retention walk is
+        // covered by the two tests below, where the target sits off the
+        // history chain.
         val (log, pinned) = log()
         log.push(stroke(BrushTool.SMEAR).copy(stamps = listOf(center)))
         log.push(
