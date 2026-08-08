@@ -49,9 +49,10 @@ internal fun signOrPositive(x: Float): Float = if (x < 0f) -1f else 1f
  * produces the difference from `D + b` is second-order, but warp-of-warp
  * keeps long strokes from drifting off their own trail.
  *
- * Grid layout: [width]×[height] texels, three floats each (dx, dy in UV
- * units, then the Fusion mask m in [0,1] — the GL side stores it in the
- * field texture's z channel), row-major, texel (ix, iy) centered at UV
+ * Grid layout: [width]×[height] texels, four floats each (dx, dy in UV
+ * units, the Fusion mask m in [0,1], then the Freeze mask in [0,1] —
+ * the GL side stores those in the field texture's z and w channels),
+ * row-major, texel (ix, iy) centered at UV
  * `((ix+0.5)/width, (iy+0.5)/height)`.
  */
 class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
@@ -68,6 +69,19 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
 
     /** Bilinearly sampled Fusion mask at UV (u, v). */
     fun sampleMask(u: Float, v: Float): Float = sample(u, v, 2)
+
+    /**
+     * Bilinearly sampled Freeze mask at UV (u, v) — 0 free, 1 pinned
+     * (proposal 0002).
+     *
+     * Unlike the Fusion mask, this one is read in DOCUMENT space and
+     * never through the warp-of-warp lookup. "This eye stays here" is a
+     * statement about the document, and a protection that travelled with
+     * the content it is simultaneously preventing from travelling would
+     * be incoherent. It also matches Liquify's image-space mask, which
+     * is what anyone arriving from there expects.
+     */
+    fun sampleFreeze(u: Float, v: Float): Float = sample(u, v, 3)
 
     /**
      * Where the pixel shown at (u, v) is fetched from: `p + D(p)` — the
@@ -106,7 +120,16 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                 }
                 val distA = sqrt(du * du + mv * mv)
                 val dist = distA / stroke.radius
-                val w = BrushFalloff.weight(dist, profile) * stroke.strength
+                // The varnish (proposal 0002): a protect mask is a
+                // multiplier on stamp weight, which is what makes one new
+                // mode aim every brush in the palette — present and
+                // future — without touching any of them.
+                val guard = if (mode.respectsFreeze) {
+                    1f - sampleFreeze(u, v).coerceIn(0f, 1f)
+                } else {
+                    1f
+                }
+                val w = BrushFalloff.weight(dist, profile) * stroke.strength * guard
                 // The radial direction is measured on the TRUE offset,
                 // not the anisotropic metric — only the weight is
                 // reshaped. (DRIP only ever pairs with DIRECTIONAL, so
@@ -119,6 +142,20 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         out[i] = at(ix, iy, 0)
                         out[i + 1] = at(ix, iy, 1)
                         out[i + 2] = (at(ix, iy, 2) + w * BrushDynamics.FUSE_STEP)
+                            .coerceIn(0f, 1f)
+                        out[i + 3] = at(ix, iy, 3)
+                    }
+
+                    StampMode.GUARD -> {
+                        // Varnish flow only — the same trick FUSE pulls on
+                        // the z channel, run again on w. Deliberately NOT
+                        // subject to `guard` above: a brake that brakes
+                        // itself makes a fully varnished region reachable
+                        // by nothing but a global Reset.
+                        out[i] = at(ix, iy, 0)
+                        out[i + 1] = at(ix, iy, 1)
+                        out[i + 2] = at(ix, iy, 2)
+                        out[i + 3] = (at(ix, iy, 3) + w * BrushDynamics.FREEZE_STEP)
                             .coerceIn(0f, 1f)
                     }
 
@@ -229,6 +266,9 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         out[i] = bx + sampleX(u + bx, v + by)
                         out[i + 1] = by + sampleY(u + bx, v + by)
                         out[i + 2] = sampleMask(u + bx, v + by)
+                        // The varnish does NOT ride the lookup: it is
+                        // pinned to the document, not to the content.
+                        out[i + 3] = at(ix, iy, 3)
                     }
 
                     StampMode.RELAX -> {
@@ -247,14 +287,21 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         out[i] = at(ix, iy, 0) + (blurX - at(ix, iy, 0)) * k
                         out[i + 1] = at(ix, iy, 1) + (blurY - at(ix, iy, 1)) * k
                         out[i + 2] = at(ix, iy, 2) + (blurM - at(ix, iy, 2)) * k
+                        // Smoothing the goo must not erode the varnish.
+                        out[i + 3] = at(ix, iy, 3)
                     }
 
                     StampMode.ERASE -> {
-                        // UnGoo un-fuses too: everything back to photo A.
+                        // UnGoo un-fuses AND thaws: every channel back to
+                        // the bare photo. Exempt from `guard` for the same
+                        // reason GUARD is — otherwise varnish would be the
+                        // one mark in the app that cannot be taken back
+                        // except by Reset.
                         val k = 1f - w * BrushDynamics.BLEND_STEP
                         out[i] = at(ix, iy, 0) * k
                         out[i + 1] = at(ix, iy, 1) * k
                         out[i + 2] = at(ix, iy, 2) * k
+                        out[i + 3] = at(ix, iy, 3) * k
                     }
                 }
                 i += CHANNELS
@@ -293,7 +340,14 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
         data[(iy * width + ix) * CHANNELS + channel]
 
     companion object {
-        /** dx, dy, fusion mask. */
-        const val CHANNELS = 3
+        /**
+         * dx, dy, fusion mask, freeze mask.
+         *
+         * This is the last one. The GL field is RGBA16F, so w was already
+         * allocated on every device and Freeze cost zero bytes — but the
+         * next per-texel quantity needs a second texture and doubles the
+         * ping-pong pair.
+         */
+        const val CHANNELS = 4
     }
 }

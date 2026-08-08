@@ -106,6 +106,7 @@ class GlWarpRenderer(
     private var uAspect = 0
     private var uMode = 0
     private var uProfile = 0
+    private var uGuarded = 0
     private var uFieldTexel = 0
     private var uImage = 0
     private var uFieldWarp = 0
@@ -117,6 +118,7 @@ class GlWarpRenderer(
     private var uLens = 0
     private var uLensType = 0
     private var uLensCount = 0
+    private var uShowFreeze = 0
     private var uFieldB = 0
     private var uTween = 0
     private var uImageB = 0
@@ -129,6 +131,9 @@ class GlWarpRenderer(
 
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
+
+    /** Whether the preview should show the frost sheen (Freeze armed). */
+    private var showFreezeMask = false
 
     /** The editor's pan/zoom/rotate; preview-only (export/movie identity). */
     private var viewTransform = ViewTransform()
@@ -175,6 +180,14 @@ class GlWarpRenderer(
      */
     fun setGlobalParams(params: GlobalParams) {
         globalParams = params
+    }
+
+    /**
+     * Show or hide the frost sheen over frozen regions. Preview chrome,
+     * never document: no export path reads it.
+     */
+    fun setShowFreezeMask(show: Boolean) {
+        showFreezeMask = show
     }
 
     /** Update the preview's view transform. GL-thread command; uniforms only. */
@@ -232,6 +245,9 @@ class GlWarpRenderer(
         GLES30.glUniform1f(uAspect, imageAspect)
         GLES30.glUniform1i(uMode, stroke.tool.mode.shaderId)
         GLES30.glUniform1i(uProfile, stroke.tool.profile.shaderId)
+        // The varnish brakes every mode but the two that apply and
+        // remove it (StampMode.respectsFreeze).
+        GLES30.glUniform1i(uGuarded, if (stroke.tool.mode.respectsFreeze) 1 else 0)
         GLES30.glUniform2f(uFieldTexel, 1f / target.width, 1f / target.height)
         GLES30.glUniform1i(uField, 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -750,6 +766,7 @@ class GlWarpRenderer(
             uAspect = it.uniform("u_aspect")
             uMode = it.uniform("u_mode")
             uProfile = it.uniform("u_profile")
+            uGuarded = it.uniform("u_guarded")
             uFieldTexel = it.uniform("u_fieldTexel")
         }
         warpProgram = GlProgram(GlShaders.WARP_VERT, GlShaders.WARP_FRAG).also {
@@ -763,6 +780,7 @@ class GlWarpRenderer(
             uLens = it.uniform("u_lens")
             uLensType = it.uniform("u_lensType")
             uLensCount = it.uniform("u_lensCount")
+            uShowFreeze = it.uniform("u_showFreeze")
             uFieldB = it.uniform("u_fieldB")
             uTween = it.uniform("u_tween")
             uImageB = it.uniform("u_imageB")
@@ -843,6 +861,9 @@ class GlWarpRenderer(
             // of showing the table. Preview only — export/movie composite
             // onto their own cleared/overwritten buffers.
             blend = true,
+            // Preview only, and only while the tool is armed: the mask is
+            // something to see while painting it, not part of the picture.
+            showFreeze = showFreezeMask,
         )
     }
 
@@ -873,6 +894,12 @@ class GlWarpRenderer(
         globals: GlobalParams,
         imageAspect: Float,
         blend: Boolean,
+        /**
+         * Light the frost sheen over the freeze mask. Defaults OFF, so a
+         * path that does not mention it cannot render chrome into a
+         * saved picture — the two export paths rely on exactly that.
+         */
+        showFreeze: Boolean = false,
     ) {
         program.use()
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
@@ -890,6 +917,7 @@ class GlWarpRenderer(
         GLES30.glUniform1f(uGAspect, imageAspect)
         GLES30.glUniform1fv(uGlobals, 6, globals.toArray(), 0)
         uploadLenses(globals)
+        GLES30.glUniform1f(uShowFreeze, if (showFreeze) 1f else 0f)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, imageTex)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
