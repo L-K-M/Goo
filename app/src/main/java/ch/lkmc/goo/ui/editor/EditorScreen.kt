@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Dehaze
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Details
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.HideImage
@@ -852,6 +853,7 @@ private fun WarpEditor(
                     exportProgress = state.movieProgress,
                     onCapture = viewModel::captureKeyframe,
                     onRepunch = viewModel::repunchSelectedKeyframe,
+                    onCycleEasing = viewModel::cycleSelectedEasing,
                     onSelect = viewModel::selectKeyframe,
                     onDelete = viewModel::deleteSelectedKeyframe,
                     onMove = viewModel::moveSelectedKeyframe,
@@ -876,7 +878,9 @@ private fun WarpEditor(
                         0
                     },
                     onToolChange = viewModel::setTool,
+                    sectors = state.sectors,
                     onMirrorToggle = viewModel::toggleMirror,
+                    onCycleSectors = viewModel::cycleSectors,
                     onRadiusChange = viewModel::setBrushRadius,
                     onStrengthChange = viewModel::setBrushStrength,
                     onAdjustingChange = { adjustingBrush = it },
@@ -1110,6 +1114,7 @@ private fun TopRail(
 private fun BrushRail(
     tool: BrushTool,
     mirrored: Boolean,
+    sectors: Int,
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,
@@ -1119,6 +1124,7 @@ private fun BrushRail(
     updateKeyframe: Int,
     onToolChange: (BrushTool) -> Unit,
     onMirrorToggle: () -> Unit,
+    onCycleSectors: () -> Unit,
     onRadiusChange: (Float) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onPunch: () -> Unit,
@@ -1163,6 +1169,20 @@ private fun BrushRail(
                 color = NeonViolet,
                 selected = mirrored,
                 onClick = onMirrorToggle,
+            )
+            // The kaleidoscope dial sits beside Mirror because the two
+            // compose: sectors alone give a pinwheel, sectors with Mirror
+            // give the mirror lines a real kaleidoscope has.
+            ChromeToolChip(
+                icon = Icons.Filled.Details,
+                label = if (sectors > 1) {
+                    stringResource(R.string.tool_sectors_count, sectors)
+                } else {
+                    stringResource(R.string.tool_sectors)
+                },
+                color = NeonTangerine,
+                selected = sectors > 1,
+                onClick = onCycleSectors,
             )
             // The KPT loop is goo → punch → goo → punch; punching never
             // needed the strip open (pins are stroke counts, safe to grab

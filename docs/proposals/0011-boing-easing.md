@@ -1,6 +1,6 @@
 # 0011 — Boing (tween easing)
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #22)
 - **Date:** 2026-08-07
 
 **One-liner.** Give each GOOvie segment an easing curve — including one

@@ -31,6 +31,14 @@ data class Keyframe(
     /** The immutable document revision this pin replays. */
     val revision: StrokeRevision,
     val globals: GlobalParams,
+    /**
+     * How the segment LEAVING this pin moves (proposal 0011). Belongs to
+     * the keyframe rather than to a separate segment list because a
+     * segment has no identity of its own — reordering the strip reorders
+     * the pins, and the curve should travel with the pose it leaves.
+     * The last keyframe's easing is unused, since nothing leaves it.
+     */
+    val easing: Easing = Easing.DEFAULT,
 ) {
     val revisionId: StrokeRevisionId
         get() = revision.id

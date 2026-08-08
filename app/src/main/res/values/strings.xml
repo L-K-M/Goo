@@ -79,6 +79,8 @@
     <string name="fusion_remove_photo">Remove photo</string>
     <string name="fusion_loading_photo">Melting the new Fusion photo into place…</string>
     <string name="tool_mirror">Mirror</string>
+    <string name="tool_sectors">Kaleido</string>
+    <string name="tool_sectors_count">Kaleido ×%1$d</string>
 
     <string name="editor_levers">Global effects</string>
     <string name="editor_hint_smear">Drag on the photo to goo it</string>
@@ -99,6 +101,9 @@
     <string name="goovie_play">Play</string>
     <string name="goovie_pause">Pause</string>
     <string name="goovie_delete">Delete keyframe</string>
+    <string name="goovie_easing_linear">Steady</string>
+    <string name="goovie_easing_ease">Ease</string>
+    <string name="goovie_easing_boing">Boing</string>
     <string name="goovie_move_earlier">Move keyframe earlier</string>
     <string name="goovie_move_later">Move keyframe later</string>
     <string name="goovie_update">Update this keyframe</string>

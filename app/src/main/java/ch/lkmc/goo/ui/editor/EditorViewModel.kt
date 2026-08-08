@@ -23,9 +23,12 @@ import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.EchoOffset
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GoovieTimeline
+import ch.lkmc.goo.engine.core.leverProgress
+import ch.lkmc.goo.engine.core.tweenProgress
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
@@ -35,6 +38,7 @@ import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
 import ch.lkmc.goo.engine.core.StrokeResampler
+import ch.lkmc.goo.engine.core.Symmetry
 import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
@@ -111,6 +115,12 @@ class EditorViewModel @Inject constructor(
         val brushStrength: Float = DEFAULT_STRENGTH,
         /** Mirror toggle: every stamp gets a vertically reflected twin. */
         val mirrored: Boolean = false,
+        /**
+         * Kaleidoscope dial: every stamp is fanned into this many copies
+         * rotated about the image center. 1 = off. Composes with
+         * [mirrored] rather than replacing it (see [Symmetry]).
+         */
+        val sectors: Int = 1,
         /**
          * Echo's source anchor in image UV, or null when none is
          * planted. With Echo selected and no anchor, the next touch
@@ -338,6 +348,10 @@ class EditorViewModel @Inject constructor(
     private var pumpPoint: Pair<Float, Float>? = null
     private var mirrorLive = false
 
+    /** Symmetry dial and image aspect, frozen for the live stroke. */
+    private var sectorsLive = 1
+    private var aspectLive = 1f
+
     /** Echo's constant per-stroke delta; null for every other tool. */
     private var echoDelta: Pair<Float, Float>? = null
 
@@ -472,7 +486,9 @@ class EditorViewModel @Inject constructor(
             // only a corrupt file can get here, since snapshot() writes
             // every pinned revision.
             .mapNotNull { record ->
-                table[StrokeRevisionId(record.revision)]?.let { Keyframe(it, record.globals) }
+                table[StrokeRevisionId(record.revision)]?.let {
+                    Keyframe(it, record.globals, record.easing)
+                }
             }
             .take(MAX_KEYFRAMES)
         savedStateHandle[KEY_GLOBALS] = document.globals.toArray()
@@ -724,6 +740,8 @@ class EditorViewModel @Inject constructor(
         val radius = state.brushRadius
         val tool = state.tool
         mirrorLive = state.mirrored
+        sectorsLive = state.sectors
+        aspectLive = aspect
         liveParams = Stroke(
             tool = tool,
             radius = radius,
@@ -775,14 +793,21 @@ class EditorViewModel @Inject constructor(
         val tool = liveParams?.tool ?: return emptyList()
         // Echo overrides the resampler's drag deltas with one constant
         // offset, which is what makes the graft a rigid translation of
-        // the source region instead of a smear (see EchoOffset).
+        // the source region instead of a smear (see EchoOffset). It runs
+        // BEFORE symmetry on purpose: the fan rotates whatever delta a
+        // stamp carries, so each sector's copy clones from the rotated
+        // offset — a kaleidoscope OF the graft, rather than one graft
+        // repeated at rotated positions.
         val stamps = echoDelta?.let { (dx, dy) ->
             fresh.map { it.copy(dx = dx, dy = dy) }
         } ?: fresh
-        val batch = if (mirrorLive) {
-            stamps.flatMap { listOf(it, tool.mirrorStamp(it)) }
-        } else {
+        // Symmetry copies are produced HERE, so everything downstream
+        // sees an ordinary stroke: the log, undo, export replay and
+        // GOOvie caches need no symmetry logic and no format change.
+        val batch = if (sectorsLive <= 1 && !mirrorLive) {
             stamps
+        } else {
+            stamps.flatMap { Symmetry.family(tool, it, aspectLive, sectorsLive, mirrorLive) }
         }
         liveStamps.addAll(batch)
         return batch
@@ -867,6 +892,16 @@ class EditorViewModel @Inject constructor(
 
     fun toggleMirror() {
         _uiState.update { it.copy(mirrored = !it.mirrored) }
+    }
+
+    /** Step the kaleidoscope dial to the next sector count, wrapping. */
+    fun cycleSectors() {
+        _uiState.update {
+            val next = Symmetry.SECTORS.indexOf(it.sectors).let { i ->
+                Symmetry.SECTORS[(i + 1) % Symmetry.SECTORS.size]
+            }
+            it.copy(sectors = next)
+        }
     }
 
     // ---- History -------------------------------------------------------
@@ -1018,7 +1053,14 @@ class EditorViewModel @Inject constructor(
             val i = s.selectedKeyframe
             if (i !in s.keyframes.indices) return@update s
             val list = s.keyframes.toMutableList().apply {
-                this[i] = Keyframe(revision = log.currentRevision, globals = s.globals)
+                // Keep the segment's curve: Update re-pins the POSE, and
+                // the easing is a property of the timing that leaves this
+                // keyframe, not of what it holds.
+                this[i] = Keyframe(
+                    revision = log.currentRevision,
+                    globals = s.globals,
+                    easing = this[i].easing,
+                )
             }
             s.copy(
                 keyframes = list,
@@ -1027,6 +1069,21 @@ class EditorViewModel @Inject constructor(
                 // Same as a punch: the pin now matches what's on screen.
                 goovieLive = false,
             )
+        }
+    }
+
+    /**
+     * Step the selected keyframe's outgoing segment to the next curve.
+     * A no-op on the last keyframe, where nothing leaves.
+     */
+    fun cycleSelectedEasing() {
+        _uiState.update { s ->
+            val i = s.selectedKeyframe
+            if (i !in s.keyframes.indices || i == s.keyframes.lastIndex) return@update s
+            val list = s.keyframes.toMutableList()
+            val next = Easing.entries[(list[i].easing.ordinal + 1) % Easing.entries.size]
+            list[i] = list[i].copy(easing = next)
+            s.copy(keyframes = list)
         }
     }
 
@@ -1232,13 +1289,24 @@ class EditorViewModel @Inject constructor(
         val t = GoovieTimeline.fraction(s.scrubPos, size)
         val a = s.keyframes[k]
         val b = s.keyframes[k + 1]
-        // Straight from the pins: the log's current cursor is irrelevant
-        // to what the strip shows.
+        // The segment's curve applies to the SCRUB as well as to
+        // playback, deliberately. Proposal 0011 wanted the scrub left
+        // linear so the handle "goes where the finger goes" — it still
+        // does, since the handle sets the segment's PROGRESS. What the
+        // curve changes is which frame that progress shows, and a scrub
+        // that disagreed with the export would be a preview that lies
+        // about the movie, which is the class of bug SOL-2 is about.
+        val curve = a.easing
+        val tween = tweenProgress(t, curve)
+        // Levers clamp: running their lerp past 1 would push a lever
+        // outside [-1, 1], where the analytic warps were never
+        // characterized. The field's overshoot is the effect; a lever's
+        // is undefined behaviour.
         return TweenRequest(
             revisionA = a.revision,
             revisionB = b.revision,
-            t = t,
-            lerpedGlobals = a.globals.lerp(b.globals, t),
+            t = tween,
+            lerpedGlobals = a.globals.lerp(b.globals, leverProgress(t, curve)),
         )
     }
 
@@ -1366,7 +1434,7 @@ class EditorViewModel @Inject constructor(
             // The pins ride along as extra roots: a keyframe can hold a
             // revision the history has truncated, and it has to reach disk.
             log = log.snapshot(pins = keyframes.map { it.revision }),
-            keyframes = keyframes.map { KeyframeRecord(it.revisionId.value, it.globals) },
+            keyframes = keyframes.map { KeyframeRecord(it.revisionId.value, it.globals, it.easing) },
         )
         // Snapshotted here, not read back at completion: this is the state
         // being written, and nothing later may claim more than that was.
