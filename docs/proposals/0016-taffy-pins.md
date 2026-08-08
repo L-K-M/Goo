@@ -1,6 +1,7 @@
 # 0016 — Taffy Pins
 
-- **Status:** proposed
+- **Status:** prototyped — solver built and measured (ADR 0004); the
+  document-model expansion and the 60 fps gate remain open
 - **Date:** 2026-08-07
 
 ## The pitch
