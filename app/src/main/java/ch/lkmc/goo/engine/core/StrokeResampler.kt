@@ -64,7 +64,7 @@ class StrokeResampler(
         // into more pieces rather than adding any. It only starts sooner.
         //
         // Fixed distance rather than a fraction of the radius, so a fat
-        // brush is as responsive as a thin one — with a floor at the
+        // brush is as responsive as a thin one — CAPPED at the
         // steady-state spacing, since a very small brush should never
         // wait LONGER for its first stamp than for its second.
         toNext = minOf(spacingFraction * radius, FIRST_TRAVEL)

@@ -90,7 +90,7 @@ class StrokeResamplerTest {
 
     @Test
     fun `a tiny brush never waits longer for its first stamp than its second`() {
-        // The min() floor. A brush small enough that its spacing is
+        // The min() cap. A brush small enough that its spacing is
         // under FIRST_TRAVEL must not have its first stamp arrive after
         // its second would have.
         val tiny = 0.004f
