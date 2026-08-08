@@ -253,15 +253,23 @@ class StrokeLog {
         // the keyframe still exists it pins the target anyway — and
         // appears only after the user deletes the keyframe they painted
         // from. That is the shape of defect that ships.
-        val roots = ArrayDeque<StrokeRevision>(history + pins)
+        val roots = ArrayDeque<StrokeRevision>(history + pins + referenced.values)
         // Every revision, by id, so a target can be resolved to the
-        // object. The parent chains being walked already contain every
-        // revision any target can name (targets point strictly
-        // backwards), but a target may sit on a chain not yet walked, so
-        // the index has to come from the whole log rather than from what
-        // the walk has seen so far.
+        // object.
+        //
+        // [referenced] is in the seed, and that is the whole point:
+        // backwards-pointing in ID is NOT the same as being an ANCESTOR,
+        // and this walk climbs parents. Undo past a keyframe and push
+        // something else and the pinned revision becomes a SIBLING
+        // BRANCH — smaller id, on nobody's parent chain, reachable only
+        // through the stroke that names it. An earlier version of this
+        // comment asserted the opposite and was wrong.
+        //
+        // The consequence of getting it wrong is not a degraded picture:
+        // [restore] refuses a file whose target is missing, so the
+        // project stops opening at all.
         val byId = HashMap<Long, StrokeRevision>()
-        for (root in history + pins) {
+        for (root in history + pins + referenced.values) {
             var revision: StrokeRevision? = root
             while (revision != null && byId.put(revision.id.value, revision) == null) {
                 revision = revision.stateParent

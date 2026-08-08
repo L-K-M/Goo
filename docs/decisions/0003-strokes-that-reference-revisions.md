@@ -57,15 +57,26 @@ Replay termination depends on it.
 
 **2. A reference is a retention root.** `StrokeLog.snapshot` used to walk
 `history + pins` and their parent chains. A target is neither a parent
-nor a pin, so a naive save would drop the very revision a Chrono stroke
-needs and produce a file that loads but cannot replay. The walk now
-treats every referenced revision as a root as well, transitively — a
-target's own strokes may themselves be Chrono strokes.
+nor a pin, so a naive save would drop the very revision a Rewind stroke
+needs. The walk now treats every referenced revision as a root as well,
+transitively — a target's own strokes may themselves be Rewind strokes.
 
 This is the sharpest edge in the whole change, and it is invisible in
 the common case: while the keyframe still exists it pins the target
 anyway, so the bug only appears after the user deletes the keyframe they
 painted from. That is exactly the shape of defect that ships.
+
+It has a second edge that the first draft of this ADR — and the code
+written from it — both got wrong. "References point strictly backwards"
+means the target's **id** is smaller. It does **not** mean the target is
+an **ancestor**. Undo past a keyframe and push something else, and the
+pinned revision becomes a sibling branch: smaller id, on nobody's parent
+chain, reachable only through the stroke that names it. So the walk is
+seeded from the retention map itself, not merely from history and pins.
+
+And the failure is not a degraded picture. `restore` refuses a file
+whose target is missing, so a dropped target means the project stops
+opening — data loss, from a save that reported success.
 
 **3. The pin and the stroke are independent references to one immutable
 revision.** Deleting a keyframe does not invalidate a Chrono stroke that

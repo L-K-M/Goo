@@ -55,6 +55,11 @@ that is precisely what scrubbing a tween does.
 
 ## How it works in this engine
 
+> **Superseded on one detail:** shaderId 6 became `VORTEX` while this
+> proposal sat unimplemented. `RECALL` took 11. See ADR 0003, "Note on
+> the proposal's shader id" — these ids are the wire format the shader
+> reads, so the number below is the wrong one to copy.
+
 **The kernel.** A new `StampMode.RECALL` (shaderId 6). Its branch is
 RELAX's with the four-tap blur replaced by a single read from a second
 field sampler:

@@ -61,6 +61,10 @@ class RewindTest {
 
     @Test
     fun `holding converges on the target`() {
+        // 80 stamps converge because (1 - BLEND_STEP)^80 is ~2e-9 at
+        // today's 0.22. The count is coupled to that constant: below
+        // about 0.076 this starts failing, and the connection to
+        // whatever change broke it would not be obvious.
         val f = field()
         val target = pushed()
         repeat(80) { f.applyStamp(stroke(BrushTool.REWIND, target = 1L), center, target) }
@@ -176,6 +180,60 @@ class RewindTest {
         assertTrue(
             snap.revisions.any { it.id == pinned.id.value },
             "the target must be in the file even with no keyframe pinning it",
+        )
+        assertNotNull(StrokeLog().restore(snap))
+    }
+
+    @Test
+    fun `a target on a branch that was undone away still survives a save`() {
+        // Backwards-pointing in ID is NOT the same as being an ANCESTOR,
+        // and the snapshot walk climbs parents. Undo past a keyframe and
+        // push something else, and the pinned revision becomes a sibling
+        // branch: smaller id, on nobody's parent chain.
+        val log = StrokeLog()
+        log.push(stroke(BrushTool.SMEAR).copy(stamps = listOf(center)))
+        log.push(stroke(BrushTool.SMEAR).copy(stamps = listOf(center)))
+        val pinned = log.currentRevision
+        log.undo()
+        // Truncates the branch `pinned` is on.
+        log.push(stroke(BrushTool.SMEAR).copy(stamps = listOf(center)))
+        log.push(
+            stroke(BrushTool.REWIND, target = pinned.id.value).copy(stamps = listOf(center)),
+            pinned,
+        )
+        // Keyframe deleted: nothing pins it any more except the stroke.
+        val snap = log.snapshot()
+        assertTrue(
+            snap.revisions.any { it.id == pinned.id.value },
+            "a target on a truncated branch must still reach the file",
+        )
+        // The consequence if it does not: restore refuses the whole
+        // document, so the project stops opening at all. Dropping the
+        // target is not a degraded picture, it is data loss.
+        assertNotNull(StrokeLog().restore(snap), "the saved file must load back")
+    }
+
+    @Test
+    fun `a transitive target chain survives a save`() {
+        // ADR 0003 says the walk follows targets TRANSITIVELY, because a
+        // target's own strokes may themselves be Rewinds. A one-level
+        // walk passes every other retention test here.
+        val (log, pinned) = log()
+        log.push(
+            stroke(BrushTool.REWIND, target = pinned.id.value).copy(stamps = listOf(center)),
+            pinned,
+        )
+        val mid = log.currentRevision
+        log.undo()
+        log.push(stroke(BrushTool.SMEAR).copy(stamps = listOf(center)))
+        log.push(
+            stroke(BrushTool.REWIND, target = mid.id.value).copy(stamps = listOf(center)),
+            mid,
+        )
+        val snap = log.snapshot()
+        assertTrue(
+            snap.revisions.any { it.id == pinned.id.value },
+            "the ROOT of a target chain must survive, not just the near end",
         )
         assertNotNull(StrokeLog().restore(snap))
     }
