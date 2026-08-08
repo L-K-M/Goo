@@ -126,6 +126,14 @@ fun FunhouseOverlay(
                     var moved = false
                     var lifted = false
                     var removed = false
+                    // A pointer can leave without a final pressed=false
+                    // change of its own — the system takes the gesture
+                    // away, or the window loses it. Both loops below wait
+                    // on the tracked id, so that has to be an exit and
+                    // not just a `continue`, and it has to be a different
+                    // exit from a lift: a gesture that was taken away is
+                    // not a tap, and must not place or cycle anything.
+                    var cancelled = false
 
                     // The long press has to race a CLOCK, not the pointer
                     // stream. A finger held perfectly still delivers no
@@ -135,9 +143,20 @@ fun FunhouseOverlay(
                     if (hit != null) {
                         val settled = withTimeoutOrNull(LONG_PRESS_MS) {
                             while (true) {
-                                val change = awaitPointerEvent().changes
+                                val event = awaitPointerEvent()
+                                val change = event.changes
                                     .firstOrNull { it.id == pointer }
-                                    ?: continue
+                                if (change == null) {
+                                    // Nothing is down and our pointer is
+                                    // gone: it was cancelled. Leaving this
+                                    // to the clock would run the long
+                                    // press out and throw away a lens
+                                    // nobody actually held.
+                                    if (event.changes.none { it.pressed }) {
+                                        return@withTimeoutOrNull Settle.CANCELLED
+                                    }
+                                    continue
+                                }
                                 if (!change.pressed) {
                                     change.consume()
                                     return@withTimeoutOrNull Settle.LIFTED
@@ -170,6 +189,10 @@ fun FunhouseOverlay(
                             }
                             Settle.MOVED -> moved = true
                             Settle.LIFTED -> lifted = true
+                            Settle.CANCELLED -> {
+                                lifted = true
+                                cancelled = true
+                            }
                         }
                     }
 
@@ -178,9 +201,21 @@ fun FunhouseOverlay(
                     // still down, and anything left unconsumed reaches the
                     // pan/zoom handler underneath as a stray gesture.
                     while (!lifted) {
-                        val change = awaitPointerEvent().changes
-                            .firstOrNull { it.id == pointer }
-                            ?: continue
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointer }
+                        if (change == null) {
+                            // Same escape as above, and load-bearing here:
+                            // this loop has no clock to fall back on, so
+                            // without it a cancelled pointer would leave
+                            // the gesture parked awaiting a finger that is
+                            // never coming back, and awaitEachGesture
+                            // would not start the next one.
+                            if (event.changes.none { it.pressed }) {
+                                cancelled = true
+                                break
+                            }
+                            continue
+                        }
                         change.consume()
                         if (!change.pressed) break
                         if (removed) continue
@@ -189,7 +224,7 @@ fun FunhouseOverlay(
                         if (moved && hit != null) onMove(hit, u - grabU, v - grabV)
                     }
 
-                    if (!moved && !removed) {
+                    if (!moved && !removed && !cancelled) {
                         when (hit) {
                             // A tap on the lens you are already holding is
                             // the "what else can you be" verb.
@@ -226,7 +261,7 @@ fun FunhouseOverlay(
 }
 
 /** How a touch on a lens resolved before the long-press deadline. */
-private enum class Settle { MOVED, LIFTED }
+private enum class Settle { MOVED, LIFTED, CANCELLED }
 
 /** Nearest center wins, so overlapping lenses grab predictably. */
 private fun hitTest(lenses: List<Lens>, u: Float, v: Float, aspect: Float): Int? {
@@ -290,7 +325,11 @@ private fun DrawScope.drawLens(
         LensType.BULGE, LensType.FISHEYE -> strength < 0f
         LensType.VORTEX -> false
     }
-    val ink = Color.White.copy(alpha = 0.9f)
+    // A lens at zero strength is identity: it warps nothing. Drawing its
+    // mark at full ink would advertise a bulge over a photo that is not
+    // bulging, so the figure fades while the ring stays — the apparatus
+    // is still there and still grabbable, it is just not doing anything.
+    val ink = Color.White.copy(alpha = if (strength == 0f) IDLE_INK else LIVE_INK)
     val width = 2.dp.toPx()
     when (type) {
         LensType.VORTEX -> {
@@ -354,6 +393,12 @@ private fun DrawScope.drawLens(
 
 /** Aspect-space travel past which a touch is a drag, not a tap. */
 private const val DRAG_SLOP = 0.012f
+
+/** Ink for a lens that is currently warping something. */
+private const val LIVE_INK = 0.9f
+
+/** Ink for a lens sitting at zero strength. */
+private const val IDLE_INK = 0.25f
 
 /** Hold this long on a lens to throw it away. */
 private const val LONG_PRESS_MS = 450L
