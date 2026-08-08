@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Dehaze
@@ -475,6 +476,14 @@ private fun WarpEditor(
                 viewModel.redo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
             onReset = { confirmReset = true },
+            // A deal is a batch of ordinary strokes: stamp them and
+            // record them exactly as a finger's would be.
+            canDeal = state.bitmap != null && !state.exportingMovie,
+            onDeal = {
+                viewModel.dealGoo()?.let { strokes ->
+                    surface?.engine { rebuild(strokes) }
+                }
+            },
             onCrop = {
                 if (showCrop) {
                     showCrop = false
@@ -662,7 +671,13 @@ private fun WarpEditor(
                                     // entry — one undo takes all of it,
                                     // and a replay never has to know a
                                     // velocity existed.
-                                    val whip = whipStamps(viewModel, velocity, view, fit)
+                                    // Named for what it does: this APPENDS
+                                    // the tail to the live stroke and hands
+                                    // back what to draw. It has to run
+                                    // before endStroke, which is what makes
+                                    // the whole mark one document entry.
+                                    val whip =
+                                        appendWhipTail(viewModel, velocity, view, fit)
                                     if (whip.isNotEmpty() && params != null) {
                                         surface?.engine { stampBatch(params, whip) }
                                     }
@@ -1038,6 +1053,8 @@ private fun TopRail(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onReset: () -> Unit,
+    canDeal: Boolean,
+    onDeal: () -> Unit,
     onCrop: () -> Unit,
     cropActive: Boolean,
     cropEnabled: Boolean,
@@ -1100,6 +1117,17 @@ private fun TopRail(
                 selected = false,
                 enabled = canReset,
                 onClick = onReset,
+            )
+            // Next to Undo on purpose: the loop is tap → laugh → undo →
+            // tap, and the two beads that drive it should be a thumb
+            // apart.
+            ChromeIconButton(
+                icon = Icons.Filled.Casino,
+                contentDescription = stringResource(R.string.editor_goo_me),
+                color = NeonMagenta,
+                selected = false,
+                enabled = canDeal,
+                onClick = onDeal,
             )
             ChromeIconButton(
                 icon = Icons.Filled.Crop,
@@ -1378,7 +1406,7 @@ private const val DEGREES_TO_RADIANS = (Math.PI / 180.0).toFloat()
  * rectangle. Zooming in therefore does not make flicks throw further:
  * the same finger movement over the same photo content is the same whip.
  */
-private fun whipStamps(
+private fun appendWhipTail(
     viewModel: EditorViewModel,
     tracker: VelocityTracker,
     view: ViewTransform,
