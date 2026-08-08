@@ -41,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BlurOn
@@ -302,9 +303,6 @@ private fun WarpEditor(
     // coroutine ends when the rig goes still or the composition leaves,
     // which covers ON_PAUSE with it.
     //
-    // Phase comes from a FRAME COUNT over the document's own loop, not
-    // from a wall clock, so what the preview shows is the same walk the
-    // export performs.
     // Deliberately NOT keyed on the levers: setGlobals fires on every
     // frame of a lever drag, and a keyed effect would cancel and restart
     // the clock each time, freezing the wobble exactly while the user is
@@ -336,6 +334,14 @@ private fun WarpEditor(
     LaunchedEffect(surface, state.wobble) {
         val rig = state.wobble
         surface?.engine { setWobble(rig) }
+    }
+
+    // The frost sheen shows only while the varnish is in hand, so the
+    // mask is something to see rather than something to remember. Same
+    // uniform-sync pattern as the levers, including on surface recreate.
+    LaunchedEffect(surface, state.tool) {
+        val armed = state.tool == BrushTool.FREEZE
+        surface?.engine { setShowFreezeMask(armed) }
     }
 
     // View transform: same uniform-sync pattern as the levers.
@@ -1402,6 +1408,7 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.POND -> R.string.tool_pond
     BrushTool.FAULT -> R.string.tool_fault
     BrushTool.ECHO -> R.string.tool_echo
+    BrushTool.FREEZE -> R.string.tool_freeze
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -1421,6 +1428,7 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.POND -> Icons.Filled.RadioButtonChecked
     BrushTool.FAULT -> Icons.Filled.CompareArrows
     BrushTool.ECHO -> Icons.Filled.ContentCopy
+    BrushTool.FREEZE -> Icons.Filled.AcUnit
 }
 
 /** Each tool wears its own tube of neon — families share a color. */
@@ -1441,6 +1449,10 @@ private fun BrushTool.neonColor(): Color = when (this) {
     BrushTool.POND -> NeonCyan
     BrushTool.FAULT -> NeonViolet
     BrushTool.ECHO -> NeonCyan
+    // Its own tube: the varnish is the palette's only brake, and a
+    // brake that looks like the accelerators is a brake nobody reaches
+    // for.
+    BrushTool.FREEZE -> NeonViolet
 }
 
 @Composable

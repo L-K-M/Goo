@@ -1,6 +1,6 @@
 # 0002 — Freeze brush
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #25)
 - **Date:** 2026-08-07
 
 Consolidates two independently written proposals for the same tool
