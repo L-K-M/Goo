@@ -134,6 +134,7 @@ import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.LeverWobble
 import ch.lkmc.goo.engine.core.leversAt
+import ch.lkmc.goo.engine.core.StrokeResampler
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import kotlinx.coroutines.Job
@@ -690,8 +691,19 @@ private fun WarpEditor(
                         // beginStroke has the final say: it refuses while a
                         // movie render owns the GL thread, and a ring drawn
                         // over a canvas that can't paint is a lie.
+                        // The first-stamp gate, in aspect space but
+                        // MEANING a fixed number of DP: one aspect unit
+                        // is one image height, so the conversion needs
+                        // how tall the photo is drawn right now — fitted
+                        // height times the live zoom.
+                        val firstTravel = StrokeResampler.firstTravelFor(
+                            imageHeightPx = fit.fittedHeight * view.scale,
+                            // PointerInputScope extends Density, so this
+                            // is the canvas's own, not a captured one.
+                            density = density,
+                        )
                         var stroking = outside <= viewModel.uiState.value.brushRadius &&
-                            viewModel.beginStroke(u0, v0)
+                            viewModel.beginStroke(u0, v0, firstTravel)
                         // Whip needs the release velocity, and only the
                         // platform tracker gets that right across event
                         // batching and irregular sample timing.

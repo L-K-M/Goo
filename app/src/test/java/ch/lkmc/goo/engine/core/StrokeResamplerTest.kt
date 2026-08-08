@@ -47,7 +47,7 @@ class StrokeResamplerTest {
         // stroke.
         val out = stampsFor(
             1f,
-            listOf(0.5f to 0.5f, 0.5f to (0.5f + StrokeResampler.FIRST_TRAVEL * 0.9f)),
+            listOf(0.5f to 0.5f, 0.5f to (0.5f + StrokeResampler.FALLBACK_FIRST_TRAVEL * 0.9f)),
         )
         assertEquals(0, out.size)
     }
@@ -59,14 +59,14 @@ class StrokeResamplerTest {
         // tens of pixels — before anything moved.
         val out = stampsFor(1f, listOf(0.5f to 0.5f, 0.5f to (0.5f + spacing * 0.5f)))
         assertEquals(1, out.size, "half a spacing of travel must already draw")
-        assertEquals(0.5f + StrokeResampler.FIRST_TRAVEL, out.single().cy, 1e-6f)
+        assertEquals(0.5f + StrokeResampler.FALLBACK_FIRST_TRAVEL, out.single().cy, 1e-6f)
     }
 
     @Test
     fun `only the FIRST interval is short`() {
         val out = stampsFor(1f, listOf(0.5f to 0.2f, 0.5f to 0.6f))
         assertTrue(out.size > 3)
-        assertEquals(0.2f + StrokeResampler.FIRST_TRAVEL, out[0].cy, 1e-6f)
+        assertEquals(0.2f + StrokeResampler.FALLBACK_FIRST_TRAVEL, out[0].cy, 1e-6f)
         // Everything after it is back to the steady-state spacing, which
         // is what keeps the kernels overlapping into a crease-free
         // trough.
@@ -83,7 +83,7 @@ class StrokeResamplerTest {
         for (r in listOf(0.04f, 0.12f, 0.28f)) {
             val res = StrokeResampler(radius = r, aspect = 1f)
             res.begin(0.5f, 0.2f)
-            val out = res.extend(0.5f, 0.2f + StrokeResampler.FIRST_TRAVEL * 1.01f, mutableListOf())
+            val out = res.extend(0.5f, 0.2f + StrokeResampler.FALLBACK_FIRST_TRAVEL * 1.01f, mutableListOf())
             assertEquals(1, out.size, "radius $r did not start promptly")
         }
     }
@@ -95,11 +95,90 @@ class StrokeResamplerTest {
         // its second would have.
         val tiny = 0.004f
         val tinySpacing = StrokeResampler.SPACING_FRACTION * tiny
-        assertTrue(tinySpacing < StrokeResampler.FIRST_TRAVEL, "pick a smaller radius")
+        assertTrue(tinySpacing < StrokeResampler.FALLBACK_FIRST_TRAVEL, "pick a smaller radius")
         val res = StrokeResampler(radius = tiny, aspect = 1f)
         res.begin(0.5f, 0.2f)
         val out = res.extend(0.5f, 0.2f + tinySpacing * 1.01f, mutableListOf())
         assertEquals(1, out.size)
+    }
+
+    // ---- The gate means a fixed number of DP, not of image ---------------
+
+    @Test
+    fun `zooming in shrinks the gate in image space, not in pixels`() {
+        // THE point of the conversion. One aspect unit is one image
+        // height, so at 4x an image height covers four times the pixels
+        // and the same physical 2dp is a quarter of the aspect-space
+        // distance. Before this, the dead zone grew with zoom — worst
+        // exactly when the user is working precisely.
+        val fitted = 1100f
+        val density = 2.75f
+        val at1x = StrokeResampler.firstTravelFor(fitted * 1f, density)
+        val at4x = StrokeResampler.firstTravelFor(fitted * 4f, density)
+        assertEquals(at1x / 4f, at4x, 1e-9f)
+        // And in SCREEN pixels the two are the same distance, which is
+        // the property a user actually feels.
+        assertEquals(at1x * fitted * 1f, at4x * fitted * 4f, 1e-4f)
+    }
+
+    @Test
+    fun `a denser screen asks for more pixels, so the feel is constant`() {
+        val fitted = 1100f
+        val lo = StrokeResampler.firstTravelFor(fitted, density = 1f)
+        val hi = StrokeResampler.firstTravelFor(fitted, density = 3f)
+        assertEquals(lo * 3f, hi, 1e-9f)
+    }
+
+    @Test
+    fun `a bigger screen does not mean a longer wait`() {
+        // A tablet draws the photo taller in pixels. Under the old flat
+        // fraction that meant a longer physical drag for the same
+        // effect; now the same 2dp buys the same gesture everywhere.
+        val phone = StrokeResampler.firstTravelFor(1100f, 2.75f)
+        val tablet = StrokeResampler.firstTravelFor(2200f, 2.75f)
+        assertEquals(phone * 1100f, tablet * 2200f, 1e-4f)
+    }
+
+    @Test
+    fun `unknown or degenerate screen geometry falls back rather than dividing`() {
+        // An unmeasured view would otherwise give an infinity here, and
+        // an infinite gate reads as "the brush stopped working".
+        for (bad in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertEquals(
+                StrokeResampler.FALLBACK_FIRST_TRAVEL,
+                StrokeResampler.firstTravelFor(bad, 2.75f),
+                0f,
+                "image height $bad",
+            )
+            assertEquals(
+                StrokeResampler.FALLBACK_FIRST_TRAVEL,
+                StrokeResampler.firstTravelFor(1100f, bad),
+                0f,
+                "density $bad",
+            )
+        }
+    }
+
+    @Test
+    fun `a non-positive gate is refused at construction`() {
+        // Same reasoning as the radius check: a zero would drop a
+        // zero-delta stamp at the touch point on every stroke.
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            StrokeResampler(radius = 0.1f, aspect = 1f, firstTravel = 0f)
+        }
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            StrokeResampler(radius = 0.1f, aspect = 1f, firstTravel = Float.NaN)
+        }
+    }
+
+    @Test
+    fun `the gate the caller passes is the gate that is used`() {
+        val gate = 0.001f
+        val r = StrokeResampler(radius = radius, aspect = 1f, firstTravel = gate)
+        r.begin(0.5f, 0.2f)
+        val out = r.extend(0.5f, 0.2f + gate * 1.01f, mutableListOf())
+        assertEquals(1, out.size)
+        assertEquals(0.2f + gate, out.single().cy, 1e-6f)
     }
 
     @Test
@@ -185,7 +264,7 @@ class StrokeResamplerTest {
         }
         // The first carries only the short opening interval; every one
         // after it carries a full spacing.
-        assertEquals(StrokeResampler.FIRST_TRAVEL / sqrt(2f), abs(out[0].dx), 1e-5f)
+        assertEquals(StrokeResampler.FALLBACK_FIRST_TRAVEL / sqrt(2f), abs(out[0].dx), 1e-5f)
         out.drop(1).forEach { assertEquals(spacing / sqrt(2f), abs(it.dx), 1e-5f) }
     }
 

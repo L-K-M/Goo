@@ -21,6 +21,13 @@ class StrokeResampler(
     private val radius: Float,
     private val aspect: Float,
     private val spacingFraction: Float = SPACING_FRACTION,
+    /**
+     * Aspect-space travel before the FIRST stamp. Compute it with
+     * [firstTravelFor] so it means a constant number of DP on screen
+     * whatever the zoom; the default is the fallback that class uses
+     * when the screen geometry is unknown.
+     */
+    private val firstTravel: Float = FALLBACK_FIRST_TRAVEL,
 ) {
     init {
         // A non-positive radius would make the spacing walk in extend()
@@ -30,6 +37,9 @@ class StrokeResampler(
             "radius and spacing must be positive: r=$radius sf=$spacingFraction"
         }
         require(aspect > 0f) { "aspect must be positive: $aspect" }
+        require(firstTravel > 0f && firstTravel.isFinite()) {
+            "first travel must be positive: $firstTravel"
+        }
     }
 
     private var lastU = 0f
@@ -67,7 +77,14 @@ class StrokeResampler(
         // brush is as responsive as a thin one — CAPPED at the
         // steady-state spacing, since a very small brush should never
         // wait LONGER for its first stamp than for its second.
-        toNext = minOf(spacingFraction * radius, FIRST_TRAVEL)
+        //
+        // [firstTravel] arrives already converted from DP by
+        // [firstTravelFor], so the gate is a constant physical distance
+        // however the photo is scaled on screen. It used to be a flat
+        // fraction of image height, which meant the dead zone GREW with
+        // zoom — four times its size at 4x, exactly when the user is
+        // working precisely.
+        toNext = minOf(spacingFraction * radius, firstTravel)
     }
 
     /**
@@ -121,33 +138,57 @@ class StrokeResampler(
         const val SPACING_FRACTION = 0.25f
 
         /**
-         * Aspect-space travel before the FIRST stamp of a stroke — a
-         * fraction of image height, so roughly 3-4 screen pixels on a
-         * phone-sized preview.
+         * How far the finger must travel before the FIRST stamp, in DP.
          *
-         * Chosen to sit above finger jitter and below perception. Too
-         * small and a tap that rolls slightly leaves an invisible smear
-         * plus an undo entry for it; too large and the brush feels like
-         * it is ignoring the start of every stroke, which is the
-         * complaint this constant exists to answer.
+         * DP because the thing this sits above — finger jitter — is
+         * physical. Chosen above jitter and below perception: too small
+         * and a tap that rolls slightly leaves an invisible smear plus
+         * an undo entry for it; too large and the brush feels like it is
+         * ignoring the start of every stroke.
          *
-         * **Known imperfection: this is image space, and jitter is
-         * screen space.** The physical distance it represents therefore
-         * moves with how large the photo is drawn — a taller fitted
-         * image, or a zoomed-in view, means more screen pixels for the
-         * same fraction. Zoom is the awkward direction: at 4x the gate
-         * is about four times its unzoomed size in pixels, exactly when
-         * the user is working precisely.
-         *
-         * Left as is on purpose. This is strictly better than what it
-         * replaced at every zoom and every screen size (the old gate
-         * scaled the same way AND was up to twenty times larger), and
-         * fixing it properly means plumbing the view transform and the
-         * fitted size into a class that is currently pure geometry with
-         * no idea a screen exists. Worth doing if precise work while
-         * zoomed still feels laggy; not worth the coupling on
-         * speculation.
+         * Well under `ViewConfiguration`'s ~8dp touch slop, deliberately.
+         * That number exists to tell a tap from a scroll in a list; a
+         * drawing surface has no such ambiguity to resolve and should
+         * not pay for one.
          */
-        const val FIRST_TRAVEL = 0.004f
+        const val FIRST_TRAVEL_DP = 2f
+
+        /**
+         * The gate when the screen geometry is unknown — a plain
+         * fraction of image height, roughly [FIRST_TRAVEL_DP] on a
+         * phone-sized preview at zoom 1.
+         *
+         * Used by callers that have no view (tests, replay) and as the
+         * answer when [firstTravelFor] is handed something it cannot
+         * divide by. Being wrong here costs responsiveness, never
+         * correctness: stamps are stored, and a replay never runs this
+         * class at all.
+         */
+        const val FALLBACK_FIRST_TRAVEL = 0.004f
+
+        /**
+         * [FIRST_TRAVEL_DP] expressed in aspect space, given how tall
+         * the photo is drawn RIGHT NOW.
+         *
+         * One aspect unit is one image height, so the conversion is just
+         * "how many screen pixels is an image height" — the fitted
+         * height times the view's zoom. Feeding the zoomed height in is
+         * the whole point: at 4x an image height covers four times the
+         * pixels, so the same physical 2dp is a quarter of the
+         * aspect-space distance, and precise work stays precise.
+         *
+         * @param imageHeightPx fitted image height × view scale.
+         * @param density screen pixels per DP.
+         */
+        fun firstTravelFor(imageHeightPx: Float, density: Float): Float {
+            // A view that has not been measured yet, or a degenerate
+            // transform. Fall back rather than divide — an infinity here
+            // would make the first stamp wait forever, which reads as
+            // "the brush stopped working".
+            if (!imageHeightPx.isFinite() || imageHeightPx <= 0f) return FALLBACK_FIRST_TRAVEL
+            if (!density.isFinite() || density <= 0f) return FALLBACK_FIRST_TRAVEL
+            val travel = FIRST_TRAVEL_DP * density / imageHeightPx
+            return if (travel.isFinite() && travel > 0f) travel else FALLBACK_FIRST_TRAVEL
+        }
     }
 }

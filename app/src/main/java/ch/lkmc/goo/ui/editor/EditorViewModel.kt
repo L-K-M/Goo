@@ -772,8 +772,19 @@ class EditorViewModel @Inject constructor(
     // at emission, so stored strokes replay identically everywhere
     // (undo rebuilds, export) with no mirror logic downstream.
 
-    /** @return true when a stroke actually started; false = canvas locked. */
-    fun beginStroke(u: Float, v: Float): Boolean {
+    /**
+     * @param firstTravel aspect-space distance before this stroke's
+     * first stamp, from [StrokeResampler.firstTravelFor]. Passed in
+     * rather than computed here because it depends on the live zoom and
+     * the screen's density, neither of which a ViewModel should know —
+     * and frozen at begin, like every other live parameter.
+     * @return true when a stroke actually started; false = canvas locked.
+     */
+    fun beginStroke(
+        u: Float,
+        v: Float,
+        firstTravel: Float = StrokeResampler.FALLBACK_FIRST_TRAVEL,
+    ): Boolean {
         val bitmap = _uiState.value.bitmap ?: return false
         val state = _uiState.value
         // A movie render owns the GL thread for seconds; stamps queued
@@ -867,8 +878,11 @@ class EditorViewModel @Inject constructor(
         if (tool.pumped) {
             pumpPoint = Pair(u, v)
         } else {
-            resampler = StrokeResampler(radius = radius, aspect = aspect)
-                .also { it.begin(u, v) }
+            resampler = StrokeResampler(
+                radius = radius,
+                aspect = aspect,
+                firstTravel = firstTravel,
+            ).also { it.begin(u, v) }
         }
         if (tool.stampsOnDown) {
             // Radial/field tools and Fusion all have useful stationary
