@@ -1,6 +1,6 @@
 # 0009 — The Wobbulator
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #26)
 - **Date:** 2026-08-07
 
 **One-liner.** A second row of small knobs under the six levers that

@@ -128,6 +128,9 @@ import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.FitTransform
+import ch.lkmc.goo.engine.core.GlobalWobble
+import ch.lkmc.goo.engine.core.LeverWobble
+import ch.lkmc.goo.engine.core.leversAt
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import kotlinx.coroutines.Job
@@ -301,9 +304,62 @@ private fun WarpEditor(
 
     // Levers are live uniforms: sync the renderer on every change and on
     // surface (re)creation — a fresh GL context starts at identity.
-    LaunchedEffect(surface, state.globals) {
+    //
+    // A wobbling rig takes this over: the clock below pushes modulated
+    // lever values every frame, and this effect would fight it by
+    // pushing the unmodulated ones back on every recomposition.
+    LaunchedEffect(surface, state.globals, state.wobble.isStill) {
+        if (!state.wobble.isStill) return@LaunchedEffect
         val globals = state.globals
         surface?.engine { setGlobalParams(globals) }
+    }
+
+    // The Wobbulator's preview clock (proposal 0009). The editor renders
+    // WHEN_DIRTY to save battery, so a breathing photo means driving it
+    // by hand — and only while something is actually wobbling. The
+    // coroutine ends when the rig goes still or the composition leaves,
+    // which covers ON_PAUSE with it.
+    //
+    // Deliberately NOT keyed on the levers: setGlobals fires on every
+    // frame of a lever drag, and a keyed effect would cancel and restart
+    // the clock each time, freezing the wobble exactly while the user is
+    // trying to judge how a lever sits against it.
+    val wobbleGlobals by rememberUpdatedState(state.globals)
+    LaunchedEffect(surface, state.wobble, state.keyframes.size) {
+        if (state.wobble.isStill) return@LaunchedEffect
+        val loop = GlobalWobble.previewLoopSeconds(state.keyframes.size)
+        if (loop <= 0f) return@LaunchedEffect
+        val rig = state.wobble.cappedFor(loop)
+        // Phase comes from ELAPSED TIME, not from a count of frames.
+        // withFrameNanos fires at the display's refresh rate — 90 or
+        // 120 Hz on most phones now — so counting its callbacks against
+        // MovieSpec.FPS would run the preview three or four times too
+        // fast on exactly the devices this app is for, and the dial
+        // would be set against a lie.
+        // Accumulated from per-frame DELTAS rather than measured from a
+        // start stamp, and each delta capped at one loop. The frame clock
+        // stops while the app is backgrounded, so a resume delivers a gap
+        // spanning minutes: measured absolutely, the wobble would snap to
+        // an arbitrary point in its cycle every time you came back to the
+        // app. Same hazard GoovieTimeline.advance documents for playback.
+        var previousNanos = 0L
+        var elapsed = 0f
+        while (true) {
+            val nanos = withFrameNanos { it }
+            if (previousNanos > 0L) {
+                elapsed += ((nanos - previousNanos) / 1_000_000_000f).coerceIn(0f, loop)
+            }
+            previousNanos = nanos
+            val phase = (elapsed / loop).mod(1f)
+            val modulated = leversAt(wobbleGlobals, rig, phase)
+            surface?.engine { setGlobalParams(modulated) }
+        }
+    }
+
+    // The export path evaluates its own phase, so it needs the rig too.
+    LaunchedEffect(surface, state.wobble) {
+        val rig = state.wobble
+        surface?.engine { setWobble(rig) }
     }
 
     // The frost sheen shows only while the varnish is in hand, so the
@@ -956,6 +1012,14 @@ private fun WarpEditor(
                 EditorPanel.LEVERS -> LeversPanel(
                     globals = state.globals,
                     onChange = viewModel::setGlobals,
+                    wobble = state.wobble,
+                    rates = GlobalWobble.ratesFor(
+                        GlobalWobble.previewLoopSeconds(state.keyframes.size),
+                    ),
+                    // Not state.wobble.with(...): that snapshot is stale
+                    // the moment Zero-all writes more than one lever.
+                    onWobble = viewModel::setLeverWobble,
+                    onStillAll = { viewModel.setWobble(GlobalWobble()) },
                 )
                 EditorPanel.FUNHOUSE -> FunhousePanel(
                     lens = state.globals.lenses.getOrNull(selectedLens),
