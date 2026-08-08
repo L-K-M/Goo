@@ -155,6 +155,19 @@ class GooWhipTest {
     }
 
     @Test
+    fun `a non-finite velocity throws nothing`() {
+        // Same-timestamp pointer samples can make a velocity tracker
+        // return an infinity. It passes every ordinary comparison, and
+        // the quantization then turns it into NaN — which would be
+        // committed to the log and reproduced by every export forever.
+        for (bad in listOf(Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN)) {
+            assertTrue(GooWhip.tail(0.5f, 0.5f, bad, 0f, square).isEmpty(), "u = $bad")
+            assertTrue(GooWhip.tail(0.5f, 0.5f, 0f, bad, square).isEmpty(), "v = $bad")
+            assertTrue(GooWhip.tail(0.5f, 0.5f, bad, bad, square).isEmpty(), "both = $bad")
+        }
+    }
+
+    @Test
     fun `a non-positive aspect is rejected rather than thrown into`() {
         assertFails { GooWhip.tail(0.5f, 0.5f, 3f, 0f, 0f) }
         assertFails { GooWhip.tail(0.5f, 0.5f, 3f, 0f, -1f) }

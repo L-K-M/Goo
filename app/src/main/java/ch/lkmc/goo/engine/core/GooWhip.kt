@@ -91,7 +91,14 @@ object GooWhip {
         val ax = velU * aspect
         val ay = velV
         val raw = sqrt(ax * ax + ay * ay)
-        if (raw < START_SPEED) return emptyList()
+        // isFinite first, and not merely for tidiness. A velocity
+        // tracker fed two samples with the same timestamp can return an
+        // infinity, which passes every ordinary comparison (IEEE 754
+        // says NaN compares false, and Infinity is not < START_SPEED) —
+        // and then `quantized / raw` is zero, `Infinity * 0` is NaN, and
+        // NaN centers reach the resampler. A NaN stamp committed to the
+        // log is permanent: every later replay and export reproduces it.
+        if (!raw.isFinite() || raw < START_SPEED) return emptyList()
 
         // Compared against START_SPEED and not against zero: rounding
         // can carry a release that just cleared the threshold back under
