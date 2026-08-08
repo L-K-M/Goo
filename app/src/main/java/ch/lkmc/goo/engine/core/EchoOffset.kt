@@ -47,6 +47,10 @@ object EchoOffset {
      * Where the content painted at ([u], [v]) is fetched from, given the
      * stroke's [delta]. Useful for reasoning and for tests; the engine
      * itself never calls it, since the shader does this by construction.
+     *
+     * Mind the sign: [delta] is the *stamp* delta, which is `−offset` (see
+     * the class note above), so the source is `P − delta` and not the
+     * `P + offset` the class kdoc talks in.
      */
     fun sourceOf(u: Float, v: Float, delta: Pair<Float, Float>): Pair<Float, Float> =
         Pair(u - delta.first, v - delta.second)
