@@ -25,6 +25,7 @@ import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.DealLevers
 import ch.lkmc.goo.engine.core.Easing
+import ch.lkmc.goo.engine.core.EchoOffset
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GooMe
 import ch.lkmc.goo.engine.core.GoovieTimeline
@@ -122,6 +123,12 @@ class EditorViewModel @Inject constructor(
          * [mirrored] rather than replacing it (see [Symmetry]).
          */
         val sectors: Int = 1,
+        /**
+         * Echo's source anchor in image UV, or null when none is
+         * planted. With Echo selected and no anchor, the next touch
+         * plants one instead of painting.
+         */
+        val echoAnchor: Pair<Float, Float>? = null,
         /** Global-effect levers — live document state, not history. */
         val globals: GlobalParams = GlobalParams(),
         /** First-ever image: float the "drag to goo" hint until a stroke. */
@@ -346,6 +353,9 @@ class EditorViewModel @Inject constructor(
     /** Symmetry dial and image aspect, frozen for the live stroke. */
     private var sectorsLive = 1
     private var aspectLive = 1f
+
+    /** Echo's constant per-stroke delta; null for every other tool. */
+    private var echoDelta: Pair<Float, Float>? = null
 
     /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
@@ -706,6 +716,27 @@ class EditorViewModel @Inject constructor(
         // Gooing inside the strip is allowed — that IS how you author the
         // next keyframe. What isn't possible is painting into a tween: the
         // stamps go to the live field, so drop the preview to live first.
+        // Echo paints from a planted source. With none planted, the
+        // touch plants one rather than starting a stroke — the smallest
+        // gesture that keeps one-finger painting sacrosanct, in place of
+        // the proposal's long-press (which needs gesture plumbing this
+        // build cannot exercise).
+        if (state.tool == BrushTool.ECHO) {
+            val anchor = state.echoAnchor
+            if (anchor == null || !EchoOffset.isUseful(u, v, anchor.first, anchor.second)) {
+                // Clear the previous stroke's offset on the way out.
+                // Nothing reads it after a false return today, but a
+                // stale delta surviving an aborted begin is the kind of
+                // thing that only bites once the calling convention
+                // changes, and by then it corrupts stamps silently.
+                echoDelta = null
+                _uiState.update { it.copy(echoAnchor = Pair(u, v)) }
+                return false
+            }
+            echoDelta = EchoOffset.delta(u, v, anchor.first, anchor.second)
+        } else {
+            echoDelta = null
+        }
         goLive()
         val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
@@ -762,13 +793,23 @@ class EditorViewModel @Inject constructor(
     private fun emit(fresh: List<Stamp>): List<Stamp> {
         if (fresh.isEmpty()) return fresh
         val tool = liveParams?.tool ?: return emptyList()
+        // Echo overrides the resampler's drag deltas with one constant
+        // offset, which is what makes the graft a rigid translation of
+        // the source region instead of a smear (see EchoOffset). It runs
+        // BEFORE symmetry on purpose: the fan rotates whatever delta a
+        // stamp carries, so each sector's copy clones from the rotated
+        // offset — a kaleidoscope OF the graft, rather than one graft
+        // repeated at rotated positions.
+        val stamps = echoDelta?.let { (dx, dy) ->
+            fresh.map { it.copy(dx = dx, dy = dy) }
+        } ?: fresh
         // Symmetry copies are produced HERE, so everything downstream
         // sees an ordinary stroke: the log, undo, export replay and
         // GOOvie caches need no symmetry logic and no format change.
         val batch = if (sectorsLive <= 1 && !mirrorLive) {
-            fresh
+            stamps
         } else {
-            fresh.flatMap { Symmetry.family(tool, it, aspectLive, sectorsLive, mirrorLive) }
+            stamps.flatMap { Symmetry.family(tool, it, aspectLive, sectorsLive, mirrorLive) }
         }
         liveStamps.addAll(batch)
         return batch
@@ -802,6 +843,11 @@ class EditorViewModel @Inject constructor(
         stopPump()
         val params = liveParams ?: return null
         resampler = null
+        // Every other per-stroke field is torn down here; the echo offset
+        // belongs with them. Nothing reads it between strokes today, but
+        // "beginStroke always reassigns it first" is a caller contract,
+        // not an invariant of this class.
+        echoDelta = null
         liveParams = null
         if (liveStamps.isEmpty()) return null
         val stroke = params.copy(stamps = liveStamps.toList())
@@ -834,7 +880,12 @@ class EditorViewModel @Inject constructor(
         // CANCEL); discarding would leave visible warp no log entry knows
         // about, breaking undo and export.
         endStroke()?.let { stroke -> engineBridge?.invoke { commit(stroke) } }
-        _uiState.update { it.copy(tool = tool) }
+        // Leaving Echo forgets its source. An anchor the user cannot see
+        // and did not plant this session is a clone that grafts from
+        // somewhere surprising; re-arming is one tap.
+        _uiState.update {
+            it.copy(tool = tool, echoAnchor = if (tool == BrushTool.ECHO) it.echoAnchor else null)
+        }
     }
 
     fun setBrushStrength(value: Float) {

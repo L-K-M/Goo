@@ -70,6 +70,7 @@
     <string name="tool_comb">Comb</string>
     <string name="tool_pond">Pond</string>
     <string name="tool_fault">Fault</string>
+    <string name="tool_echo">Echo</string>
 
     <string name="home_about">About</string>
     <string name="about_title" translatable="false">Meltorama 2000 %1$s</string>
@@ -167,4 +168,5 @@
     <string name="error_project_missing">That project isn\'t here any more.</string>
     <string name="error_project_damaged">That project\'s goo can\'t be read.</string>
     <string name="error_gpu_unsupported">This device\'s GPU can\'t render goo (no float render targets).</string>
+    <string name="tool_freeze">Aspic</string>
 </resources>

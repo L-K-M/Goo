@@ -1,6 +1,6 @@
 # 0004 — Echo brush (clone)
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #21)
 - **Date:** 2026-08-07
 
 ## The tool
