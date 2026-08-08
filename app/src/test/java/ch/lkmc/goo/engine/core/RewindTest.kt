@@ -163,18 +163,22 @@ class RewindTest {
     // ---- Persistence -----------------------------------------------------
 
     @Test
-    fun `a saved project keeps the target even after the keyframe is gone`() {
+    fun `a rewind stroke and its target round-trip through a save`() {
         // Round-tripping a Rewind stroke with its target present, and
-        // NOT the retention walk — the target here is still on the
+        // NOT the retention walk: the target here is still on the
         // history parent chain, so this passes even with target
-        // following removed entirely.
+        // following removed entirely — checked by removing it.
         //
-        // It said "THE test for this feature" until review pointed out
-        // that it cannot fail for the reason it claimed. That is the
-        // same defect shape this file warns about elsewhere: a check
-        // that reads as coverage and is not. The retention walk is
-        // covered by the two tests below, where the target sits off the
-        // history chain.
+        // It was called "THE test for this feature" and named "even
+        // after the keyframe is gone", and it has never had a keyframe.
+        // Both claims went in the same commit as the walk they were
+        // describing, which is how a check comes to read as coverage and
+        // not be any. The name mattered more than the comment: a comment
+        // cannot correct a name, and a name is what a CI dashboard and an
+        // IDE test tree show.
+        //
+        // The retention walk is covered by the two tests below, where the
+        // target sits off the history chain.
         val (log, pinned) = log()
         log.push(stroke(BrushTool.SMEAR).copy(stamps = listOf(center)))
         log.push(
