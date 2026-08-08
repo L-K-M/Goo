@@ -1094,9 +1094,7 @@ private fun WarpEditor(
                     },
                     onToolChange = viewModel::setTool,
                     sectors = state.sectors,
-<<<<<<< HEAD
                     rewindReady = state.keyframes.getOrNull(state.selectedKeyframe) != null,
-=======
                     portalsOn = state.portalsOn,
                     portalsPlacing = when {
                         !state.portalsOn -> 0
@@ -1104,7 +1102,6 @@ private fun WarpEditor(
                         state.portalB == null -> 2
                         else -> 0
                     },
->>>>>>> origin/main
                     onMirrorToggle = viewModel::toggleMirror,
                     onCycleSectors = viewModel::cycleSectors,
                     onPortalsToggle = viewModel::togglePortals,
@@ -1368,14 +1365,11 @@ private fun BrushRail(
     tool: BrushTool,
     mirrored: Boolean,
     sectors: Int,
-<<<<<<< HEAD
     /** A keyframe is selected, so Rewind has something to read from. */
     rewindReady: Boolean,
-=======
     portalsOn: Boolean,
     /** 0 = link live or off; 1 = waiting for ring A; 2 = waiting for B. */
     portalsPlacing: Int,
->>>>>>> origin/main
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,

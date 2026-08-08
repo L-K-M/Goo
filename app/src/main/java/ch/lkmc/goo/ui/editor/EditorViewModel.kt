@@ -382,13 +382,13 @@ class EditorViewModel @Inject constructor(
     private var echoDelta: Pair<Float, Float>? = null
 
     /**
-<<<<<<< HEAD
      * The revision a live Rewind stroke reads from, frozen at
      * [beginStroke]. The log needs the revision itself and not just its
      * id, because an id keeps nothing alive (ADR 0003).
      */
     private var rewindTargetLive: StrokeRevision? = null
-=======
+
+    /**
      * The portal shift this stroke copies by, frozen at [beginStroke];
      * null when the touch began outside both rings, or when there is no
      * pair. Frozen for the same reason [liveParams] is: a ring dragged —
@@ -396,7 +396,6 @@ class EditorViewModel @Inject constructor(
      * a stroke land somewhere the first half did not.
      */
     private var portalShiftLive: Pair<Float, Float>? = null
->>>>>>> origin/main
 
     /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
@@ -776,6 +775,17 @@ class EditorViewModel @Inject constructor(
         ) {
             return false
         }
+        // Clear every per-stroke field ONCE, ahead of all three paths
+        // that can leave without starting a stroke (portal placement,
+        // Echo planting, Rewind with no keyframe). Scattering a clear
+        // down each of them is how one gets missed — a fourth early
+        // return added later would inherit the fix for free here and
+        // silently skip it there. `emit` and `endStroke` only run
+        // between a successful begin and an end, so this is belt to the
+        // caller contract's braces; the braces have slipped before.
+        echoDelta = null
+        portalShiftLive = null
+        rewindTargetLive = null
         val aspect = bitmap.width.toFloat() / bitmap.height
         // Portal placement comes FIRST among the point-planting tools,
         // and ahead of Echo deliberately: both want a bare tap, so with
@@ -791,7 +801,6 @@ class EditorViewModel @Inject constructor(
             // stale shift surviving an aborted begin would only bite
             // once that contract changed — by which time it silently
             // twins a stroke through rings that are no longer there.
-            portalShiftLive = null
             plantPortal(u, v, aspect, state)
             return false
         }
@@ -806,13 +815,6 @@ class EditorViewModel @Inject constructor(
         if (state.tool == BrushTool.ECHO) {
             val anchor = state.echoAnchor
             if (anchor == null || !EchoOffset.isUseful(u, v, anchor.first, anchor.second)) {
-                // Clear the previous stroke's offset on the way out.
-                // Nothing reads it after a false return today, but a
-                // stale delta surviving an aborted begin is the kind of
-                // thing that only bites once the calling convention
-                // changes, and by then it corrupts stamps silently.
-                echoDelta = null
-                portalShiftLive = null
                 _uiState.update { it.copy(echoAnchor = Pair(u, v)) }
                 return false
             }
@@ -835,16 +837,13 @@ class EditorViewModel @Inject constructor(
         mirrorLive = state.mirrored
         sectorsLive = state.sectors
         aspectLive = aspect
-<<<<<<< HEAD
         rewindTargetLive = rewindTarget
-=======
         // Null unless this touch landed in a ring, which is what makes
         // the modifier selective: the pair can stay on screen while the
         // rest of the photo is gooed normally.
         portalShiftLive = portalPair(state)?.let {
             Portals.shiftAt(u, v, radius, aspect, it)
         }
->>>>>>> origin/main
         liveParams = Stroke(
             tool = tool,
             radius = radius,
