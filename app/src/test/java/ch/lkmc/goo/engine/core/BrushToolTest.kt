@@ -49,10 +49,11 @@ class BrushToolTest {
 
     @Test
     fun `touch-down stamps are the pumped tools plus the ones a tap means something to`() {
-        // Fusion reveals under a tap; a Pond ripple IS a tap. Directional
-        // drags still wait for movement, since a stationary smear must
-        // not disturb the image.
-        val tapMeaningful = setOf(BrushTool.FUSE, BrushTool.POND)
+        // Fusion reveals under a tap; a Pond ripple IS a tap; a Freeze
+        // tap varnishes the spot it lands on. Directional drags still
+        // wait for movement, since a stationary smear must not disturb
+        // the image.
+        val tapMeaningful = setOf(BrushTool.FUSE, BrushTool.POND, BrushTool.FREEZE)
         BrushTool.entries.forEach { tool ->
             assertEquals(
                 tool.pumped || tool in tapMeaningful,

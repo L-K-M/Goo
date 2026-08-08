@@ -37,6 +37,17 @@ enum class StampMode(
      * instead of transforming it.
      */
     val rotatesDelta: Boolean = false,
+    /**
+     * Whether the Freeze mask scales this mode's stamp weight (proposal
+     * 0002). True for everything that changes the picture — which is the
+     * point: one new mode aims every brush in the palette.
+     *
+     * False for exactly two, and for the same reason. [ERASE] and
+     * [GUARD] are how varnish is applied and taken back; if the mask
+     * braked them, a fully varnished region would be reachable by
+     * nothing except a global Reset. The brake must not brake itself.
+     */
+    val respectsFreeze: Boolean = true,
 ) {
     /** b(p) = -delta·strength·w, composed warp-of-warp. */
     DIRECTIONAL(0, mirrorsDelta = true, rotatesDelta = true),
@@ -50,8 +61,11 @@ enum class StampMode(
     /** Field-space blur blend: D' = mix(D, blur₄(D), w·BLEND_STEP). */
     RELAX(3),
 
-    /** Local fade to identity: D' = D·(1 − w·BLEND_STEP). */
-    ERASE(4),
+    /**
+     * Local fade to identity: D' = D·(1 − w·BLEND_STEP). Applies to
+     * every channel, so UnGoo un-warps, un-fuses and thaws alike.
+     */
+    ERASE(4, respectsFreeze = false),
 
     /**
      * Fusion (PLAN.md §3): accumulate the through-paint mask —
@@ -92,6 +106,15 @@ enum class StampMode(
      * direction.
      */
     FAULT(9, mirrorsDelta = true, rotatesDelta = true),
+
+    /**
+     * Freeze (proposal 0002): accumulate the protect mask —
+     * M' = clamp(M + w·FREEZE_STEP), everything else untouched. The same
+     * trick [FUSE] pulls on the field's z channel, run again on w, so
+     * the varnish undoes, replays, exports and persists through the
+     * stroke log with nothing new written for any of it.
+     */
+    GUARD(10, respectsFreeze = false),
 }
 
 /** Brush falloff curve over normalized distance; `u_profile` wire values. */
@@ -216,6 +239,22 @@ enum class BrushTool(
         // an Echo stroke would stamp at the anchor instead of arming it.
         stampsOnDown = false,
     ),
+
+    /**
+     * Paint clear varnish over what should survive (proposal 0002).
+     * FEATHER because a half-set edge IS the feathering mechanism:
+     * content that is partly pinned drags a little, so a mask edge
+     * blends instead of snapping.
+     */
+    FREEZE(
+        StampMode.GUARD,
+        FalloffProfile.FEATHER,
+        1f,
+        pumped = false,
+        // A tap should varnish: unlike a smear, a stationary freeze has
+        // an obvious meaning — this spot, protected.
+        stampsOnDown = true,
+    ),
     ;
 
     /**
@@ -255,6 +294,14 @@ object BrushDynamics {
 
     /** Mask flow added per FUSE stamp at full weight. */
     const val FUSE_STEP = 0.30f
+
+    /**
+     * Varnish added per FREEZE stamp at full weight. Slower than
+     * [FUSE_STEP] on purpose: a mask you build up over a couple of
+     * passes is a mask whose soft edge you can place, and full varnish
+     * from a single flick would make the feathering unreachable.
+     */
+    const val FREEZE_STEP = 0.18f
 
     /** Radial modes ramp in over [0, this] normalized distance so the
      *  direction singularity at the exact center contributes nothing. */
