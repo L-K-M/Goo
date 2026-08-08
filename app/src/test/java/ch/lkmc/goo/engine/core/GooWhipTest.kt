@@ -44,6 +44,21 @@ class GooWhipTest {
     }
 
     @Test
+    fun `the threshold survives quantization`() {
+        // Rounding can carry a release that just cleared START_SPEED back
+        // under it. Whatever does get thrown must be thrown at a speed
+        // the tool considers fast enough to throw.
+        for (step in 0..40) {
+            val raw = GooWhip.START_SPEED * (0.5f + step * 0.05f)
+            if (GooWhip.tail(0.5f, 0.5f, raw, 0f, square).isEmpty()) continue
+            assertTrue(
+                GooWhip.quantize(raw) >= GooWhip.START_SPEED,
+                "threw at ${GooWhip.quantize(raw)}, under the floor",
+            )
+        }
+    }
+
+    @Test
     fun `the tail runs in the direction of the flick`() {
         val points = GooWhip.tail(0.4f, 0.5f, 3f, -2f, square)
         assertTrue(points.isNotEmpty())

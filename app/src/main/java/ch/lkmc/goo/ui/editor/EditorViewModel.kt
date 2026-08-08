@@ -837,7 +837,6 @@ class EditorViewModel @Inject constructor(
         pumpPoint = null
     }
 
-    /** Commit the live stroke. @return it, if it produced any stamps. */
     /**
      * Finish a Whip with a flick (proposal 0015): extend the live stroke
      * along the ballistic tail that ([velU], [velV]) throws, in UV units
@@ -872,6 +871,7 @@ class EditorViewModel @Inject constructor(
         return emit(fresh)
     }
 
+    /** Commit the live stroke. @return it, if it produced any stamps. */
     fun endStroke(): Stroke? {
         stopPump()
         val params = liveParams ?: return null

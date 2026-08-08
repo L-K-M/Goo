@@ -93,8 +93,12 @@ object GooWhip {
         val raw = sqrt(ax * ax + ay * ay)
         if (raw < START_SPEED) return emptyList()
 
+        // Compared against START_SPEED and not against zero: rounding
+        // can carry a release that just cleared the threshold back under
+        // it, and a tail thrown at a speed the tool documents as "too
+        // slow to throw" is a mark the rules say should not exist.
         val quantized = quantize(raw)
-        if (quantized <= 0f) return emptyList()
+        if (quantized < START_SPEED) return emptyList()
         // Rescale the direction vector to the quantized speed rather than
         // rebuilding it, so the aim of the flick survives exactly.
         val scale = quantized / raw
