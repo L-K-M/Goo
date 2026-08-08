@@ -162,9 +162,14 @@ fun GlobalParams.lerp(other: GlobalParams, t: Float): GlobalParams = GlobalParam
  *
  * A slot present on only one side fades through its own strength rather
  * than popping, so adding or removing a lens between pins is a dissolve.
- * Type cannot be interpolated (there is no half-way between a pinch and
- * a swirl), so it switches at the midpoint, by which time whichever lens
- * is changing identity is at its weakest.
+ * Type cannot be interpolated — there is no half-way between a pinch and
+ * a swirl — so it switches at the midpoint. That is invisible for a slot
+ * appearing or disappearing, which is passing through zero strength
+ * there anyway, and it is NOT invisible when both pins carry a lens in
+ * the same slot at similar strength: that case pops, once, at the middle
+ * of the segment. Hiding it would take rendering both types through a
+ * blend window, which costs a second lens slot for the duration; the pop
+ * is the cheaper honest answer until someone asks for the other one.
  */
 private fun lerpLenses(a: List<Lens>, b: List<Lens>, t: Float): List<Lens> {
     if (a.isEmpty() && b.isEmpty()) return emptyList()

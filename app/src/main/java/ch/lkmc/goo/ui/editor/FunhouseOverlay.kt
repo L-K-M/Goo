@@ -90,6 +90,13 @@ fun FunhouseOverlay(
 
                     val down = awaitFirstDown()
                     down.consume()
+                    // Follow the finger that started this, not whichever
+                    // change happens to be first in the event. The overlay
+                    // owns canvas input so there is no pinch to collide
+                    // with, but a stray second touch would otherwise hand
+                    // the dragged lens to the wrong finger, or end the
+                    // gesture on the wrong pointer's lift.
+                    val pointer = down.id
                     val (u0, v0) = toUv(down.position.x, down.position.y)
                     val hit = hitTest(currentLenses, u0, v0, aspect)
                     // Snapshot the selection for the whole gesture. It has
@@ -121,7 +128,9 @@ fun FunhouseOverlay(
                     if (hit != null) {
                         val settled = withTimeoutOrNull(LONG_PRESS_MS) {
                             while (true) {
-                                val change = awaitPointerEvent().changes.first()
+                                val change = awaitPointerEvent().changes
+                                    .firstOrNull { it.id == pointer }
+                                    ?: continue
                                 if (!change.pressed) {
                                     change.consume()
                                     return@withTimeoutOrNull Settle.LIFTED
@@ -155,7 +164,9 @@ fun FunhouseOverlay(
                     // still down, and anything left unconsumed reaches the
                     // pan/zoom handler underneath as a stray gesture.
                     while (!lifted) {
-                        val change = awaitPointerEvent().changes.first()
+                        val change = awaitPointerEvent().changes
+                            .firstOrNull { it.id == pointer }
+                            ?: continue
                         change.consume()
                         if (!change.pressed) break
                         if (removed) continue
@@ -168,7 +179,7 @@ fun FunhouseOverlay(
                         when (hit) {
                             // A tap on the lens you are already holding is
                             // the "what else can you be" verb.
-                            selectedAtDown -> if (hit != null) onCycle(hit)
+                            selectedAtDown -> onCycle(selectedAtDown)
                             null -> onPlace(u0, v0)
                             else -> Unit // selection already happened
                         }
@@ -177,8 +188,10 @@ fun FunhouseOverlay(
             },
     ) {
         val fit = FitTransform(
-            size.width, size.height,
-            imageWidth.toFloat(), imageHeight.toFloat(),
+            viewWidth = size.width,
+            viewHeight = size.height,
+            imageWidth = imageWidth.toFloat(),
+            imageHeight = imageHeight.toFloat(),
         )
         lenses.forEachIndexed { index, lens ->
             val (fx, fy) = fit.uvToView(lens.u, lens.v)

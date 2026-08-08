@@ -993,11 +993,25 @@ class EditorViewModel @Inject constructor(
      * is a worse surprise than "no room".
      */
     fun placeLens(u: Float, v: Float): Int? {
-        if (_uiState.value.globals.lenses.size >= Lens.CAPACITY) return null
+        val lenses = _uiState.value.globals.lenses
+        // A lens pulled to zero is invisible — activeLenses drops it — so
+        // counting it toward the cap would mean "no room" beside an
+        // apparently empty ring. Reuse its slot instead. Deliberately not
+        // solved by deleting lenses at zero strength: strength is bipolar
+        // so a lens tweens THROUGH zero into its opposite, and a slider
+        // sweep from bulge to pinch would delete the thing being dragged.
+        val spare = lenses.indexOfFirst { it.isIdentity }
+        if (spare < 0 && lenses.size >= Lens.CAPACITY) return null
         var index = -1
-        withLenses { lenses ->
-            lenses += Lens(u = u, v = v).sanitized()
-            index = lenses.lastIndex
+        withLenses { list ->
+            val fresh = Lens(u = u, v = v).sanitized()
+            if (spare >= 0) {
+                list[spare] = fresh
+                index = spare
+            } else {
+                list += fresh
+                index = list.lastIndex
+            }
         }
         return index
     }
