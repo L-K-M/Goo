@@ -107,6 +107,34 @@ class StrokeLog {
         cursor++
     }
 
+    /**
+     * Commit several strokes as ONE undoable step (the Goo Me deal,
+     * proposal 0007). The strokes still become separate revisions — the
+     * field is built by replaying them in order, and a batch is not a
+     * different kind of edit — but only the last one enters the history
+     * list, so the cursor steps over the whole batch at once. "Undo the
+     * joke" is one tap, not three.
+     *
+     * The intermediate revisions stay reachable as ancestors, which is
+     * all [snapshot] and [materialize] ever needed of them.
+     */
+    fun pushBatch(strokes: List<Stroke>) {
+        val batch = strokes.filter { it.stamps.isNotEmpty() }
+        if (batch.isEmpty()) return
+        truncateFuture()
+        var head = currentRevision
+        for (stroke in batch) {
+            head = StrokeRevision(
+                id = nextId(),
+                stateParent = head,
+                appendedStroke = stroke.copy(stamps = stroke.stamps.toList()),
+                strokeCount = head.strokeCount + 1,
+            )
+        }
+        history.add(head)
+        cursor++
+    }
+
     /** Clear the picture as an undoable step. No-op when already empty. */
     fun reset() {
         if (currentRevision.strokeCount == 0) return

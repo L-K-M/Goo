@@ -1,6 +1,6 @@
 # 0007 — The Goo-Me button
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #23)
 - **Date:** 2026-08-07
 
 ## The tool

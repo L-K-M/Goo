@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.FilterTiltShift
@@ -485,6 +486,14 @@ private fun WarpEditor(
                 viewModel.redo()?.let { strokes -> surface?.engine { rebuild(strokes) } }
             },
             onReset = { confirmReset = true },
+            // A deal is a batch of ordinary strokes: stamp them and
+            // record them exactly as a finger's would be.
+            canDeal = state.bitmap != null && !state.exportingMovie,
+            onDeal = {
+                viewModel.dealGoo()?.let { strokes ->
+                    surface?.engine { rebuild(strokes) }
+                }
+            },
             onCrop = {
                 if (showCrop) {
                     showCrop = false
@@ -1072,6 +1081,8 @@ private fun TopRail(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onReset: () -> Unit,
+    canDeal: Boolean,
+    onDeal: () -> Unit,
     onCrop: () -> Unit,
     cropActive: Boolean,
     cropEnabled: Boolean,
@@ -1136,6 +1147,17 @@ private fun TopRail(
                 selected = false,
                 enabled = canReset,
                 onClick = onReset,
+            )
+            // Next to Undo on purpose: the loop is tap → laugh → undo →
+            // tap, and the two beads that drive it should be a thumb
+            // apart.
+            ChromeIconButton(
+                icon = Icons.Filled.Casino,
+                contentDescription = stringResource(R.string.editor_goo_me),
+                color = NeonMagenta,
+                selected = false,
+                enabled = canDeal,
+                onClick = onDeal,
             )
             ChromeIconButton(
                 icon = Icons.Filled.Crop,

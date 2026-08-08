@@ -45,6 +45,7 @@
     <string name="editor_undo">Undo</string>
     <string name="editor_redo">Redo</string>
     <string name="editor_reset">Reset the goo</string>
+    <string name="editor_goo_me">Goo me — deal a random recipe</string>
     <string name="editor_reset_title">Ungoo everything?</string>
     <string name="editor_reset_body">The picture goes back to how it started. Brush strokes can be undone; the effect levers return to center.</string>
     <string name="editor_reset_confirm">Reset</string>
