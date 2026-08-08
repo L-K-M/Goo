@@ -90,6 +90,9 @@
     <string name="goovie_play">播放</string>
     <string name="goovie_pause">暂停</string>
     <string name="goovie_delete">删除关键帧</string>
+    <string name="goovie_easing_linear">匀速</string>
+    <string name="goovie_easing_ease">缓动</string>
+    <string name="goovie_easing_boing">弹跳</string>
     <string name="goovie_move_earlier">关键帧前移</string>
     <string name="goovie_move_later">关键帧后移</string>
     <string name="goovie_update">更新这个关键帧</string>

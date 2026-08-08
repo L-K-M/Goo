@@ -846,6 +846,7 @@ private fun WarpEditor(
                     exportProgress = state.movieProgress,
                     onCapture = viewModel::captureKeyframe,
                     onRepunch = viewModel::repunchSelectedKeyframe,
+                    onCycleEasing = viewModel::cycleSelectedEasing,
                     onSelect = viewModel::selectKeyframe,
                     onDelete = viewModel::deleteSelectedKeyframe,
                     onMove = viewModel::moveSelectedKeyframe,

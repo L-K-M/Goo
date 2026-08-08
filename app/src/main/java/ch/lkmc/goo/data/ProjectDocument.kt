@@ -1,6 +1,7 @@
 package ch.lkmc.goo.data
 
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.StrokeLogSnapshot
 import kotlinx.serialization.Serializable
@@ -96,4 +97,10 @@ data class CropRecord(
 data class KeyframeRecord(
     val revision: Long,
     val globals: GlobalParams = GlobalParams(),
+    /**
+     * How the segment leaving this pin moves (proposal 0011). Defaulted
+     * so projects written before curves existed load as what they were
+     * made with — every GOOvie punched until now was linear.
+     */
+    val easing: Easing = Easing.DEFAULT,
 )

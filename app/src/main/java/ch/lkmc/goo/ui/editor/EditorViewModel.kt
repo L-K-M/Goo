@@ -23,8 +23,11 @@ import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GoovieTimeline
+import ch.lkmc.goo.engine.core.leverProgress
+import ch.lkmc.goo.engine.core.tweenProgress
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
@@ -473,7 +476,9 @@ class EditorViewModel @Inject constructor(
             // only a corrupt file can get here, since snapshot() writes
             // every pinned revision.
             .mapNotNull { record ->
-                table[StrokeRevisionId(record.revision)]?.let { Keyframe(it, record.globals) }
+                table[StrokeRevisionId(record.revision)]?.let {
+                    Keyframe(it, record.globals, record.easing)
+                }
             }
             .take(MAX_KEYFRAMES)
         savedStateHandle[KEY_GLOBALS] = document.globals.toArray()
@@ -997,7 +1002,14 @@ class EditorViewModel @Inject constructor(
             val i = s.selectedKeyframe
             if (i !in s.keyframes.indices) return@update s
             val list = s.keyframes.toMutableList().apply {
-                this[i] = Keyframe(revision = log.currentRevision, globals = s.globals)
+                // Keep the segment's curve: Update re-pins the POSE, and
+                // the easing is a property of the timing that leaves this
+                // keyframe, not of what it holds.
+                this[i] = Keyframe(
+                    revision = log.currentRevision,
+                    globals = s.globals,
+                    easing = this[i].easing,
+                )
             }
             s.copy(
                 keyframes = list,
@@ -1006,6 +1018,21 @@ class EditorViewModel @Inject constructor(
                 // Same as a punch: the pin now matches what's on screen.
                 goovieLive = false,
             )
+        }
+    }
+
+    /**
+     * Step the selected keyframe's outgoing segment to the next curve.
+     * A no-op on the last keyframe, where nothing leaves.
+     */
+    fun cycleSelectedEasing() {
+        _uiState.update { s ->
+            val i = s.selectedKeyframe
+            if (i !in s.keyframes.indices || i == s.keyframes.lastIndex) return@update s
+            val list = s.keyframes.toMutableList()
+            val next = Easing.entries[(list[i].easing.ordinal + 1) % Easing.entries.size]
+            list[i] = list[i].copy(easing = next)
+            s.copy(keyframes = list)
         }
     }
 
@@ -1211,13 +1238,24 @@ class EditorViewModel @Inject constructor(
         val t = GoovieTimeline.fraction(s.scrubPos, size)
         val a = s.keyframes[k]
         val b = s.keyframes[k + 1]
-        // Straight from the pins: the log's current cursor is irrelevant
-        // to what the strip shows.
+        // The segment's curve applies to the SCRUB as well as to
+        // playback, deliberately. Proposal 0011 wanted the scrub left
+        // linear so the handle "goes where the finger goes" — it still
+        // does, since the handle sets the segment's PROGRESS. What the
+        // curve changes is which frame that progress shows, and a scrub
+        // that disagreed with the export would be a preview that lies
+        // about the movie, which is the class of bug SOL-2 is about.
+        val curve = a.easing
+        val tween = tweenProgress(t, curve)
+        // Levers clamp: running their lerp past 1 would push a lever
+        // outside [-1, 1], where the analytic warps were never
+        // characterized. The field's overshoot is the effect; a lever's
+        // is undefined behaviour.
         return TweenRequest(
             revisionA = a.revision,
             revisionB = b.revision,
-            t = t,
-            lerpedGlobals = a.globals.lerp(b.globals, t),
+            t = tween,
+            lerpedGlobals = a.globals.lerp(b.globals, leverProgress(t, curve)),
         )
     }
 
@@ -1345,7 +1383,7 @@ class EditorViewModel @Inject constructor(
             // The pins ride along as extra roots: a keyframe can hold a
             // revision the history has truncated, and it has to reach disk.
             log = log.snapshot(pins = keyframes.map { it.revision }),
-            keyframes = keyframes.map { KeyframeRecord(it.revisionId.value, it.globals) },
+            keyframes = keyframes.map { KeyframeRecord(it.revisionId.value, it.globals, it.easing) },
         )
         // Snapshotted here, not read back at completion: this is the state
         // being written, and nothing later may claim more than that was.

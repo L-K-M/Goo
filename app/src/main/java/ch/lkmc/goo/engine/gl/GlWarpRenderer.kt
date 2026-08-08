@@ -23,6 +23,8 @@ import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.core.lerp
+import ch.lkmc.goo.engine.core.leverProgress
+import ch.lkmc.goo.engine.core.tweenProgress
 import ch.lkmc.goo.engine.media.GifEncoder
 import ch.lkmc.goo.engine.media.MovieEncoder
 import java.io.BufferedOutputStream
@@ -562,7 +564,15 @@ class GlWarpRenderer(
             val t = GoovieTimeline.fraction(p, keyframes.size)
             val a = keyframes[k]
             val b = keyframes[k + 1]
-            tweenTo(a.revision, b.revision, t, a.globals.lerp(b.globals, t))
+            // Same curve the strip previews with, so the export cannot
+            // disagree with what the scrub showed.
+            val curve = a.easing
+            tweenTo(
+                a.revision,
+                b.revision,
+                tweenProgress(t, curve),
+                a.globals.lerp(b.globals, leverProgress(t, curve)),
+            )
             body(frame)
         }
     }
