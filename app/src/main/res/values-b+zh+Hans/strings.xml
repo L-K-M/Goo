@@ -157,6 +157,6 @@
     <string name="funhouse_size">大小</string>
     <string name="funhouse_hint">拖动移动 · 长按扔掉</string>
     <string name="lever_wobble">%1$s 摆动</string>
-    <string name="tool_freeze">凝冻</string>
+    <string name="tool_freeze">冻结</string>
     <string name="tool_whip">鞭甩</string>
 </resources>
