@@ -39,7 +39,10 @@
     <string name="fusion_remove_photo">Remove photo</string>
     <string name="tool_mirror">Mirror</string>
 
-    <string name="editor_levers">Global effects</string>
+    <string name="editor_levers">Levers</string>
+    <string name="dock_tab_brush">Brush</string>
+    <string name="dock_collapse">Hide the tool tray</string>
+    <string name="dock_expand">Show the tool tray</string>
     <string name="editor_hint_smear">Drag on the photo to goo it</string>
     <string name="editor_reset_view">Reset view</string>
 

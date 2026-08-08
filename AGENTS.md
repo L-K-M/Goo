@@ -62,6 +62,14 @@ lives in `engine/core` as pure JVM classes.
   pin the semantics.
 - Brush geometry is computed in normalized source coordinates, never screen
   pixels — preview/export parity depends on it (PLAN.md §5.4).
+- The editor's bottom controls are a **floating dock, not a rail**
+  (`ui/editor/ToolDock.kt`): mode tabs (Brush/Levers/GOOvies) own the
+  bottom slot, the brush tab is a family-grouped palette grid plus a
+  contextual strip, and the whole tray collapses into a `ToolPuck` on
+  stroke start. This refines PLAN.md §6.2's "candy-button arc" — the puck
+  is the arc's seed, the dock its expanded form. Panel/tab decision logic
+  is pure JVM in `ui/editor/DockState.kt`; keep it that way (tested by
+  `DockStateTest`).
 - The app has **no INTERNET permission**. Keep it that way; adding any
   network dependency is a product decision requiring an ADR.
 - App display name lives ONLY in `strings.xml` `app_name` (rename
