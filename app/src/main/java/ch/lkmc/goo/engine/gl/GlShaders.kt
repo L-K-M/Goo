@@ -55,6 +55,7 @@ uniform float u_strength;
 uniform float u_aspect;     // image width / height
 uniform int u_mode;         // StampMode.shaderId
 uniform int u_profile;      // FalloffProfile.shaderId
+uniform int u_guarded;      // StampMode.respectsFreeze
 uniform vec2 u_fieldTexel;  // 1 / field dimensions
 in vec2 v_uv;
 out vec4 o_field;
@@ -100,26 +101,36 @@ void main() {
     if (u_profile == 3 && metric.y > 0.0) metric.y *= 0.45;
     float distA = length(metric);
     float d = distA / u_radius;
-    float w = falloff(d) * u_strength;
+    // The varnish (proposal 0002) scales every stamp weight, which is
+    // what aims the whole palette from one mode. Read in DOCUMENT space
+    // — never through the warp lookup — because "this stays here" is a
+    // statement about the document. 0.0 = GUARD and ERASE, which apply
+    // and remove varnish and so must not be braked by it.
+    float guard = u_guarded == 0 ? 1.0 : 1.0 - clamp(cur.w, 0.0, 1.0);
+    float w = falloff(d) * u_strength * guard;
     // The radial direction is measured on the TRUE offset, not the
     // anisotropic metric — only the weight is reshaped.
     float distR = length(fromCenter);
-    // Field texel: xy = displacement, z = Fusion mask (see
-    // DisplacementField — CHANNELS is 3; the texture's w is unused).
-    vec3 cur = texture(u_field, v_uv).xyz;
-    vec3 next;
+    // Field texel: xy = displacement, z = Fusion mask, w = Freeze mask
+    // (DisplacementField — CHANNELS is 4; the field is now full).
+    vec4 cur = texture(u_field, v_uv);
+    vec4 next;
     if (u_mode == 5) {              // FUSE: mask flow, displacement as-is
         // 0.3  = BrushDynamics.FUSE_STEP (0.22 below = BLEND_STEP) —
         // documented-duplication convention, keep in sync.
-        next = vec3(cur.xy, clamp(cur.z + w * 0.3, 0.0, 1.0));
+        next = vec4(cur.xy, clamp(cur.z + w * 0.3, 0.0, 1.0), cur.w);
+    } else if (u_mode == 10) {      // GUARD: varnish flow, rest as-is
+        // 0.18 = BrushDynamics.FREEZE_STEP.
+        next = vec4(cur.xyz, clamp(cur.w + w * 0.18, 0.0, 1.0));
     } else if (u_mode == 3) {       // RELAX
         vec3 blur = 0.25 * (
             texture(u_field, v_uv + vec2(u_fieldTexel.x, 0.0)).xyz +
             texture(u_field, v_uv - vec2(u_fieldTexel.x, 0.0)).xyz +
             texture(u_field, v_uv + vec2(0.0, u_fieldTexel.y)).xyz +
             texture(u_field, v_uv - vec2(0.0, u_fieldTexel.y)).xyz);
-        next = mix(cur, blur, w * 0.22);
-    } else if (u_mode == 4) {       // ERASE (un-fuses too)
+        // Smoothing the goo must not erode the varnish: w passes through.
+        next = vec4(mix(cur.xyz, blur, w * 0.22), cur.w);
+    } else if (u_mode == 4) {       // ERASE (un-fuses AND thaws)
         next = cur * (1.0 - w * 0.22);
     } else {                        // warp modes: b(p) then warp-of-warp
         vec2 b;
@@ -169,11 +180,13 @@ void main() {
                 }
             }
         }
-        // Mask rides the same lookup — painted fusion moves with the goo.
+        // The fusion mask rides the same lookup — painted fusion moves
+        // with the goo. The varnish does NOT: it is pinned to the
+        // document, so it comes from this texel, not the warped one.
         vec3 prev = texture(u_field, v_uv + b).xyz;
-        next = vec3(b + prev.xy, prev.z);
+        next = vec4(b + prev.xy, prev.z, cur.w);
     }
-    o_field = vec4(next, 0.0);
+    o_field = next;
 }
 """
 
@@ -241,6 +254,10 @@ uniform sampler2D u_imageB;
 uniform float u_hasB;
 uniform float u_gAspect;   // image width / height
 uniform float u_g[6];
+// Frost sheen over the freeze mask (proposal 0002); preview-only, and
+// never set for an export, so the varnish can never be rendered into a
+// saved picture.
+uniform float u_showFreeze;
 in vec2 v_uv;
 out vec4 o_color;
 
@@ -271,6 +288,11 @@ float valueNoise(float x, float y, uint seed) {
 }
 
 float smoothShape(float t) { return t * t * (3.0 - 2.0 * t); }
+
+// A cold blue-white, at the strength that reads as varnish rather than
+// as paint. Chrome only — see u_showFreeze.
+const vec3 FROST = vec3(0.62, 0.83, 1.0);
+const float FROST_ALPHA = 0.38;
 
 // GlobalField.displacement, line for line.
 vec2 globalDisp(vec2 uv) {
@@ -316,16 +338,27 @@ vec2 globalDisp(vec2 uv) {
 }
 
 void main() {
-    // xy = displacement, z = fusion mask; the vec3 mix tweens both, so
-    // GOOvies animate fusion reveals with no extra machinery.
-    vec3 fa = texture(u_field, v_uv).xyz;
-    vec3 fb = texture(u_fieldB, v_uv).xyz;
-    vec3 f = mix(fa, fb, u_tween);
-    vec2 disp = f.xy + globalDisp(v_uv);
+    // xy = displacement, z = fusion mask, w = freeze mask; the vec4 mix
+    // tweens all of them, so GOOvies animate fusion reveals and keep a
+    // frozen eye frozen across a tween with no extra machinery.
+    vec4 fa = texture(u_field, v_uv);
+    vec4 fb = texture(u_fieldB, v_uv);
+    vec4 f = mix(fa, fb, u_tween);
+    // The varnish scales the analytic warps too. Stamped displacement
+    // was already guarded when it was stamped, but levers and lenses are
+    // evaluated here and now — without this multiply, "frozen" would
+    // stop meaning anything the moment someone pulled the Twirl lever.
+    float thawed = 1.0 - clamp(f.w, 0.0, 1.0);
+    vec2 disp = f.xy + globalDisp(v_uv) * thawed;
     vec2 src = v_uv + disp;
     vec4 colorA = texture(u_image, src);
     vec4 colorB = texture(u_imageB, src);
     o_color = mix(colorA, colorB, clamp(f.z, 0.0, 1.0) * u_hasB);
+    // The frost sheen is CHROME, not document: a way to see the mask
+    // while the tool is armed. u_showFreeze is 0 for every export, so it
+    // can never be rendered into a saved picture.
+    o_color = mix(o_color, vec4(FROST, o_color.a),
+                  clamp(f.w, 0.0, 1.0) * u_showFreeze * FROST_ALPHA);
 }
 """
 }

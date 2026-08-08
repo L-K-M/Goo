@@ -21,7 +21,7 @@ class GlShaderContractTest {
         assertContains(shader, "if (u_mode == 0)")
         assertContains(shader, "(u_mode == 1 ? -1.0 : 1.0)")
         assertContains(shader, "clamp(cur.z + w * 0.3")
-        assertContains(shader, "mix(cur, blur, w * 0.22)")
+        assertContains(shader, "mix(cur.xyz, blur, w * 0.22)")
         assertContains(shader, "cur * (1.0 - w * 0.22)")
         assertContains(shader, "float ramp = w * centerRamp(d)")
         assertContains(shader, "ramp * 0.004")
@@ -41,6 +41,7 @@ class GlShaderContractTest {
         assertContains(shader, "u_mode == ${StampMode.RIPPLE.shaderId}")
         assertContains(shader, "u_mode == ${StampMode.FAULT.shaderId}")
         assertContains(shader, "u_profile == ${FalloffProfile.DRIP.shaderId}")
+        assertContains(shader, "u_mode == ${StampMode.GUARD.shaderId}")
 
         // The anisotropic profile must reshape the WEIGHT's distance only;
         // the radial direction stays on the true offset.
@@ -77,6 +78,7 @@ class GlShaderContractTest {
         assertContains(stamp, "ramp * ${BrushDynamics.RADIAL_STEP_UV}")
         assertContains(stamp, "w * ${BrushDynamics.BLEND_STEP}")
         assertContains(stamp, "w * ${BrushDynamics.FUSE_STEP}")
+        assertContains(stamp, "w * ${BrushDynamics.FREEZE_STEP}")
         assertContains(stamp, "d / ${BrushDynamics.CENTER_RAMP_END}")
         assertContains(stamp, "d <= ${BrushFalloff.PLATEAU_EDGE}")
 
@@ -88,6 +90,16 @@ class GlShaderContractTest {
         assertContains(warp, "u_g[5] * ${GlobalField.STATIC_SCALE}")
         assertContains(warp, "sin(${GlobalField.SPIKE_COUNT}.0 * phi)")
         assertContains(warp, "uv.x * ${GlobalField.STATIC_CELLS}.0")
+
+        // Freeze (proposal 0002). Three separate claims, and all three
+        // are the kind that fail silently on screen rather than loudly:
+        // the varnish must brake the stamp pass, it must brake the
+        // ANALYTIC warps too (or a lever thaws everything the moment it
+        // is pulled), and the frost sheen must be gated on a uniform no
+        // export path sets.
+        assertContains(stamp, "u_strength * guard")
+        assertContains(warp, "globalDisp(v_uv) * thawed")
+        assertContains(warp, "u_showFreeze")
     }
 
     @Test
