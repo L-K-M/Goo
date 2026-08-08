@@ -119,10 +119,18 @@ class StrokeResamplerTest {
     @Test
     fun `stamps are evenly spaced along a straight drag`() {
         val out = stampsFor(1f, listOf(0.2f to 0.5f, 0.6f to 0.5f))
-        // 0.4 of travel at spacing 0.025 -> 16 stamps ideally; float
+        // 0.4 of travel: one stamp at FIRST_TRAVEL, then one every
+        // 0.025 — (0.4 - 0.004) / 0.025 = 15.84, so 16 in total. Float
         // representation of the endpoints may shave the last one off.
+        //
+        // The same count as before the first stamp was brought forward,
+        // which is a coincidence of these numbers and not a rule.
         assertTrue(out.size in 15..16, "got ${out.size} stamps")
-        out.zipWithNext { a, b ->
+        // Note these are INTERVALS, not positions, which is why moving
+        // the first stamp does not disturb them: every consecutive gap
+        // is still exactly one spacing, including the one from the early
+        // first stamp to the second.
+        out.zipWithNext().forEach { (a, b) ->
             assertEquals(spacing, b.cx - a.cx, 1e-5f)
             assertEquals(0f, b.cy - a.cy, 1e-6f)
         }
