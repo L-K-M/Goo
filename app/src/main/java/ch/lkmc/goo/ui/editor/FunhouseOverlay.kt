@@ -17,6 +17,7 @@ import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.ViewTransform
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.sqrt
 
 /**
@@ -78,32 +79,62 @@ fun FunhouseOverlay(
                     // one you touched rather than the one you last used.
                     if (hit != null && hit != selected) onSelect(hit)
 
+                    fun travelled(u: Float, v: Float): Float = sqrt(
+                        ((u - u0) * aspect) * ((u - u0) * aspect) + (v - v0) * (v - v0),
+                    )
+
                     var moved = false
+                    var lifted = false
                     var removed = false
-                    val longPressAt = down.uptimeMillis + LONG_PRESS_MS
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.first()
-                        if (!change.pressed) break
-                        val (u, v) = toUv(change.position.x, change.position.y)
-                        val travel = sqrt(
-                            ((u - u0) * aspect) * ((u - u0) * aspect) + (v - v0) * (v - v0),
-                        )
-                        if (travel > DRAG_SLOP) moved = true
-                        if (hit != null) {
-                            if (moved) onMove(hit, u, v)
-                            // Held still on a lens for long enough: throw
-                            // it away. Checked here rather than after the
-                            // lift so the lens goes the moment the press
-                            // completes, which is what makes it feel like
-                            // a press and not a slow tap.
-                            if (!moved && !removed && change.uptimeMillis >= longPressAt) {
+
+                    // The long press has to race a CLOCK, not the pointer
+                    // stream. A finger held perfectly still delivers no
+                    // move events on most devices, so a deadline checked
+                    // only when an event arrives would fire for people
+                    // whose hands shake and never for anyone else.
+                    if (hit != null) {
+                        val settled = withTimeoutOrNull(LONG_PRESS_MS) {
+                            while (true) {
+                                val change = awaitPointerEvent().changes.first()
+                                if (!change.pressed) {
+                                    change.consume()
+                                    return@withTimeoutOrNull Settle.LIFTED
+                                }
+                                val (u, v) = toUv(change.position.x, change.position.y)
+                                change.consume()
+                                if (travelled(u, v) > DRAG_SLOP) {
+                                    onMove(hit, u, v)
+                                    return@withTimeoutOrNull Settle.MOVED
+                                }
+                            }
+                            @Suppress("UNREACHABLE_CODE")
+                            Settle.LIFTED
+                        }
+                        when (settled) {
+                            // The clock won: still down, still where it
+                            // started. Throw the lens away now rather than
+                            // on the lift, which is what makes it feel
+                            // like a press and not a slow tap.
+                            null -> {
                                 removed = true
                                 onRemove(hit)
                             }
+                            Settle.MOVED -> moved = true
+                            Settle.LIFTED -> lifted = true
                         }
+                    }
+
+                    // Past the long-press window: an ordinary drag.
+                    while (!lifted && !removed) {
+                        val change = awaitPointerEvent().changes.first()
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        val (u, v) = toUv(change.position.x, change.position.y)
                         change.consume()
-                        if (removed) break
+                        if (travelled(u, v) > DRAG_SLOP) moved = true
+                        if (moved && hit != null) onMove(hit, u, v)
                     }
 
                     if (!moved && !removed) {
@@ -139,6 +170,9 @@ fun FunhouseOverlay(
         }
     }
 }
+
+/** How a touch on a lens resolved before the long-press deadline. */
+private enum class Settle { MOVED, LIFTED }
 
 /** Nearest center wins, so overlapping lenses grab predictably. */
 private fun hitTest(lenses: List<Lens>, u: Float, v: Float, aspect: Float): Int? {

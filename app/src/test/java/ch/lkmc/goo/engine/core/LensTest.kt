@@ -165,10 +165,12 @@ class LensTest {
     }
 
     @Test
-    fun `a small lens bites harder than a large one of the same strength`() {
-        // Displacement scales with the lens radius, so the two read as
-        // different pieces of apparatus rather than as one control at two
-        // sizes: a small lens is a hard little bulge, a large one a swell.
+    fun `lens shape is scale-free, so only its reach grows with size`() {
+        // Displacement scales with the lens radius. Normalized by that
+        // radius the curve is IDENTICAL at every size — the two lenses
+        // are the same piece of glass at two scales, not two different
+        // strengths — while absolute reach grows, which is what makes a
+        // small lens a tight bulge and a large one a slow swell.
         val small = Lens(0.5f, 0.5f, radius = 0.1f, type = LensType.BULGE, strength = 1f)
         val large = small.copy(radius = 0.3f)
         // Compare at the same FRACTION of each radius.

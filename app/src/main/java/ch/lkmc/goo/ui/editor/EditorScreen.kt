@@ -236,7 +236,10 @@ private fun WarpEditor(
     BackHandler(enabled = showCrop || showFunhouse || state.hasUnwrittenChanges || leaving) {
         when {
             showCrop -> showCrop = false
-            showFunhouse -> showFunhouse = false
+            showFunhouse -> {
+                showFunhouse = false
+                selectedLens = -1
+            }
             else -> leaveEditor()
         }
     }

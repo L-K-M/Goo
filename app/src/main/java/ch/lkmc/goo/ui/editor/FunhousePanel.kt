@@ -116,6 +116,7 @@ fun FunhousePanel(
                 value = lens?.strength ?: 0f,
                 color = NeonMagenta,
                 contentDescription = stringResource(R.string.funhouse_strength),
+                enabled = lens != null,
                 onChange = onStrength,
             )
         }

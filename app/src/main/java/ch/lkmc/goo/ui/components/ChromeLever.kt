@@ -17,6 +17,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -56,6 +57,13 @@ fun ChromeLever(
     contentDescription: String,
     onChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * A disabled lever ignores drags and reads dimmed. Needed because
+     * this control carries its own [Animatable]: a caller that simply
+     * dropped the [onChange] would still see the ball follow the finger
+     * and spring back, which reads as a control that did something.
+     */
+    enabled: Boolean = true,
 ) {
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -65,6 +73,7 @@ fun ChromeLever(
     // globals snapshot) — re-dragging this lever would then resurrect stale
     // values for every OTHER lever. rememberUpdatedState keeps it live.
     val currentOnChange by rememberUpdatedState(onChange)
+    val currentEnabled by rememberUpdatedState(enabled)
     // The ball's on-screen position: snaps under the finger during a drag,
     // springs on settle. External writes (Zero all, Reset) arrive as a
     // [value] change with no drag in flight — the effect springs to them.
@@ -89,6 +98,7 @@ fun ChromeLever(
                 // TalkBack adjustability — the stock Slider had it, so must
                 // we. Detent-snapped, so a11y "off" is exact identity too.
                 setProgress { target ->
+                    if (!currentEnabled) return@setProgress false
                     currentOnChange(LeverDetent.settle(target.coerceIn(-1f, 1f)))
                     true
                 }
@@ -99,14 +109,18 @@ fun ChromeLever(
                 var gestureValue = 0f
                 detectHorizontalDragGestures(
                     onDragStart = {
-                        dragging = true
-                        gestureValue = ball.value
+                        if (currentEnabled) {
+                            dragging = true
+                            gestureValue = ball.value
+                        }
                     },
                     onDragCancel = {
+                        if (!currentEnabled) return@detectHorizontalDragGestures
                         dragging = false
                         settle(gestureValue, currentOnChange, scope, ball)
                     },
                     onDragEnd = {
+                        if (!currentEnabled) return@detectHorizontalDragGestures
                         dragging = false
                         if (LeverDetent.settle(gestureValue) == 0f && gestureValue != 0f) {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -114,6 +128,7 @@ fun ChromeLever(
                         settle(gestureValue, currentOnChange, scope, ball)
                     },
                 ) { change, dragAmount ->
+                    if (!currentEnabled) return@detectHorizontalDragGestures
                     change.consume()
                     val track = size.width - thumbRadiusPx * 2f
                     val previous = gestureValue
@@ -128,7 +143,12 @@ fun ChromeLever(
                 }
             },
     ) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(48.dp)) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .alpha(if (enabled) 1f else DISABLED_ALPHA),
+        ) {
             val cy = size.height / 2f
             val trackLeft = thumbRadiusPx
             val trackRight = size.width - thumbRadiusPx
@@ -221,3 +241,6 @@ private fun springSpec() = spring<Float>(
 )
 
 private val THUMB_RADIUS = 12.dp
+
+/** How far a disabled lever recedes into the panel. */
+private const val DISABLED_ALPHA = 0.38f

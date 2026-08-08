@@ -926,9 +926,13 @@ class EditorViewModel @Inject constructor(
     // traveling-bulge animation comes from without any new machinery.
 
     private fun withLenses(edit: (MutableList<Lens>) -> Unit) {
-        val lenses = _uiState.value.globals.lenses.toMutableList()
+        // One read: the list edited and the pack it is written back into
+        // must come from the same state, or an interleaved update would
+        // be silently reverted by the copy.
+        val globals = _uiState.value.globals
+        val lenses = globals.lenses.toMutableList()
         edit(lenses)
-        setGlobals(_uiState.value.globals.copy(lenses = lenses.toList()))
+        setGlobals(globals.copy(lenses = lenses.toList()))
     }
 
     /**
@@ -976,25 +980,6 @@ class EditorViewModel @Inject constructor(
         withLenses { it[index] = change(it[index]) }
     }
 
-    /**
-     * The lens under ([u], [v]), or null. Nearest center wins where two
-     * overlap, so the one you aimed at is the one you grab.
-     */
-    fun lensAt(u: Float, v: Float, aspect: Float): Int? {
-        val lenses = _uiState.value.globals.lenses
-        var best = -1
-        var bestDistance = Float.MAX_VALUE
-        lenses.forEachIndexed { i, lens ->
-            val dx = (u - lens.u) * aspect
-            val dy = v - lens.v
-            val d = sqrt(dx * dx + dy * dy)
-            if (d <= lens.radius && d < bestDistance) {
-                best = i
-                bestDistance = d
-            }
-        }
-        return best.takeIf { it >= 0 }
-    }
 
     // ---- GOOvies -------------------------------------------------------
     // A keyframe pins (revision, globals): the immutable StrokeRevision
