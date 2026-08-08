@@ -168,6 +168,7 @@
     <string name="error_project_missing">That project isn\'t here any more.</string>
     <string name="error_project_damaged">That project\'s goo can\'t be read.</string>
     <string name="error_gpu_unsupported">This device\'s GPU can\'t render goo (no float render targets).</string>
+    <string name="lever_wobble">Wobble %1$s</string>
     <string name="tool_freeze">Aspic</string>
     <string name="tool_whip">Whip</string>
 </resources>
