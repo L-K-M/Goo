@@ -40,6 +40,8 @@ import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.MovieSpeed
+import ch.lkmc.goo.engine.core.PortalPair
+import ch.lkmc.goo.engine.core.Portals
 import ch.lkmc.goo.engine.core.PumpStamps
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
@@ -134,6 +136,18 @@ class EditorViewModel @Inject constructor(
          * plants one instead of painting.
          */
         val echoAnchor: Pair<Float, Float>? = null,
+        /**
+         * Goo Portals (proposal 0012) is armed. While on and short of two
+         * rings, the next canvas touch plants one instead of painting —
+         * Echo's grammar, reused rather than reinvented, so there is one
+         * answer in this app to "what does a tap do when a tool wants a
+         * point".
+         */
+        val portalsOn: Boolean = false,
+        /** First ring, in image UV; null until one is planted. */
+        val portalA: Pair<Float, Float>? = null,
+        /** Second ring. Both non-null is what makes the link live. */
+        val portalB: Pair<Float, Float>? = null,
         /** Global-effect levers — live document state, not history. */
         val globals: GlobalParams = GlobalParams(),
         /**
@@ -366,6 +380,15 @@ class EditorViewModel @Inject constructor(
 
     /** Echo's constant per-stroke delta; null for every other tool. */
     private var echoDelta: Pair<Float, Float>? = null
+
+    /**
+     * The portal shift this stroke copies by, frozen at [beginStroke];
+     * null when the touch began outside both rings, or when there is no
+     * pair. Frozen for the same reason [liveParams] is: a ring dragged —
+     * or a Size slider nudged — mid-drag must not make the second half of
+     * a stroke land somewhere the first half did not.
+     */
+    private var portalShiftLive: Pair<Float, Float>? = null
 
     /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
@@ -734,6 +757,17 @@ class EditorViewModel @Inject constructor(
         ) {
             return false
         }
+        val aspect = bitmap.width.toFloat() / bitmap.height
+        // Portal placement comes FIRST among the point-planting tools,
+        // and ahead of Echo deliberately: both want a bare tap, so with
+        // Echo selected and Portals armed something has to win, and it
+        // must be the one the user just armed with an explicit chip.
+        // Placement is not gated on a tool at all — Portals modifies
+        // every brush, which is the whole argument for it.
+        if (state.portalsOn && (state.portalA == null || state.portalB == null)) {
+            plantPortal(u, v, aspect, state)
+            return false
+        }
         // Gooing inside the strip is allowed — that IS how you author the
         // next keyframe. What isn't possible is painting into a tween: the
         // stamps go to the live field, so drop the preview to live first.
@@ -759,12 +793,17 @@ class EditorViewModel @Inject constructor(
             echoDelta = null
         }
         goLive()
-        val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
         val tool = state.tool
         mirrorLive = state.mirrored
         sectorsLive = state.sectors
         aspectLive = aspect
+        // Null unless this touch landed in a ring, which is what makes
+        // the modifier selective: the pair can stay on screen while the
+        // rest of the photo is gooed normally.
+        portalShiftLive = portalPair(state)?.let {
+            Portals.shiftAt(u, v, radius, aspect, it)
+        }
         liveParams = Stroke(
             tool = tool,
             radius = radius,
@@ -824,13 +863,22 @@ class EditorViewModel @Inject constructor(
         val stamps = echoDelta?.let { (dx, dy) ->
             fresh.map { it.copy(dx = dx, dy = dy) }
         } ?: fresh
+        // Portals runs INSIDE symmetry: the pair is a relation between
+        // the gesture and its twin gesture, while the symmetry group acts
+        // on the whole image. Applying the group last means the mandala
+        // is a mandala of everything you drew, twin included — and since
+        // rotation and translation do not commute, this order is a real
+        // choice and not a formality, which is why it is pinned by test.
+        val linked = portalShiftLive?.let { shift ->
+            stamps.flatMap { Portals.expand(it, shift) }
+        } ?: stamps
         // Symmetry copies are produced HERE, so everything downstream
         // sees an ordinary stroke: the log, undo, export replay and
         // GOOvie caches need no symmetry logic and no format change.
         val batch = if (sectorsLive <= 1 && !mirrorLive) {
-            stamps
+            linked
         } else {
-            stamps.flatMap { Symmetry.family(tool, it, aspectLive, sectorsLive, mirrorLive) }
+            linked.flatMap { Symmetry.family(tool, it, aspectLive, sectorsLive, mirrorLive) }
         }
         liveStamps.addAll(batch)
         return batch
@@ -959,6 +1007,58 @@ class EditorViewModel @Inject constructor(
             }
             it.copy(sectors = next)
         }
+    }
+
+    /**
+     * Arm or dismiss Goo Portals (proposal 0012).
+     *
+     * Turning it on always starts from an empty pair, which is also the
+     * only way to re-place the rings: off, on, tap, tap. Two taps to
+     * re-aim is cheap, and it means the chip has exactly one meaning at
+     * any moment instead of a hidden "already placed, now what" mode
+     * whose answer a user would have to remember.
+     */
+    fun togglePortals() {
+        _uiState.update {
+            if (it.portalsOn) {
+                it.copy(portalsOn = false, portalA = null, portalB = null)
+            } else {
+                it.copy(portalsOn = true, portalA = null, portalB = null)
+            }
+        }
+    }
+
+    /** The live pair, or null while fewer than two rings are planted. */
+    private fun portalPair(state: UiState): PortalPair? {
+        if (!state.portalsOn) return null
+        val a = state.portalA ?: return null
+        val b = state.portalB ?: return null
+        return PortalPair(a.first, a.second, b.first, b.second)
+    }
+
+    /**
+     * Plant the next ring at ([u], [v]).
+     *
+     * A second ring too close to the first would not read as a linked
+     * pair — it would read as the brush having quietly doubled in
+     * strength (see [Portals.MIN_SEPARATION]) — so instead of ignoring
+     * the tap, it MOVES ring A there. A tap that does nothing visible is
+     * indistinguishable from a missed touch, and the user aiming at a
+     * spot too near the first ring most plausibly wants a ring at the
+     * spot they just touched.
+     */
+    private fun plantPortal(u: Float, v: Float, aspect: Float, state: UiState) {
+        val a = state.portalA
+        val radius = state.brushRadius
+        if (a == null) {
+            _uiState.update { it.copy(portalA = Pair(u, v)) }
+            return
+        }
+        if (!Portals.separated(a.first, a.second, u, v, radius, aspect)) {
+            _uiState.update { it.copy(portalA = Pair(u, v)) }
+            return
+        }
+        _uiState.update { it.copy(portalB = Pair(u, v)) }
     }
 
     // ---- History -------------------------------------------------------
