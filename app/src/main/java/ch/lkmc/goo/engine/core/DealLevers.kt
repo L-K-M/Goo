@@ -32,7 +32,8 @@ package ch.lkmc.goo.engine.core
  *
  * Pins for truncated branches are left behind rather than swept. They are
  * inert — revision ids are never reused, so a stale edge can never match
- * again — and there is one entry per deal per session.
+ * again — and there are two per deal — one per direction — for as long as the
+ * session lasts.
  */
 class DealLevers {
 

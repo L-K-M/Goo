@@ -204,8 +204,10 @@ class StrokeLogTest {
         assertEquals(listOf(stroke(1)), log.undo())
         assertEquals(4, log.redo()!!.size)
         // And the step before it is still the ordinary single stroke:
-        // batching does not swallow its neighbours into one entry.
-        log.undo()
+        // batching does not swallow its neighbours into one entry. The
+        // undo after a redo has to land on the same place the first one
+        // did, not part-way through the batch.
+        assertEquals(listOf(stroke(1)), log.undo())
         assertTrue(log.undo()!!.isEmpty())
         assertFalse(log.canUndo)
     }
