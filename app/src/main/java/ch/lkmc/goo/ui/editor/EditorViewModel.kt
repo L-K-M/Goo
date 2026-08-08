@@ -382,6 +382,13 @@ class EditorViewModel @Inject constructor(
     private var echoDelta: Pair<Float, Float>? = null
 
     /**
+     * The revision a live Rewind stroke reads from, frozen at
+     * [beginStroke]. The log needs the revision itself and not just its
+     * id, because an id keeps nothing alive (ADR 0003).
+     */
+    private var rewindTargetLive: StrokeRevision? = null
+
+    /**
      * The portal shift this stroke copies by, frozen at [beginStroke];
      * null when the touch began outside both rings, or when there is no
      * pair. Frozen for the same reason [liveParams] is: a ring dragged —
@@ -397,6 +404,17 @@ class EditorViewModel @Inject constructor(
      * replays disagree with what was drawn.
      */
     private var liveParams: Stroke? = null
+
+    /**
+     * Resolves a [Stroke.targetRevision] for the renderer (ADR 0003).
+     *
+     * A function rather than a map so the renderer never holds document
+     * state: it asks at replay time and gets whatever the log says now.
+     * Null for an id this log has never seen, which the renderer turns
+     * into a no-op stamp rather than a crash.
+     */
+    val revisionResolver: (Long) -> List<Stroke>? =
+        { id -> log.revisionById(id)?.materialize() }
 
     /** Strokes the engine should replay when (re)building its field. */
     val strokesSnapshot: List<Stroke> get() = log.strokes
@@ -757,6 +775,17 @@ class EditorViewModel @Inject constructor(
         ) {
             return false
         }
+        // Clear every per-stroke field ONCE, ahead of all three paths
+        // that can leave without starting a stroke (portal placement,
+        // Echo planting, Rewind with no keyframe). Scattering a clear
+        // down each of them is how one gets missed — a fourth early
+        // return added later would inherit the fix for free here and
+        // silently skip it there. `emit` and `endStroke` only run
+        // between a successful begin and an end, so this is belt to the
+        // caller contract's braces; the braces have slipped before.
+        echoDelta = null
+        portalShiftLive = null
+        rewindTargetLive = null
         val aspect = bitmap.width.toFloat() / bitmap.height
         // Portal placement comes FIRST among the point-planting tools,
         // and ahead of Echo deliberately: both want a bare tap, so with
@@ -772,7 +801,6 @@ class EditorViewModel @Inject constructor(
             // stale shift surviving an aborted begin would only bite
             // once that contract changed — by which time it silently
             // twins a stroke through rings that are no longer there.
-            portalShiftLive = null
             plantPortal(u, v, aspect, state)
             return false
         }
@@ -787,13 +815,6 @@ class EditorViewModel @Inject constructor(
         if (state.tool == BrushTool.ECHO) {
             val anchor = state.echoAnchor
             if (anchor == null || !EchoOffset.isUseful(u, v, anchor.first, anchor.second)) {
-                // Clear the previous stroke's offset on the way out.
-                // Nothing reads it after a false return today, but a
-                // stale delta surviving an aborted begin is the kind of
-                // thing that only bites once the calling convention
-                // changes, and by then it corrupts stamps silently.
-                echoDelta = null
-                portalShiftLive = null
                 _uiState.update { it.copy(echoAnchor = Pair(u, v)) }
                 return false
             }
@@ -801,12 +822,22 @@ class EditorViewModel @Inject constructor(
         } else {
             echoDelta = null
         }
+        // Rewind reads from a keyframe, so it cannot paint without one.
+        // The target is the SELECTED keyframe — reusing the selection
+        // the strip already has rather than inventing a second picker,
+        // which is what makes the tool teach the strip (ADR 0003).
+        val rewindTarget = if (state.tool.needsTarget) {
+            state.keyframes.getOrNull(state.selectedKeyframe)?.revision ?: return false
+        } else {
+            null
+        }
         goLive()
         val radius = state.brushRadius
         val tool = state.tool
         mirrorLive = state.mirrored
         sectorsLive = state.sectors
         aspectLive = aspect
+        rewindTargetLive = rewindTarget
         // Null unless this touch landed in a ring, which is what makes
         // the modifier selective: the pair can stay on screen while the
         // rest of the photo is gooed normally.
@@ -818,6 +849,7 @@ class EditorViewModel @Inject constructor(
             radius = radius,
             strength = state.brushStrength * tool.strengthScale,
             stamps = emptyList(),
+            targetRevision = rewindTarget?.id?.value,
         )
         liveStamps = mutableListOf()
         if (tool.pumped) {
@@ -961,10 +993,12 @@ class EditorViewModel @Inject constructor(
         // not an invariant of this class.
         echoDelta = null
         liveParams = null
+        val target = rewindTargetLive
+        rewindTargetLive = null
         if (liveStamps.isEmpty()) return null
         val stroke = params.copy(stamps = liveStamps.toList())
         liveStamps = mutableListOf()
-        log.push(stroke)
+        log.push(stroke, target)
         if (_uiState.value.showHint) {
             // A touch-down or sub-spacing directional drag is not a
             // successful edit. Retire onboarding only after real work lands.

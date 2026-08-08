@@ -69,6 +69,26 @@ class StrokeLog {
     private var materializedRevision = root
     private var materializedStrokes: List<Stroke> = emptyList()
 
+    /**
+     * Revisions kept alive because a stroke reads from them (ADR 0003).
+     *
+     * Never pruned. A referenced revision can only leave when the stroke
+     * referencing it does, and strokes leave by being truncated out of
+     * the future on the next push — at which point working out whether
+     * any OTHER stroke still names the same target would mean walking
+     * the whole log on every stroke. The entries are revision handles,
+     * not fields: each is one object plus a parent pointer, so the cost
+     * of keeping them is a rounding error next to the cost of getting
+     * the accounting wrong and losing a target mid-session.
+     */
+    private val referenced = HashMap<Long, StrokeRevision>()
+
+    /**
+     * The revision [id] names, or null if this log has never seen it.
+     * The renderer's `revisionResolver` is this, one indirection out.
+     */
+    fun revisionById(id: Long): StrokeRevision? = referenced[id]
+
     /** Stable handle for the current field state. */
     val currentRevision: StrokeRevision
         get() = history[cursor]
@@ -89,8 +109,20 @@ class StrokeLog {
     val isEmpty: Boolean get() = strokes.isEmpty()
 
     /** Commit a finished stroke. Drops any redoable future. */
-    fun push(stroke: Stroke) {
+    fun push(stroke: Stroke, target: StrokeRevision? = null) {
         if (stroke.stamps.isEmpty()) return
+        // A Rewind stroke names its target by id, and an id keeps nothing
+        // alive (ADR 0003). The log therefore holds the revision itself
+        // for as long as the stroke exists — a keyframe pin and a stroke
+        // are two independent references to one immutable revision, and
+        // deleting the pin must not take the stroke's target with it.
+        require((stroke.targetRevision != null) == (target != null)) {
+            "a stroke with a target id must be pushed with its revision, and vice versa"
+        }
+        require(target == null || target.id.value == stroke.targetRevision) {
+            "target revision does not match the stroke's target id"
+        }
+        target?.let { referenced[it.id.value] = it }
         truncateFuture()
         // Read-only List does not guarantee immutable ownership. Freeze the
         // stamp batch at the document boundary so a caller cannot mutate a
@@ -212,11 +244,46 @@ class StrokeLog {
      */
     fun snapshot(pins: List<StrokeRevision> = emptyList()): StrokeLogSnapshot {
         val reachable = HashMap<Long, StrokeRevision>()
-        for (root in history + pins) {
+        // Roots to walk. Grows as the walk finds Rewind strokes: a
+        // target is neither a parent nor a pin, so without this a save
+        // would drop the very revision the stroke reads from and write a
+        // file that loads but cannot replay (ADR 0003).
+        //
+        // The bug this prevents is invisible in the common case — while
+        // the keyframe still exists it pins the target anyway — and
+        // appears only after the user deletes the keyframe they painted
+        // from. That is the shape of defect that ships.
+        val roots = ArrayDeque<StrokeRevision>(history + pins + referenced.values)
+        // Every revision, by id, so a target can be resolved to the
+        // object.
+        //
+        // [referenced] is in the seed, and that is the whole point:
+        // backwards-pointing in ID is NOT the same as being an ANCESTOR,
+        // and this walk climbs parents. Undo past a keyframe and push
+        // something else and the pinned revision becomes a SIBLING
+        // BRANCH — smaller id, on nobody's parent chain, reachable only
+        // through the stroke that names it. An earlier version of this
+        // comment asserted the opposite and was wrong.
+        //
+        // The consequence of getting it wrong is not a degraded picture:
+        // [restore] refuses a file whose target is missing, so the
+        // project stops opening at all.
+        val byId = HashMap<Long, StrokeRevision>()
+        for (root in history + pins + referenced.values) {
             var revision: StrokeRevision? = root
+            while (revision != null && byId.put(revision.id.value, revision) == null) {
+                revision = revision.stateParent
+            }
+        }
+        while (roots.isNotEmpty()) {
+            var revision: StrokeRevision? = roots.removeFirst()
             // Stop at the first ancestor already collected: everything
             // above it came in with that earlier walk.
             while (revision != null && reachable.put(revision.id.value, revision) == null) {
+                // Transitive: a target's own strokes may be Rewinds.
+                revision.appendedStroke?.targetRevision
+                    ?.let { byId[it] }
+                    ?.let(roots::addLast)
                 revision = revision.stateParent
             }
         }
@@ -259,6 +326,22 @@ class StrokeLog {
             // dropped there), and it would make strokeCount lie about
             // what a replay draws. Treat it as corruption.
             if (record.stroke != null && record.stroke.stamps.isEmpty()) return null
+            // A target must already be in the table, exactly as a parent
+            // must: it is the same guarantee for the same reason. Ids
+            // only ever point backwards, so a forward or dangling
+            // reference is either corruption or a cycle, and a cycle is
+            // what replay's termination depends on not existing (ADR
+            // 0003). Refuse the file rather than discover it mid-replay.
+            record.stroke?.targetRevision?.let { if (!table.containsKey(it)) return null }
+            // A tool that reads a target without one would replay as a
+            // blend toward nothing; a tool that carries one it cannot use
+            // means the file disagrees with itself about what the stroke
+            // is. Both are corruption.
+            if (record.stroke != null &&
+                record.stroke.tool.needsTarget != (record.stroke.targetRevision != null)
+            ) {
+                return null
+            }
             table[record.id] = StrokeRevision(
                 id = StrokeRevisionId(record.id),
                 stateParent = parent,
@@ -267,6 +350,14 @@ class StrokeLog {
             )
         }
         val restored = snapshot.history.map { table[it] ?: return null }
+        // Rebuild the retention map from the file. Every target was
+        // validated present above, so this cannot fail — but it has to
+        // happen, or a reloaded project would replay its Rewind strokes
+        // as no-ops the first time the field was rebuilt.
+        referenced.clear()
+        for (record in snapshot.revisions) {
+            record.stroke?.targetRevision?.let { referenced[it] = table.getValue(it) }
+        }
         history.clear()
         history.addAll(restored)
         cursor = snapshot.cursor

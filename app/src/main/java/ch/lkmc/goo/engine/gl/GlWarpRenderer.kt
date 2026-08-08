@@ -101,6 +101,7 @@ class GlWarpRenderer(
 
     // Uniform locations (stamp pass), resolved once per context.
     private var uField = 0
+    private var uTarget = 0
     private var uCenter = 0
     private var uDelta = 0
     private var uRadius = 0
@@ -160,6 +161,35 @@ class GlWarpRenderer(
     // `rebuild` used to have to invalidate here).
     private var endpointA: PingPongField? = null
     private var endpointB: PingPongField? = null
+
+    // ---- Rewind targets (proposal 0008, ADR 0003) ----------------------
+
+    /**
+     * Resolves a [Stroke.targetRevision] to that revision's strokes.
+     *
+     * Handed in from outside, exactly as keyframes are: a stroke records
+     * WHICH revision, never a pointer to one, so `StrokeRevision` stays
+     * immutable and ignorant of GL while the log stays ignorant of the
+     * renderer. Null (unset, or an id that no longer resolves) makes a
+     * Rewind stamp a no-op rather than a crash, which is the only safe
+     * answer at a GL boundary.
+     */
+    var revisionResolver: ((Long) -> List<Stroke>?)? = null
+
+    /**
+     * Scratch fields for materializing Rewind targets, one per nesting
+     * level.
+     *
+     * Nesting is reachable — rewind, then punch, then rewind to THAT
+     * frame — and the reference graph is a finite DAG pointing strictly
+     * backwards, so the recursion terminates. A level is only allocated
+     * if a document actually reaches it, which is why this is a growable
+     * list rather than a fixed cap: a cap would have to choose between
+     * wasting memory nobody needs and silently replaying a deep document
+     * wrong.
+     */
+    private val recallFields = mutableListOf<PingPongField>()
+    private var recallDepth = 0
     private var loadedRevisionA: StrokeRevisionId? = null
     private var loadedRevisionB: StrokeRevisionId? = null
     private var tweenT = -1f
@@ -250,6 +280,15 @@ class GlWarpRenderer(
      */
     private fun stampInto(target: PingPongField, imageAspect: Float, stroke: Stroke, stamps: List<Stamp>) {
         val program = stampProgram ?: return
+        // FIRST, before a single uniform is set. recallTarget replays a
+        // whole revision through this same function, and the recursive
+        // call sets every uniform for ITS strokes — radius, strength,
+        // mode, profile, guard, texel. Materializing after the uniform
+        // block would therefore leave this stroke drawing with the last
+        // inner stroke's parameters, which is not a subtle error but is
+        // an invisible one: GL cannot run in this environment, and every
+        // test here passes on a shader that never executed.
+        val recallTexture = recallTarget(stroke, imageAspect, like = target)
         program.use()
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
         GLES30.glEnableVertexAttribArray(0)
@@ -264,6 +303,13 @@ class GlWarpRenderer(
         GLES30.glUniform1i(uGuarded, if (stroke.tool.mode.respectsFreeze) 1 else 0)
         GLES30.glUniform2f(uFieldTexel, 1f / target.width, 1f / target.height)
         GLES30.glUniform1i(uField, 0)
+        // Unit 1 is the Rewind target. Bound for every stroke because
+        // GLSL cannot branch on whether a sampler is bound, and an
+        // unsampled texture unit costs nothing; for anything but RECALL
+        // this binds the field to itself, which the shader never reads.
+        GLES30.glUniform1i(uTarget, 1)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, recallTexture ?: target.readTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         for (stamp in stamps) {
             // Only the brush disc can change; everything else the pass
@@ -287,7 +333,64 @@ class GlWarpRenderer(
             }
         }
         GLES30.glDisableVertexAttribArray(0)
+        // Leave unit 1 clean. A field texture still bound to it while a
+        // LATER pass renders INTO that same field is a feedback loop —
+        // undefined results, and the kind that shows as an intermittent
+        // smear rather than an error.
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+    }
+
+    /**
+     * The texture a Rewind stroke blends toward, or null when [stroke]
+     * is not a Rewind (or its target no longer resolves).
+     *
+     * Materialized on demand into this nesting level's scratch field.
+     * There is no cache by revision id here on purpose: a Rewind stroke
+     * is replayed only during a full rebuild or an export, both of which
+     * are already bulk operations, and a per-id field cache would hold a
+     * full-size RGBA16F texture per distinct target for the lifetime of
+     * the renderer. The live painting path never comes through here —
+     * `stampBatch` stamps into the live field, and the target for THAT
+     * is materialized once when the stroke begins.
+     */
+    private fun recallTarget(
+        stroke: Stroke,
+        imageAspect: Float,
+        like: PingPongField,
+    ): Int? {
+        val id = stroke.targetRevision ?: return null
+        val strokes = revisionResolver?.invoke(id) ?: return null
+        val field = ensureRecallField(recallDepth, like)
+        recallDepth++
+        try {
+            field.clear()
+            // The CALLER's aspect, not this renderer's field. They agree
+            // today — the export source is a scaled copy of the preview
+            // bitmap — but a target chain replayed in a different space
+            // from the stroke reading it would be wrong in a way no test
+            // here can see, and "they agree today" is not a thing to
+            // build on.
+            for (s in strokes) stampInto(field, imageAspect, s, s.stamps)
+        } finally {
+            recallDepth--
+        }
+        return field.readTexture
+    }
+
+    private fun ensureRecallField(depth: Int, like: PingPongField): PingPongField {
+        while (recallFields.size <= depth) {
+            recallFields.add(
+                PingPongField(like.width, like.height, PingPongField.hasHalfFloat(extensions)),
+            )
+        }
+        val existing = recallFields[depth]
+        if (existing.width == like.width && existing.height == like.height) return existing
+        existing.delete()
+        return PingPongField(like.width, like.height, PingPongField.hasHalfFloat(extensions))
+            .also { recallFields[depth] = it }
     }
 
     /**
@@ -790,6 +893,7 @@ class GlWarpRenderer(
 
         stampProgram = GlProgram(GlShaders.QUAD_VERT, GlShaders.STAMP_FRAG).also {
             uField = it.uniform("u_field")
+            uTarget = it.uniform("u_target")
             uCenter = it.uniform("u_center")
             uDelta = it.uniform("u_delta")
             uRadius = it.uniform("u_radius")

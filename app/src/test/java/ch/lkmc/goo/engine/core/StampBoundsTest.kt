@@ -79,8 +79,24 @@ class StampBoundsTest {
         seed(before)
         val after = DisplacementField(w, h, aspect).also { copyInto(before, it) }
 
-        val stroke = Stroke(tool, radius, strength = 1f, stamps = emptyList())
-        after.applyStamp(stroke, Stamp(cx, cy, dx = 0.03f, dy = -0.02f))
+        val stroke = Stroke(
+            tool,
+            radius,
+            strength = 1f,
+            stamps = emptyList(),
+            targetRevision = if (tool.needsTarget) 0L else null,
+        )
+        // Rewind's target must DIFFER from the field everywhere, or the
+        // stamp writes nothing and the tool would pass this test by
+        // doing nothing at all. A differently-seeded field guarantees a
+        // real change inside the disc — which is exactly what the rect
+        // is being asked to contain.
+        val target = if (tool.needsTarget) {
+            DisplacementField(w, h, aspect).also { seed(it, phase = 1.7f) }
+        } else {
+            null
+        }
+        after.applyStamp(stroke, Stamp(cx, cy, dx = 0.03f, dy = -0.02f), target)
 
         val rect = StampBounds.of(cx, cy, radius, aspect, w, h, tool.profile)
         for (y in 0 until h) {
@@ -115,8 +131,19 @@ class StampBoundsTest {
         for (tool in BrushTool.entries) {
             val before = DisplacementField(w, h, aspect).also { seed(it) }
             val after = DisplacementField(w, h, aspect).also { copyInto(before, it) }
-            val stroke = Stroke(tool, radius = 0.2f, strength = 1f, stamps = emptyList())
-            after.applyStamp(stroke, Stamp(0.5f, 0.5f, dx = 0.03f, dy = -0.02f))
+            val stroke = Stroke(
+                tool,
+                radius = 0.2f,
+                strength = 1f,
+                stamps = emptyList(),
+                targetRevision = if (tool.needsTarget) 0L else null,
+            )
+            val target = if (tool.needsTarget) {
+                DisplacementField(w, h, aspect).also { seed(it, phase = 1.7f) }
+            } else {
+                null
+            }
+            after.applyStamp(stroke, Stamp(0.5f, 0.5f, dx = 0.03f, dy = -0.02f), target)
             val rect = StampBounds.of(0.5f, 0.5f, 0.2f, aspect, w, h, tool.profile)
             for (y in 0 until h) {
                 for (x in 0 until w) {
@@ -132,13 +159,18 @@ class StampBoundsTest {
         )
     }
 
-    private fun seed(f: DisplacementField) {
+    /**
+     * [phase] offsets every channel, so a second call makes a field that
+     * differs from the first at every texel — what Rewind needs for a
+     * target it will actually move toward.
+     */
+    private fun seed(f: DisplacementField, phase: Float = 0f) {
         for (y in 0 until f.height) {
             for (x in 0 until f.width) {
                 val i = (y * f.width + x) * DisplacementField.CHANNELS
-                f.data[i] = 0.01f * ((x % 7) - 3)
-                f.data[i + 1] = 0.01f * ((y % 5) - 2)
-                f.data[i + 2] = ((x + y) % 3) / 3f
+                f.data[i] = 0.01f * ((x % 7) - 3) + 0.02f * phase
+                f.data[i + 1] = 0.01f * ((y % 5) - 2) - 0.02f * phase
+                f.data[i + 2] = (((x + y) % 3) / 3f + 0.25f * phase).coerceIn(0f, 1f)
             }
         }
     }

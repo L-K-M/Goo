@@ -115,6 +115,22 @@ enum class StampMode(
      * stroke log with nothing new written for any of it.
      */
     GUARD(10, respectsFreeze = false),
+
+    /**
+     * Rewind (proposal 0008, ADR 0003): blend the field toward the one a
+     * keyframe pinned — `D' = mix(D, target, w·BLEND_STEP)`. RELAX's
+     * branch with the four-tap blur replaced by a single read from a
+     * second sampler.
+     *
+     * The whole vector is mixed, so a Rewind stroke restores the Fusion
+     * mask and the Freeze varnish as they were at that frame too. Nobody
+     * had to write that; it falls out of the field being one value.
+     *
+     * Id 11, not the 6 the proposal names: 6 became VORTEX while 0008 sat
+     * unimplemented. These ids are the wire format the shader reads, so
+     * reusing 6 would have silently re-pointed every saved Vortex stroke.
+     */
+    RECALL(11),
 }
 
 /** Brush falloff curve over normalized distance; `u_profile` wire values. */
@@ -273,7 +289,24 @@ enum class BrushTool(
         // an obvious meaning — this spot, protected.
         stampsOnDown = true,
     ),
+
+    /**
+     * Paint a keyframe back into the live picture (proposal 0008).
+     *
+     * Pumped and SMOOTHSTEP, because it is UnGoo aimed somewhere else:
+     * the same hold-to-dissolve feel, with a chosen earlier state in
+     * place of the untouched photo.
+     *
+     * Named REWIND rather than the proposal's "Chrono", which sounds
+     * like a watch. Not to be confused with ANALYSIS's "Rewind Gum" — a
+     * preview of one undo, and a different idea that should not end up
+     * sharing this name.
+     */
+    REWIND(StampMode.RECALL, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
     ;
+
+    /** Whether this tool's strokes need a [Stroke.targetRevision]. */
+    val needsTarget: Boolean get() = mode == StampMode.RECALL
 
     /**
      * Chirality for the two swirl rows, carried in each stamp's `dx`.
@@ -399,4 +432,22 @@ data class Stroke(
     val radius: Float,
     val strength: Float,
     val stamps: List<Stamp>,
+    /**
+     * The revision this stroke reads FROM, for [StampMode.RECALL] only
+     * (ADR 0003). Null for every other tool, which is what keeps the old
+     * document format loadable and the old invariant — a stroke is
+     * self-contained — true everywhere it still holds.
+     *
+     * A raw `Long` rather than a [StrokeRevisionId]: this is the wire
+     * format, and the id type is a value class whose serialized shape is
+     * an implementation detail of the log. The log resolves it.
+     *
+     * Always points BACKWARDS. A keyframe can only pin a revision that
+     * already existed and ids are never reused, so a target id is
+     * strictly smaller than the id of the revision holding this stroke —
+     * which is what makes the reference graph a DAG and replay
+     * terminate. [StrokeLog.restore] enforces it on every file it
+     * accepts rather than trusting the ones we wrote.
+     */
+    val targetRevision: Long? = null,
 )
