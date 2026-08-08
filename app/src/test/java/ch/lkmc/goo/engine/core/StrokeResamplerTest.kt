@@ -143,7 +143,13 @@ class StrokeResamplerTest {
     fun `unknown or degenerate screen geometry falls back rather than dividing`() {
         // An unmeasured view would otherwise give an infinity here, and
         // an infinite gate reads as "the brush stopped working".
-        for (bad in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+        for (bad in listOf(
+            0f,
+            -1f,
+            Float.NaN,
+            Float.POSITIVE_INFINITY,
+            Float.NEGATIVE_INFINITY,
+        )) {
             assertEquals(
                 StrokeResampler.FALLBACK_FIRST_TRAVEL,
                 StrokeResampler.firstTravelFor(bad, 2.75f),
@@ -157,6 +163,32 @@ class StrokeResamplerTest {
                 "density $bad",
             )
         }
+    }
+
+    @Test
+    fun `the result guard is reachable, so it stays`() {
+        // Review called this guard dead code and suggested deleting it,
+        // having called it reachable one round earlier. It is reachable,
+        // in BOTH directions, and these are the cases — pinned so the
+        // question does not need re-litigating.
+        //
+        // Float.MAX_VALUE is finite and positive, so it clears the input
+        // guard, and 2 * MAX overflows the multiply to Infinity.
+        assertEquals(
+            StrokeResampler.FALLBACK_FIRST_TRAVEL,
+            StrokeResampler.firstTravelFor(1100f, Float.MAX_VALUE),
+            0f,
+            "an overflowing multiply must fall back, not return Infinity",
+        )
+        // And the other end: a denormal density over a huge height
+        // underflows the divide to exactly zero, which would make the
+        // first stamp land at the touch point with a zero delta.
+        assertEquals(
+            StrokeResampler.FALLBACK_FIRST_TRAVEL,
+            StrokeResampler.firstTravelFor(Float.MAX_VALUE, Float.MIN_VALUE),
+            0f,
+            "an underflowing divide must fall back, not return 0",
+        )
     }
 
     @Test

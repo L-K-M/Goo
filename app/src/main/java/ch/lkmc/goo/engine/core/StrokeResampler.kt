@@ -187,6 +187,14 @@ class StrokeResampler(
             // "the brush stopped working".
             if (!imageHeightPx.isFinite() || imageHeightPx <= 0f) return FALLBACK_FIRST_TRAVEL
             if (!density.isFinite() || density <= 0f) return FALLBACK_FIRST_TRAVEL
+            // The two guards above bound the INPUTS; this one bounds the
+            // RESULT, and it is reachable in both directions. A density
+            // of Float.MAX_VALUE is finite and positive and overflows
+            // the multiply to Infinity; a denormal density over a huge
+            // height underflows the divide to exactly 0. Both were
+            // checked, and both are pinned by test — one review round
+            // called this dead code, and its own previous round had
+            // called it reachable.
             val travel = FIRST_TRAVEL_DP * density / imageHeightPx
             return if (travel.isFinite() && travel > 0f) travel else FALLBACK_FIRST_TRAVEL
         }
