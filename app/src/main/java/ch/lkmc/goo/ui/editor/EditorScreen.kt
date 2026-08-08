@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.RotateLeft
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SouthEast
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Waves
@@ -846,6 +847,19 @@ private fun WarpEditor(
                     imageHeight = bmp.height,
                     view = view,
                 )
+                // Rings ride the photo whenever the pair is armed. They
+                // are drawn, never touched: placement and painting both
+                // arrive through the ordinary canvas gesture, so unlike
+                // Funhouse this overlay owns no input and cannot swallow
+                // a stroke.
+                PortalRingsOverlay(
+                    a = state.portalA.takeIf { state.portalsOn },
+                    b = state.portalB.takeIf { state.portalsOn },
+                    radius = state.brushRadius,
+                    imageWidth = bmp.width,
+                    imageHeight = bmp.height,
+                    view = view,
+                )
             }
 
             // Reset view: appears whenever the photo is off its fitted
@@ -1080,9 +1094,20 @@ private fun WarpEditor(
                     },
                     onToolChange = viewModel::setTool,
                     sectors = state.sectors,
+<<<<<<< HEAD
                     rewindReady = state.keyframes.getOrNull(state.selectedKeyframe) != null,
+=======
+                    portalsOn = state.portalsOn,
+                    portalsPlacing = when {
+                        !state.portalsOn -> 0
+                        state.portalA == null -> 1
+                        state.portalB == null -> 2
+                        else -> 0
+                    },
+>>>>>>> origin/main
                     onMirrorToggle = viewModel::toggleMirror,
                     onCycleSectors = viewModel::cycleSectors,
+                    onPortalsToggle = viewModel::togglePortals,
                     onRadiusChange = viewModel::setBrushRadius,
                     onStrengthChange = viewModel::setBrushStrength,
                     onAdjustingChange = { adjustingBrush = it },
@@ -1343,8 +1368,14 @@ private fun BrushRail(
     tool: BrushTool,
     mirrored: Boolean,
     sectors: Int,
+<<<<<<< HEAD
     /** A keyframe is selected, so Rewind has something to read from. */
     rewindReady: Boolean,
+=======
+    portalsOn: Boolean,
+    /** 0 = link live or off; 1 = waiting for ring A; 2 = waiting for B. */
+    portalsPlacing: Int,
+>>>>>>> origin/main
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,
@@ -1355,6 +1386,7 @@ private fun BrushRail(
     onToolChange: (BrushTool) -> Unit,
     onMirrorToggle: () -> Unit,
     onCycleSectors: () -> Unit,
+    onPortalsToggle: () -> Unit,
     onRadiusChange: (Float) -> Unit,
     onStrengthChange: (Float) -> Unit,
     onPunch: () -> Unit,
@@ -1424,6 +1456,25 @@ private fun BrushRail(
                 color = NeonTangerine,
                 selected = sectors > 1,
                 onClick = onCycleSectors,
+            )
+            // Portals sits with the other two stamp-fanning modifiers,
+            // because that is what it is: Mirror without the assumption
+            // that the relation is centred, vertical and reflective.
+            // The label carries the placement prompt — a mode that
+            // silently eats the next two taps needs to say so somewhere,
+            // and the chip that armed it is where the user is looking.
+            ChromeToolChip(
+                icon = Icons.Filled.SwapHoriz,
+                label = stringResource(
+                    when (portalsPlacing) {
+                        1 -> R.string.tool_portals_place_a
+                        2 -> R.string.tool_portals_place_b
+                        else -> R.string.tool_portals
+                    },
+                ),
+                color = NeonMagenta,
+                selected = portalsOn,
+                onClick = onPortalsToggle,
             )
             // The KPT loop is goo → punch → goo → punch; punching never
             // needed the strip open (pins are stroke counts, safe to grab

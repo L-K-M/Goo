@@ -83,6 +83,11 @@
     <string name="tool_mirror">Mirror</string>
     <string name="tool_sectors">Kaleido</string>
     <string name="tool_sectors_count">Kaleido ×%1$d</string>
+    <string name="tool_portals">Portals</string>
+    <!-- Shown on the Portals chip while it is waiting to be told where
+         ring A goes, then ring B. -->
+    <string name="tool_portals_place_a">Portals: tap A</string>
+    <string name="tool_portals_place_b">Portals: tap B</string>
 
     <string name="editor_levers">Global effects</string>
     <string name="editor_hint_smear">Drag on the photo to goo it</string>

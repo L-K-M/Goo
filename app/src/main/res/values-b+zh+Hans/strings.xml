@@ -73,6 +73,9 @@
     <string name="tool_mirror">镜像</string>
     <string name="tool_sectors">万花筒</string>
     <string name="tool_sectors_count">万花筒 ×%1$d</string>
+    <string name="tool_portals">传送门</string>
+    <string name="tool_portals_place_a">传送门：点选 A</string>
+    <string name="tool_portals_place_b">传送门：点选 B</string>
 
     <string name="editor_levers">整体效果</string>
     <string name="editor_hint_smear">在照片上拖动就能捏它</string>
