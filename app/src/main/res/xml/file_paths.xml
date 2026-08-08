@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider scope: only the share cache is ever served to other apps. -->
+<!-- FileProvider scope. Two cache subdirectories and nothing else:
+     `share` serves finished pictures OUT to the app the user picked in
+     the share sheet, and `capture` is the scratch file the camera app
+     writes a new photo INTO (CameraCapture). Both are app cache; neither
+     exposes the project store or the user's gallery. -->
 <paths>
     <cache-path name="share" path="share/" />
+    <cache-path name="capture" path="capture/" />
 </paths>
