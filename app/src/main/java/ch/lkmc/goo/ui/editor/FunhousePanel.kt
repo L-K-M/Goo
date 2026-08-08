@@ -21,12 +21,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.ui.components.ChromeIconButton
 import ch.lkmc.goo.ui.components.ChromeLever
+import ch.lkmc.goo.ui.components.PanelLabelWidth
 import ch.lkmc.goo.ui.components.chromePanel
 import ch.lkmc.goo.ui.theme.NeonCyan
 import ch.lkmc.goo.ui.theme.NeonMagenta
@@ -157,9 +159,13 @@ private fun Labelled(labelRes: Int, content: @Composable RowScope.() -> Unit) {
     ) {
         Text(
             text = stringResource(labelRes),
-            modifier = Modifier.width(64.dp),
+            // Same column and same one-line rule as the lever rack:
+            // these benches swap into the same place on screen.
+            modifier = Modifier.width(PanelLabelWidth),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         content()
     }

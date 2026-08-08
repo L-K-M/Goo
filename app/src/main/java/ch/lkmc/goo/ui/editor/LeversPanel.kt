@@ -29,11 +29,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.LeverWobble
+import ch.lkmc.goo.ui.components.PanelLabelWidth
 import ch.lkmc.goo.ui.components.chromePanel
 import ch.lkmc.goo.ui.components.ChromeLever
 import ch.lkmc.goo.ui.theme.NeonCyan
@@ -131,9 +133,23 @@ private fun Lever(
     ) {
         Text(
             text = label,
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier.width(PanelLabelWidth),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // One line, always. At 64.dp "Squeeze" wrapped to "Squeez /
+            // e" — wider than "Stretch" despite the same letter count,
+            // so it sat right on the boundary and only one of the six
+            // rows broke. A wrapped label also makes its row taller than
+            // the others, which is what actually catches the eye: the
+            // rack stops being a rack.
+            //
+            // maxLines is the belt to the width's braces. A big system
+            // font scale or a longer translation will eventually
+            // overflow any fixed column, and clipping one glyph is a
+            // far better failure than splitting a word across two lines
+            // and shoving the row out of alignment.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         ChromeLever(
             modifier = Modifier.weight(1f),
