@@ -98,4 +98,23 @@ class EchoOffsetTest {
         assertFalse("a clone stamp must not pump", BrushTool.ECHO.pumped)
         assertFalse("planting is not painting", BrushTool.ECHO.stampsOnDown)
     }
+
+    @Test
+    fun `a mirrored echo clones from the mirrored source`() {
+        // Mirror negates a DIRECTIONAL stamp's dx, and an echo stamp's dx
+        // is not a drag but the clone offset — so it is worth checking
+        // that the twin grafts from the reflection of the source region
+        // rather than from somewhere arbitrary. It does, and for a reason
+        // that generalizes: reflection is linear, so reflecting both the
+        // brush position and the offset reflects the point they define.
+        val delta = EchoOffset.delta(startU = 0.7f, startV = 0.4f, anchorU = 0.3f, anchorV = 0.55f)
+        val stamp = Stamp(cx = 0.72f, cy = 0.42f, dx = delta.first, dy = delta.second)
+
+        val twin = BrushTool.ECHO.mirrorStamp(stamp)
+        val source = EchoOffset.sourceOf(stamp.cx, stamp.cy, delta)
+        val twinSource = EchoOffset.sourceOf(twin.cx, twin.cy, Pair(twin.dx, twin.dy))
+
+        assertEquals(1f - source.first, twinSource.first, 1e-6f)
+        assertEquals(source.second, twinSource.second, 1e-6f)
+    }
 }

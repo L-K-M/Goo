@@ -48,9 +48,11 @@ object EchoOffset {
      * stroke's [delta]. Useful for reasoning and for tests; the engine
      * itself never calls it, since the shader does this by construction.
      *
-     * Mind the sign: [delta] is the *stamp* delta, which is `−offset` (see
-     * the class note above), so the source is `P − delta` and not the
-     * `P + offset` the class kdoc talks in.
+     * Mind the sign: [delta] is the *stamp* delta, which is `−offset`
+     * (see the class note above), so this computes `P − delta` — the same
+     * point as the `P + offset` the class kdoc reasons in, spelled in the
+     * variable this function is actually handed. Pass [delta] straight
+     * through; negating it again would undo the identity.
      */
     fun sourceOf(u: Float, v: Float, delta: Pair<Float, Float>): Pair<Float, Float> =
         Pair(u - delta.first, v - delta.second)
