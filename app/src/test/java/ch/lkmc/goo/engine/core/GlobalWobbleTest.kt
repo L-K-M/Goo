@@ -179,7 +179,6 @@ class GlobalWobbleTest {
         // because the floor in maxSafeRate makes that a boundary the
         // next person to touch this will want to know was deliberate.
         assertEquals(3, GlobalWobble.maxSafeRate(1f))
-        assertEquals(3f, 3 / 1f)
         // And just under a second cannot reach it.
         assertEquals(2, GlobalWobble.maxSafeRate(0.99f))
     }

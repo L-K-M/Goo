@@ -187,7 +187,16 @@ private fun WobbleKnob(
             .background(if (on) color.copy(alpha = 0.35f) else MeltVoid)
             .border(1.dp, if (on) color else color.copy(alpha = 0.3f), CircleShape)
             .clickable(enabled = offered.isNotEmpty()) {
-                val next = offered.getOrNull(offered.indexOf(shown) + 1) ?: 0
+                // Explicit rather than leaning on indexOf(0) == -1 and
+                // -1 + 1 == 0. That happened to pick the first rate, but
+                // only because 0 is filtered out of `offered` — a
+                // coincidence of two unrelated facts, and unreadable.
+                val at = offered.indexOf(shown)
+                val next = if (at < 0) {
+                    offered.firstOrNull() ?: 0   // off, or capped away: turn on
+                } else {
+                    offered.getOrNull(at + 1) ?: 0   // past the top: back to off
+                }
                 onChange(
                     LeverWobble(
                         rate = next,
