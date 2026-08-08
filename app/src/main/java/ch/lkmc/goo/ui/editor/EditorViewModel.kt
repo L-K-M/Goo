@@ -1056,17 +1056,22 @@ class EditorViewModel @Inject constructor(
      * is a worse surprise than "no room".
      */
     fun placeLens(u: Float, v: Float): Int? {
-        val lenses = _uiState.value.globals.lenses
-        // A lens pulled to zero is invisible — activeLenses drops it — so
-        // counting it toward the cap would mean "no room" beside an
-        // apparently empty ring. Reuse its slot instead. Deliberately not
-        // solved by deleting lenses at zero strength: strength is bipolar
-        // so a lens tweens THROUGH zero into its opposite, and a slider
-        // sweep from bulge to pinch would delete the thing being dragged.
-        val spare = lenses.indexOfFirst { it.isIdentity }
-        if (spare < 0 && lenses.size >= Lens.CAPACITY) return null
         var index = -1
+        // Decided INSIDE withLenses, against the same list the edit
+        // lands on. Reading the rack out here to pick a slot and then
+        // writing into a list materialized from a second read is the
+        // exact split withLenses' own comment warns about — safe today
+        // only because both reads happen on the main thread.
         withLenses { list ->
+            // A lens pulled to zero is invisible — activeLenses drops it
+            // — so counting it toward the cap would mean "no room" beside
+            // an apparently empty ring. Reuse its slot instead.
+            // Deliberately not solved by deleting lenses at zero
+            // strength: strength is bipolar so a lens tweens THROUGH zero
+            // into its opposite, and a slider sweep from bulge to pinch
+            // would delete the thing being dragged.
+            val spare = list.indexOfFirst { it.isIdentity }
+            if (spare < 0 && list.size >= Lens.CAPACITY) return@withLenses
             val fresh = Lens(u = u, v = v).sanitized()
             if (spare >= 0) {
                 list[spare] = fresh
@@ -1076,7 +1081,7 @@ class EditorViewModel @Inject constructor(
                 index = list.lastIndex
             }
         }
-        return index
+        return index.takeIf { it >= 0 }
     }
 
     fun moveLens(index: Int, u: Float, v: Float) = editLens(index) {

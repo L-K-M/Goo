@@ -95,8 +95,14 @@ data class Lens(
          * is the same one the shader sees.
          */
         fun pack(lenses: List<Lens>): FloatArray {
-            val out = FloatArray(lenses.size * PACK_STRIDE)
-            lenses.forEachIndexed { i, lens ->
+            // Capped here, because [unpack] REFUSES an oversized pack and
+            // the caller reads that as "no lenses". Writing more than the
+            // rack holds would therefore lose the whole rack on the next
+            // process death rather than just the overflow — the wrong
+            // failure by a wide margin.
+            val capped = lenses.take(CAPACITY)
+            val out = FloatArray(capped.size * PACK_STRIDE)
+            capped.forEachIndexed { i, lens ->
                 val base = i * PACK_STRIDE
                 out[base] = lens.u
                 out[base + 1] = lens.v

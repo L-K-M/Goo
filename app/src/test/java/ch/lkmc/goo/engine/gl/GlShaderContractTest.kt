@@ -10,6 +10,7 @@ import ch.lkmc.goo.engine.core.StampMode
 import ch.lkmc.goo.engine.core.TAU
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 
 class GlShaderContractTest {
 
@@ -105,6 +106,12 @@ class GlShaderContractTest {
         assertContains(warp, "type == ${LensType.PINCH.shaderId} ? 1.0 : -1.0")
         assertContains(warp, "i >= u_lensCount")
         assertContains(warp, "for (int i = 0; i < ${Lens.CAPACITY}; i++)")
+        // The ARRAY SIZES too, not just the loop bound. The renderer
+        // sizes its upload buffers from Lens.CAPACITY; if the shader's
+        // arrays disagreed, uploads would be truncated or the loop would
+        // read past the end — on the GPU, where nothing here can see it.
+        assertContains(warp, "uniform vec4 u_lens[${Lens.CAPACITY}]")
+        assertContains(warp, "uniform int u_lensType[${Lens.CAPACITY}]")
         // Freeze (proposal 0002). Three separate claims, and all three
         // are the kind that fail silently on screen rather than loudly:
         // the varnish must brake the stamp pass, it must brake the
@@ -114,6 +121,17 @@ class GlShaderContractTest {
         assertContains(stamp, "u_strength * guard")
         assertContains(warp, "globalDisp(v_uv) * thawed")
         assertContains(warp, "u_showFreeze")
+    }
+
+    @Test
+    fun `lens type ids are distinct, since the shader switches on them`() {
+        // BULGE has no literal in the shader — it is the else of both the
+        // ramp and the sign — so it cannot be pinned by substring like
+        // the other three. What actually has to hold is that no two types
+        // share a wire value, or the shader's branches would collapse two
+        // kinds of glass into one.
+        val ids = LensType.entries.map { it.shaderId }
+        assertEquals(ids.size, ids.toSet().size, "LensType shaderIds must be distinct: $ids")
     }
 
     @Test

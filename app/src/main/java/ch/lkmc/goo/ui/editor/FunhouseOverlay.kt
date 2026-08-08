@@ -20,7 +20,7 @@ import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.ViewTransform
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.sqrt
+import kotlin.math.hypot
 
 /**
  * The Funhouse apparatus, drawn on the photo (proposal 0006).
@@ -112,9 +112,8 @@ fun FunhouseOverlay(
                     // one you touched rather than the one you last used.
                     if (hit != null && hit != selectedAtDown) onSelect(hit)
 
-                    fun travelled(u: Float, v: Float): Float = sqrt(
-                        ((u - u0) * aspect) * ((u - u0) * aspect) + (v - v0) * (v - v0),
-                    )
+                    fun travelled(u: Float, v: Float): Float =
+                        hypot((u - u0) * aspect, v - v0)
 
                     var moved = false
                     var lifted = false
@@ -224,7 +223,7 @@ private fun hitTest(lenses: List<Lens>, u: Float, v: Float, aspect: Float): Int?
     lenses.forEachIndexed { i, lens ->
         val dx = (u - lens.u) * aspect
         val dy = v - lens.v
-        val d = sqrt(dx * dx + dy * dy)
+        val d = hypot(dx, dy)
         if (d <= lens.radius && d < bestDistance) {
             best = i
             bestDistance = d
