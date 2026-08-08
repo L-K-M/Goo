@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Details
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
@@ -1660,6 +1661,7 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.FREEZE -> R.string.tool_freeze
     BrushTool.WHIP -> R.string.tool_whip
     BrushTool.REWIND -> R.string.tool_rewind
+    BrushTool.PINS -> R.string.tool_pins
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -1682,6 +1684,7 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.FREEZE -> Icons.Filled.AcUnit
     BrushTool.WHIP -> Icons.Filled.Bolt
     BrushTool.REWIND -> Icons.Filled.History
+    BrushTool.PINS -> Icons.Filled.PushPin
 }
 
 /** Each tool wears its own tube of neon — families share a color. */
@@ -1710,6 +1713,10 @@ private fun BrushTool.neonColor(): Color = when (this) {
     // Lime, with Smooth and UnGoo: Rewind is the third dissolver, and
     // the only difference between them is WHAT they dissolve toward.
     BrushTool.REWIND -> NeonLime
+    // Its own tube, like Freeze: Pins is the only row that is a MODE
+    // rather than a brush, and a mode that looks like a brush is a mode
+    // people tap expecting to paint.
+    BrushTool.PINS -> NeonViolet
 }
 
 @Composable

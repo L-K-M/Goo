@@ -131,6 +131,16 @@ enum class StampMode(
      * reusing 6 would have silently re-pointed every saved Vortex stroke.
      */
     RECALL(11),
+
+    /**
+     * Taffy Pins (proposal 0016): one analytic full-field pass, not a
+     * stamp.
+     *
+     * The only mode whose pass is not scissored to a disc — there is no
+     * disc. It carries a shaderId anyway because it still travels the
+     * same `u_mode` wire and must not collide with one that does.
+     */
+    PINWARP(12),
 }
 
 /** Brush falloff curve over normalized distance; `u_profile` wire values. */
@@ -303,7 +313,28 @@ enum class BrushTool(
      * sharing this name.
      */
     REWIND(StampMode.RECALL, FalloffProfile.SMOOTHSTEP, 1f, pumped = true),
+
+    /**
+     * Taffy Pins (proposal 0016): hold points still and pull another one.
+     *
+     * The odd row out, and honestly so. Its radius, strength, falloff
+     * and cadence are all meaningless — a pin pull has no brush disc,
+     * covers the whole field, and commits once on release. They are
+     * filled with inert values rather than made nullable, because every
+     * other tool needs them and a nullable column would push a `?:` onto
+     * fifteen rows to accommodate one.
+     */
+    PINS(
+        StampMode.PINWARP,
+        FalloffProfile.SMOOTHSTEP,
+        1f,
+        pumped = false,
+        stampsOnDown = false,
+    ),
     ;
+
+    /** This tool's edits are a [PinWarp], not stamps. */
+    val isPinWarp: Boolean get() = mode == StampMode.PINWARP
 
     /** Whether this tool's strokes need a [Stroke.targetRevision]. */
     val needsTarget: Boolean get() = mode == StampMode.RECALL
@@ -450,4 +481,30 @@ data class Stroke(
      * accepts rather than trusting the ones we wrote.
      */
     val targetRevision: Long? = null,
-)
+    /**
+     * The pin pull this stroke IS, for [BrushTool.PINS] only (proposal
+     * 0016). Null for every other tool.
+     *
+     * A stroke carries stamps XOR a pin warp, never both and never
+     * neither — [StrokeLog.push] and [StrokeLog.restore] both enforce
+     * that, because "an edit that draws nothing" is corruption whichever
+     * direction it arrives from. See [hasContent].
+     *
+     * This is the second and larger widening of what a stroke is. ADR
+     * 0003 let a stroke POINT at something else; this lets it BE
+     * something other than stamps. They are independent decisions and
+     * neither implied the other.
+     */
+    val pinWarp: PinWarp? = null,
+) {
+    /**
+     * Whether this stroke draws anything at all.
+     *
+     * Exactly one of the two payloads, which is what keeps every
+     * existing reader honest: code that walks `stamps` still sees an
+     * empty list for a pin pull rather than a lie, and the replayer has
+     * to branch rather than silently draw nothing.
+     */
+    val hasContent: Boolean
+        get() = stamps.isNotEmpty() != (pinWarp != null)
+}

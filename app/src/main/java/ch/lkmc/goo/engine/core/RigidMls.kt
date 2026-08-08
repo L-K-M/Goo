@@ -1,5 +1,6 @@
 package ch.lkmc.goo.engine.core
 
+import kotlinx.serialization.Serializable
 import kotlin.math.hypot
 import kotlin.math.pow
 
@@ -19,6 +20,7 @@ import kotlin.math.pow
  *
  * All coordinates are image UV.
  */
+@Serializable
 data class MlsControl(
     val su: Float,
     val sv: Float,
