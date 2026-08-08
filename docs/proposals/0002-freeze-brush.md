@@ -26,6 +26,13 @@ jelly a 1950s cookbook sets a whole ham in: edible, wobbly, slightly
 disgusting, and the exact physical metaphor. "Freeze" is what it does;
 "Aspic" is what the bead should say.
 
+> **Shipped as Aspic, renamed to Freeze** (user-reported). The joke is
+> good and it cost a beat of thinking at the one moment this tool has to
+> read instantly — it is the only bead in the palette that means *no*,
+> and a user hunting for a brake should not have to translate a 1950s
+> buffet first. Everyone arriving from Liquify already knows it as
+> Freeze. The voice keeps the rest of the palette.
+
 ## Why it belongs in Meltorama 2000
 
 **1. The palette is nine accelerators and no brake.** Every tool adds
