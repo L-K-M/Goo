@@ -647,6 +647,15 @@ private fun WarpEditor(
                                 // discarding would snap pixels back and
                                 // need a rebuild. Undo covers regrets.
                                 if (stroking) {
+                                    // The release itself is a sample, and
+                                    // the fastest flicks are exactly the
+                                    // ones where the last drag event is
+                                    // already stale by the time the finger
+                                    // leaves the glass.
+                                    velocity.addPosition(
+                                        change.uptimeMillis,
+                                        change.position,
+                                    )
                                     // The flick's tail joins the stroke
                                     // BEFORE it is committed, so the whole
                                     // mark enters the document as one
