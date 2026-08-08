@@ -101,6 +101,10 @@ void main() {
     if (u_profile == 3 && metric.y > 0.0) metric.y *= 0.45;
     float distA = length(metric);
     float d = distA / u_radius;
+    // Field texel: xy = displacement, z = Fusion mask, w = Freeze mask
+    // (DisplacementField — CHANNELS is 4; the field is now full).
+    // Read BEFORE the weight, which needs the varnish out of w.
+    vec4 cur = texture(u_field, v_uv);
     // The varnish (proposal 0002) scales every stamp weight, which is
     // what aims the whole palette from one mode. Read in DOCUMENT space
     // — never through the warp lookup — because "this stays here" is a
@@ -111,9 +115,6 @@ void main() {
     // The radial direction is measured on the TRUE offset, not the
     // anisotropic metric — only the weight is reshaped.
     float distR = length(fromCenter);
-    // Field texel: xy = displacement, z = Fusion mask, w = Freeze mask
-    // (DisplacementField — CHANNELS is 4; the field is now full).
-    vec4 cur = texture(u_field, v_uv);
     vec4 next;
     if (u_mode == 5) {              // FUSE: mask flow, displacement as-is
         // 0.3  = BrushDynamics.FUSE_STEP (0.22 below = BLEND_STEP) —
