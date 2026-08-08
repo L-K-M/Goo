@@ -46,10 +46,28 @@ class StrokeResampler(
         lastStampU = u
         lastStampV = v
         started = true
-        // The first stamp drops after a full spacing of travel, not at the
-        // touch-down point: a Smear with zero movement must not disturb the
-        // image (a stationary finger drags nothing).
-        toNext = spacingFraction * radius
+        // The first stamp drops much sooner than the rest (user-reported:
+        // "I have to drag 20px before the image reacts").
+        //
+        // A stationary finger must still drag nothing, which is why this
+        // is not zero. But that only needs a distance above touch jitter,
+        // and it used to be a full spacing — a quarter of the brush
+        // radius, so 0.03 of image height at the default size and 0.07 at
+        // the largest. On a phone that is 30-80px of dead travel before
+        // anything moves, and the brush felt like it had a lower
+        // resolution than the screen.
+        //
+        // Bringing it forward costs no extra warp. Each stamp's delta is
+        // measured from the PREVIOUS stamp's centre, so the deltas
+        // telescope to the total path travelled however the path is
+        // chopped up: an earlier first stamp splits the same displacement
+        // into more pieces rather than adding any. It only starts sooner.
+        //
+        // Fixed distance rather than a fraction of the radius, so a fat
+        // brush is as responsive as a thin one — CAPPED at the
+        // steady-state spacing, since a very small brush should never
+        // wait LONGER for its first stamp than for its second.
+        toNext = minOf(spacingFraction * radius, FIRST_TRAVEL)
     }
 
     /**
@@ -101,5 +119,35 @@ class StrokeResampler(
          * (research-standard ~25% for Liquify-style brushes).
          */
         const val SPACING_FRACTION = 0.25f
+
+        /**
+         * Aspect-space travel before the FIRST stamp of a stroke — a
+         * fraction of image height, so roughly 3-4 screen pixels on a
+         * phone-sized preview.
+         *
+         * Chosen to sit above finger jitter and below perception. Too
+         * small and a tap that rolls slightly leaves an invisible smear
+         * plus an undo entry for it; too large and the brush feels like
+         * it is ignoring the start of every stroke, which is the
+         * complaint this constant exists to answer.
+         *
+         * **Known imperfection: this is image space, and jitter is
+         * screen space.** The physical distance it represents therefore
+         * moves with how large the photo is drawn — a taller fitted
+         * image, or a zoomed-in view, means more screen pixels for the
+         * same fraction. Zoom is the awkward direction: at 4x the gate
+         * is about four times its unzoomed size in pixels, exactly when
+         * the user is working precisely.
+         *
+         * Left as is on purpose. This is strictly better than what it
+         * replaced at every zoom and every screen size (the old gate
+         * scaled the same way AND was up to twenty times larger), and
+         * fixing it properly means plumbing the view transform and the
+         * fitted size into a class that is currently pure geometry with
+         * no idea a screen exists. Worth doing if precise work while
+         * zoomed still feels laggy; not worth the coupling on
+         * speculation.
+         */
+        const val FIRST_TRAVEL = 0.004f
     }
 }
