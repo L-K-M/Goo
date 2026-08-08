@@ -35,6 +35,7 @@ import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.LeverWobble
+import ch.lkmc.goo.ui.components.PanelLabelWidth
 import ch.lkmc.goo.ui.components.chromePanel
 import ch.lkmc.goo.ui.components.ChromeLever
 import ch.lkmc.goo.ui.theme.NeonCyan
@@ -132,7 +133,7 @@ private fun Lever(
     ) {
         Text(
             text = label,
-            modifier = Modifier.width(LABEL_WIDTH),
+            modifier = Modifier.width(PanelLabelWidth),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             // One line, always. At 64.dp "Squeeze" wrapped to "Squeez /
@@ -244,11 +245,3 @@ private fun WobbleKnob(
     }
 }
 
-/**
- * The label column every lever row shares, so the tracks line up.
- *
- * Wide enough for the longest label at the default font scale with room
- * to spare; see the note at the call site for why it is not just wide
- * enough.
- */
-private val LABEL_WIDTH = 84.dp

@@ -48,3 +48,20 @@ fun Modifier.chromePanel(shape: Shape = RoundedCornerShape(14.dp)): Modifier = t
             strokeWidth = hairline,
         )
     }
+
+/**
+ * The label column a bench row gives its name, shared by every panel
+ * that has one.
+ *
+ * Shared because the benches swap into the same place on screen: the
+ * levers, the Funhouse controls. A label column that differed between
+ * them would read as the panel jumping rather than as the content
+ * changing, and two copies of the number is how that starts.
+ *
+ * Wide enough for the longest label at the default font scale with room
+ * to spare — "Squeeze" overflowed 64.dp and wrapped mid-word. Rows using
+ * this should also pin themselves to one line, because no fixed column
+ * survives every font scale and every translation, and clipping a glyph
+ * beats splitting a word and shoving the row out of alignment.
+ */
+val PanelLabelWidth = 84.dp

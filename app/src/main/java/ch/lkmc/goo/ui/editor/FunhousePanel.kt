@@ -28,6 +28,7 @@ import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.ui.components.ChromeIconButton
 import ch.lkmc.goo.ui.components.ChromeLever
+import ch.lkmc.goo.ui.components.PanelLabelWidth
 import ch.lkmc.goo.ui.components.chromePanel
 import ch.lkmc.goo.ui.theme.NeonCyan
 import ch.lkmc.goo.ui.theme.NeonMagenta
@@ -158,11 +159,9 @@ private fun Labelled(labelRes: Int, content: @Composable RowScope.() -> Unit) {
     ) {
         Text(
             text = stringResource(labelRes),
-            // Same column width and same one-line rule as the lever
-            // rack next door: these two benches sit in the same place on
-            // screen, so a label that wrapped in one and not the other
-            // would make the panels look like different furniture.
-            modifier = Modifier.width(84.dp),
+            // Same column and same one-line rule as the lever rack:
+            // these benches swap into the same place on screen.
+            modifier = Modifier.width(PanelLabelWidth),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
