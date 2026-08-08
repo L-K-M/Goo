@@ -298,11 +298,34 @@ private fun DrawScope.drawLens(
 
         else -> {
             // Four arrows in or out — magnify or shrink, at a glance.
+            //
+            // With heads, because a bare segment has no direction: a line
+            // from far to near draws exactly the pixels a line from near
+            // to far does, so reversing the endpoints — which is what
+            // this used to do — left bulge and pinch identical on screen.
+            val head = mark * 0.3f
             for ((dx, dy) in listOf(1f to 0f, -1f to 0f, 0f to 1f, 0f to -1f)) {
                 val near = Offset(center.x + dx * mark * 0.35f, center.y + dy * mark * 0.35f)
                 val far = Offset(center.x + dx * mark, center.y + dy * mark)
-                val (start, end) = if (inward) far to near else near to far
-                drawLine(color = ink, start = start, end = end, strokeWidth = width)
+                val tip = if (inward) near else far
+                drawLine(color = ink, start = near, end = far, strokeWidth = width)
+                // Barbs sit BEHIND the tip, along the arrow's own axis,
+                // and splay across it — so the V opens away from travel.
+                val backX = tip.x - if (inward) -dx * head else dx * head
+                val backY = tip.y - if (inward) -dy * head else dy * head
+                val splay = head * 0.55f
+                drawLine(
+                    color = ink,
+                    start = tip,
+                    end = Offset(backX - dy * splay, backY + dx * splay),
+                    strokeWidth = width,
+                )
+                drawLine(
+                    color = ink,
+                    start = tip,
+                    end = Offset(backX + dy * splay, backY - dx * splay),
+                    strokeWidth = width,
+                )
             }
             if (type == LensType.FISHEYE) {
                 // The flat core, drawn as the core: a filled dot where a

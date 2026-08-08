@@ -1045,7 +1045,13 @@ class EditorViewModel @Inject constructor(
         val globals = _uiState.value.globals
         val lenses = globals.lenses.toMutableList()
         edit(lenses)
-        setGlobals(globals.copy(lenses = lenses.toList()))
+        val updated = lenses.toList()
+        // An edit that changed nothing must not write. placeLens returns
+        // early when the rack is full, and setGlobals is not free: it
+        // calls goLive(), which would drop a GOOvie scrub back to the
+        // live document on a tap that was refused.
+        if (updated == globals.lenses) return
+        setGlobals(globals.copy(lenses = updated))
     }
 
     /**
