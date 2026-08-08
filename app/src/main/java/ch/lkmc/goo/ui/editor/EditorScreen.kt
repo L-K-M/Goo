@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.FilterTiltShift
 import androidx.compose.material.icons.filled.Dehaze
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Details
@@ -84,6 +85,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -186,6 +188,10 @@ private fun WarpEditor(
     // pendingCrop holds an Apply awaiting the "start fresh" confirm
     // (only asked when there is goo to lose).
     var showCrop by remember { mutableStateOf(false) }
+    var showFunhouse by remember { mutableStateOf(false) }
+    // Which lens is in hand. Pure UI: the rack itself lives in
+    // globals, and a selection is not document state.
+    var selectedLens by remember { mutableIntStateOf(-1) }
     var pendingCrop by remember { mutableStateOf<CropAction?>(null) }
     // Leaving writes the document, then goes. There is no "are you sure":
     // nothing is lost by leaving, so there is nothing to ask about (the
@@ -227,8 +233,12 @@ private fun WarpEditor(
     // surface down, which cancels the export (the engineBridge
     // DisposableEffect above), and the write on the way out is worth more
     // there than anywhere else.
-    BackHandler(enabled = showCrop || state.hasUnwrittenChanges || leaving) {
-        if (showCrop) showCrop = false else leaveEditor()
+    BackHandler(enabled = showCrop || showFunhouse || state.hasUnwrittenChanges || leaving) {
+        when {
+            showCrop -> showCrop = false
+            showFunhouse -> showFunhouse = false
+            else -> leaveEditor()
+        }
     }
     // Pan/zoom/rotate of the preview. Ephemeral across process recreation;
     // viewport changes rebase it around the same source point below.
@@ -481,6 +491,18 @@ private fun WarpEditor(
             },
             cropActive = showCrop,
             cropEnabled = !state.exporting && !state.exportingMovie,
+            funhouseActive = showFunhouse,
+            onFunhouse = {
+                showCrop = false
+                showLevers = false
+                if (state.goovieMode) viewModel.toggleGoovie()
+                // Commit any in-flight stroke, same policy as setTool:
+                // its stamps are already on the field.
+                viewModel.endStroke()?.let { st -> surface?.engine { commit(st) } }
+                strokePos = null
+                showFunhouse = !showFunhouse
+                if (!showFunhouse) selectedLens = -1
+            },
             onLevers = {
                 // From the strip, the levers bead OPENS levers (not a blind
                 // toggle — showLevers may already be true underneath).
@@ -528,12 +550,15 @@ private fun WarpEditor(
                     }
                     canvasSize = newSize
                 }
-                .pointerInput(bitmap, showCrop) {
-                    // Crop mode: the overlay owns all input. Its own
-                    // pointerInput consumes first anyway (topmost child);
-                    // keying on showCrop makes the hand-off explicit and
-                    // cancels any in-flight gesture at the flip.
-                    if (showCrop) return@pointerInput
+                .pointerInput(bitmap, showCrop, showFunhouse) {
+                    // Crop and Funhouse each own all input while open.
+                    // Their own pointerInput consumes first anyway
+                    // (topmost child); keying on the flags makes the
+                    // hand-off explicit and cancels any in-flight gesture
+                    // at the flip. Painting and moving apparatus are
+                    // different verbs; sharing the canvas would make
+                    // every tap a guess.
+                    if (showCrop || showFunhouse) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         val fit = FitTransform(
@@ -774,6 +799,31 @@ private fun WarpEditor(
                 )
             }
 
+            // Funhouse mode: the apparatus is drawn on the photo and
+            // owns canvas input while it is open.
+            if (showFunhouse && !showCrop) {
+                FunhouseOverlay(
+                    lenses = state.globals.lenses,
+                    selected = selectedLens,
+                    imageWidth = bitmap.width,
+                    imageHeight = bitmap.height,
+                    view = view,
+                    onPlace = { u, v ->
+                        viewModel.placeLens(u, v)?.let { selectedLens = it }
+                    },
+                    onSelect = { selectedLens = it },
+                    onCycle = viewModel::cycleLensType,
+                    onMove = viewModel::moveLens,
+                    onRemove = { index ->
+                        viewModel.removeLens(index)
+                        // Indices shift down past the hole; holding the
+                        // old one would leave a different lens selected
+                        // than the ring the user is looking at.
+                        selectedLens = -1
+                    },
+                )
+            }
+
             // Crop mode, topmost: dims the photo, owns all canvas input.
             if (showCrop) {
                 // Applying restarts the goo — confirm only when there is
@@ -809,6 +859,7 @@ private fun WarpEditor(
 
         val panel = when {
             state.goovieMode -> EditorPanel.GOOVIE
+            showFunhouse -> EditorPanel.FUNHOUSE
             showLevers -> EditorPanel.LEVERS
             else -> EditorPanel.BRUSH
         }
@@ -833,6 +884,17 @@ private fun WarpEditor(
                 EditorPanel.LEVERS -> LeversPanel(
                     globals = state.globals,
                     onChange = viewModel::setGlobals,
+                )
+                EditorPanel.FUNHOUSE -> FunhousePanel(
+                    lens = state.globals.lenses.getOrNull(selectedLens),
+                    placed = state.globals.lenses.size,
+                    onRadius = { viewModel.resizeLens(selectedLens, it) },
+                    onStrength = { viewModel.setLensStrength(selectedLens, it) },
+                    onCycleType = { viewModel.cycleLensType(selectedLens) },
+                    onRemove = {
+                        viewModel.removeLens(selectedLens)
+                        selectedLens = -1
+                    },
                 )
                 EditorPanel.GOOVIE -> GooviePanel(
                     keyframes = state.keyframes,
@@ -994,6 +1056,8 @@ private fun TopRail(
     onCrop: () -> Unit,
     cropActive: Boolean,
     cropEnabled: Boolean,
+    funhouseActive: Boolean,
+    onFunhouse: () -> Unit,
     onLevers: () -> Unit,
     leversActive: Boolean,
     onGoovie: () -> Unit,
@@ -1062,6 +1126,17 @@ private fun TopRail(
                 selectable = true,
                 enabled = cropEnabled,
                 onClick = onCrop,
+            )
+            // Beside the levers on purpose: a lens IS a lever with a
+            // position, and the two rooms are the same idea at different
+            // scales — one glued to the frame, one you put where you want.
+            ChromeIconButton(
+                icon = Icons.Filled.FilterTiltShift,
+                contentDescription = stringResource(R.string.funhouse),
+                color = NeonViolet,
+                selected = funhouseActive,
+                selectable = true,
+                onClick = onFunhouse,
             )
             ChromeIconButton(
                 icon = Icons.Filled.Tune,
@@ -1312,7 +1387,7 @@ private fun LabeledSlider(
 }
 
 /** Which bottom panel the editor shows; GOOVIE follows the ViewModel. */
-private enum class EditorPanel { BRUSH, LEVERS, GOOVIE }
+private enum class EditorPanel { BRUSH, LEVERS, FUNHOUSE, GOOVIE }
 
 /**
  * A crop request awaiting the "start fresh" confirm. rect is relative to

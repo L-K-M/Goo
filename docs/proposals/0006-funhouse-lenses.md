@@ -1,6 +1,6 @@
 # 0006 — Funhouse lenses
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #24)
 - **Date:** 2026-08-07
 
 ## The tool

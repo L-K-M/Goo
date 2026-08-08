@@ -3,6 +3,8 @@ package ch.lkmc.goo.data
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.Lens
+import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeLog
@@ -83,6 +85,28 @@ class ProjectDocumentTest {
         assertTrue(decoded.globals.isIdentity)
         assertTrue(decoded.keyframes.isEmpty())
         assertTrue(decoded.namesAreLocal())
+    }
+
+    @Test
+    fun `lenses survive the round trip, and a file without them loads`() {
+        // Lenses ride in the lever pack (proposal 0006), which is the
+        // whole reason they persist and pin into keyframes for free. The
+        // risk that buys is the other direction: a project written before
+        // they existed has no `lenses` term at all, and must not become
+        // unreadable because a later version grew one.
+        val rack = listOf(
+            Lens(0.3f, 0.4f, radius = 0.22f, type = LensType.FISHEYE, strength = -0.8f),
+            Lens(0.7f, 0.6f, radius = 0.1f, type = LensType.VORTEX, strength = 1f),
+        )
+        val document = ProjectDocument(globals = GlobalParams(twirl = 0.4f, lenses = rack))
+        val decoded = json.decodeFromString<ProjectDocument>(json.encodeToString(document))
+        assertEquals(rack, decoded.globals.lenses)
+        assertEquals(0.4f, decoded.globals.twirl)
+
+        val beforeLenses = """{"schema":1,"globals":{"twirl":0.4}}"""
+        val old = json.decodeFromString<ProjectDocument>(beforeLenses)
+        assertTrue(old.globals.lenses.isEmpty())
+        assertEquals(0.4f, old.globals.twirl)
     }
 
     @Test

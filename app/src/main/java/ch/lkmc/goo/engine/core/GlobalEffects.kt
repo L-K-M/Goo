@@ -20,16 +20,42 @@ data class GlobalParams(
     val stretch: Float = 0f,
     val spike: Float = 0f,
     val static: Float = 0f,
+    /**
+     * Placed warps (proposal 0006), at most [Lens.CAPACITY] of them.
+     * They live here rather than beside the stroke log because they are
+     * the same *kind* of thing as the levers — live, non-destructive,
+     * analytic — so they inherit the levers' persistence, their keyframe
+     * pinning, and their preview/export parity without any of it being
+     * written twice.
+     *
+     * Defaulted, so a project file written before lenses existed loads
+     * with none.
+     */
+    val lenses: List<Lens> = emptyList(),
 ) {
     val isIdentity: Boolean
         get() = bulge == 0f && twirl == 0f && squeeze == 0f &&
-            stretch == 0f && spike == 0f && static == 0f
+            stretch == 0f && spike == 0f && static == 0f &&
+            lenses.all { it.isIdentity }
 
-    /** Uniform-upload order; the GLSL `u_g[6]` contract. */
+    /**
+     * Uniform-upload order; the GLSL `u_g[6]` contract.
+     *
+     * Deliberately still six floats: lenses are a separate, differently
+     * shaped uniform and adding them here would break the one array the
+     * whole warp pass is written against.
+     */
     fun toArray(): FloatArray = floatArrayOf(bulge, twirl, squeeze, stretch, spike, static)
 
+    /** [lenses] with any pulled to zero dropped, capped at capacity. */
+    fun activeLenses(): List<Lens> =
+        lenses.asSequence().filterNot { it.isIdentity }.take(Lens.CAPACITY).toList()
+
     companion object {
-        /** Inverse of [toArray]; null if the array isn't a lever pack. */
+        /**
+         * Inverse of [toArray]; null if the array isn't a lever pack.
+         * Lenses travel separately (see [Lens.pack]) — this is the six.
+         */
         fun fromArray(a: FloatArray): GlobalParams? =
             if (a.size == 6) GlobalParams(a[0], a[1], a[2], a[3], a[4], a[5]) else null
     }
@@ -63,6 +89,26 @@ object GlobalField {
     /** Static crumple amplitude at full lever, and its cell grid. */
     const val STATIC_SCALE = 0.05f
     const val STATIC_CELLS = 24
+
+    /**
+     * Radial displacement a lens applies at full strength, as a fraction
+     * of its own radius. Scaling by the lens radius rather than by a
+     * fixed UV amount is what makes a small lens a hard little bulge and
+     * a large one a slow swell, instead of both moving content the same
+     * absolute distance.
+     */
+    const val LENS_SCALE = 0.5f
+
+    /** Max rotation a VORTEX lens applies at its center, radians. */
+    const val LENS_TWIRL_RAD = 2.0f
+
+    /**
+     * Where a FISHEYE lens stops ramping, as a fraction of its radius.
+     * Inside this the magnification is flat — the "core" — and the whole
+     * falloff to the rim happens outside it, which is the compression
+     * ring that makes it look like glass.
+     */
+    const val LENS_CORE = 0.35f
 
     /**
      * The displacement added at UV ([u], [v]) for [p] — (du, dv) in UV
@@ -121,6 +167,48 @@ object GlobalField {
             val ny = valueNoise(u * STATIC_CELLS, v * STATIC_CELLS, seed = 2u)
             dx += (nx * 2f - 1f) * p.static * STATIC_SCALE
             dy += (ny * 2f - 1f) * p.static * STATIC_SCALE
+        }
+
+        // Placed warps, on top of the frame-centered ones. Bounded loop:
+        // at most Lens.CAPACITY, so the pass cost never depends on the
+        // document. Positions here are in the SAME aspect space as the
+        // levers above, which is why the lens contribution can simply be
+        // summed in before the one conversion back to UV.
+        for (lens in p.activeLenses()) {
+            val lx = (u - lens.u) * aspect
+            val ly = v - lens.v
+            val d = sqrt(lx * lx + ly * ly)
+            if (d >= lens.radius) continue
+            // 1 at the lens center → 0 at its rim, so a lens never drags
+            // content in from outside the glass.
+            val window = smooth(1f - d / lens.radius)
+            when (lens.type) {
+                LensType.BULGE, LensType.PINCH, LensType.FISHEYE -> {
+                    if (d <= 1e-6f) continue
+                    // Ramp from the center outward: with a constant
+                    // magnitude the whole disc would slide as one piece.
+                    // FISHEYE saturates that ramp early, leaving a flat
+                    // core and piling the falloff up at the rim.
+                    val ramp = when (lens.type) {
+                        LensType.FISHEYE -> (d / (lens.radius * LENS_CORE)).coerceAtMost(1f)
+                        else -> d / lens.radius
+                    }
+                    // Negative displacement points at the lens center, so
+                    // the sample comes from nearer it: magnification.
+                    val sign = if (lens.type == LensType.PINCH) 1f else -1f
+                    val m = sign * lens.strength * LENS_SCALE * lens.radius * window * ramp
+                    dx += (lx / d) * m
+                    dy += (ly / d) * m
+                }
+
+                LensType.VORTEX -> {
+                    val theta = lens.strength * LENS_TWIRL_RAD * window
+                    val c = cos(theta)
+                    val s = sin(theta)
+                    dx += lx * c - ly * s - lx
+                    dy += lx * s + ly * c - ly
+                }
+            }
         }
 
         // Back to UV units (aspect-space x → divide out).

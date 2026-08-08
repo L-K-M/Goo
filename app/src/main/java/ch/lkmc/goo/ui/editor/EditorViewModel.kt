@@ -29,6 +29,8 @@ import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.leverProgress
 import ch.lkmc.goo.engine.core.tweenProgress
 import ch.lkmc.goo.engine.core.Keyframe
+import ch.lkmc.goo.engine.core.Lens
+import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.MovieSpeed
@@ -44,6 +46,7 @@ import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.ui.navigation.EditorRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
+import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -360,7 +363,12 @@ class EditorViewModel @Inject constructor(
         _uiState.update { it.copy(showHint = !onboardingPrefs.smearHintSeen) }
         savedStateHandle.get<FloatArray>(KEY_GLOBALS)?.let { a ->
             GlobalParams.fromArray(a)?.let { g ->
-                _uiState.update { it.copy(globals = g) }
+                // Lenses travel in their own pack: the lever array is the
+                // GLSL u_g[6] contract and must stay six floats wide.
+                val lenses = savedStateHandle.get<FloatArray>(KEY_LENSES)
+                    ?.let(Lens::unpack)
+                    .orEmpty()
+                _uiState.update { it.copy(globals = g.copy(lenses = lenses)) }
                 refreshHistoryFlags()
             }
         }
@@ -907,7 +915,85 @@ class EditorViewModel @Inject constructor(
         goLive()
         _uiState.update { it.copy(globals = globals) }
         savedStateHandle[KEY_GLOBALS] = globals.toArray()
+        savedStateHandle[KEY_LENSES] = Lens.pack(globals.lenses)
         refreshHistoryFlags()
+    }
+
+    // ---- Funhouse lenses -------------------------------------------------
+    // Placed warps (proposal 0006). They are levers with a position, so
+    // they follow the lever rules exactly: document state, not history;
+    // Reset clears them; a keyframe pin carries them, which is where the
+    // traveling-bulge animation comes from without any new machinery.
+
+    private fun withLenses(edit: (MutableList<Lens>) -> Unit) {
+        val lenses = _uiState.value.globals.lenses.toMutableList()
+        edit(lenses)
+        setGlobals(_uiState.value.globals.copy(lenses = lenses.toList()))
+    }
+
+    /**
+     * Drop a lens at ([u], [v]).
+     *
+     * @return its index, or null when the rack is full — the caller says
+     * so rather than silently evicting one, because "my bulge vanished"
+     * is a worse surprise than "no room".
+     */
+    fun placeLens(u: Float, v: Float): Int? {
+        if (_uiState.value.globals.lenses.size >= Lens.CAPACITY) return null
+        var index = -1
+        withLenses { lenses ->
+            lenses += Lens(u = u, v = v).sanitized()
+            index = lenses.lastIndex
+        }
+        return index
+    }
+
+    fun moveLens(index: Int, u: Float, v: Float) = editLens(index) {
+        it.copy(u = u, v = v).sanitized()
+    }
+
+    fun resizeLens(index: Int, radius: Float) = editLens(index) {
+        it.copy(radius = radius).sanitized()
+    }
+
+    fun setLensStrength(index: Int, strength: Float) = editLens(index) {
+        it.copy(strength = strength).sanitized()
+    }
+
+    /** Step a lens to the next type, wrapping — the tap-to-change verb. */
+    fun cycleLensType(index: Int) = editLens(index) {
+        val next = LensType.entries[(it.type.ordinal + 1) % LensType.entries.size]
+        it.copy(type = next)
+    }
+
+    fun removeLens(index: Int) {
+        if (index !in _uiState.value.globals.lenses.indices) return
+        withLenses { it.removeAt(index) }
+    }
+
+    private inline fun editLens(index: Int, crossinline change: (Lens) -> Lens) {
+        if (index !in _uiState.value.globals.lenses.indices) return
+        withLenses { it[index] = change(it[index]) }
+    }
+
+    /**
+     * The lens under ([u], [v]), or null. Nearest center wins where two
+     * overlap, so the one you aimed at is the one you grab.
+     */
+    fun lensAt(u: Float, v: Float, aspect: Float): Int? {
+        val lenses = _uiState.value.globals.lenses
+        var best = -1
+        var bestDistance = Float.MAX_VALUE
+        lenses.forEachIndexed { i, lens ->
+            val dx = (u - lens.u) * aspect
+            val dy = v - lens.v
+            val d = sqrt(dx * dx + dy * dy)
+            if (d <= lens.radius && d < bestDistance) {
+                best = i
+                bestDistance = d
+            }
+        }
+        return best.takeIf { it >= 0 }
     }
 
     // ---- GOOvies -------------------------------------------------------
@@ -1650,6 +1736,7 @@ class EditorViewModel @Inject constructor(
         private const val KEY_SESSION_FILE = "sessionFile"
         private const val KEY_SESSION_B = "sessionFileB"
         private const val KEY_GLOBALS = "globals"
+        private const val KEY_LENSES = "lenses"
         private const val KEY_CROP = "crop"
         private const val KEY_PROJECT_ID = "projectId"
 
