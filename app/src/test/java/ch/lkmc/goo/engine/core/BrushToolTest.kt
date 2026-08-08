@@ -41,6 +41,9 @@ class BrushToolTest {
         val pumped = setOf(
             BrushTool.GROW, BrushTool.SHRINK, BrushTool.SMOOTH, BrushTool.UNGOO,
             BrushTool.VORTEX, BrushTool.UNWIND, BrushTool.MELT,
+            // Rewind pumps for UnGoo's reason: it is hold-to-dissolve,
+            // just aimed at a keyframe instead of at the bare photo.
+            BrushTool.REWIND,
         )
         BrushTool.entries.forEach { tool ->
             assertEquals(tool in pumped, tool.pumped, "pumped mismatch for $tool")

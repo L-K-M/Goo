@@ -28,6 +28,25 @@ class FreezeMaskTest {
 
     private val center = Stamp(cx = 0.5f, cy = 0.5f, dx = 0.02f, dy = 0f)
 
+    /**
+     * A target for Rewind: a field displaced everywhere, so a Rewind
+     * that ignored the varnish would visibly drag the frozen texel
+     * toward it. Passing a target that happened to match the live field
+     * would make the brake untestable for this tool — the stamp would
+     * be a no-op whether or not the brake worked.
+     */
+    private fun rewindTarget() = field().also { f ->
+        f.applyStamp(stroke(BrushTool.MOVE, radius = 5f), Stamp(0.5f, 0.5f, 0.4f, 0.4f))
+    }
+
+    private fun DisplacementField.stampAny(tool: BrushTool, stamp: Stamp = center) {
+        applyStamp(
+            stroke(tool),
+            stamp,
+            target = if (tool.needsTarget) rewindTarget() else null,
+        )
+    }
+
     /** Varnish the middle solid. */
     private fun DisplacementField.freezeCenter(times: Int = 20) {
         repeat(times) { applyStamp(stroke(BrushTool.FREEZE), center) }
@@ -75,7 +94,7 @@ class FreezeMaskTest {
             if (!tool.mode.respectsFreeze || tool.mode == StampMode.FUSE) continue
             val f = field()
             f.freezeCenter()
-            f.applyStamp(stroke(tool), center)
+            f.stampAny(tool)
             val moved = abs(f.sampleX(0.5f, 0.5f)) + abs(f.sampleY(0.5f, 0.5f))
             assertTrue(moved < 1e-4f, "$tool moved a frozen texel by $moved")
         }

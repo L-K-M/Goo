@@ -368,12 +368,30 @@ class EditorViewModel @Inject constructor(
     private var echoDelta: Pair<Float, Float>? = null
 
     /**
+     * The revision a live Rewind stroke reads from, frozen at
+     * [beginStroke]. The log needs the revision itself and not just its
+     * id, because an id keeps nothing alive (ADR 0003).
+     */
+    private var rewindTargetLive: StrokeRevision? = null
+
+    /**
      * Parameters frozen at [beginStroke]: the stamps were spaced and
      * GPU-stamped with these, so the committed stroke must record exactly
      * them — a second finger moving the Size slider mid-drag must not make
      * replays disagree with what was drawn.
      */
     private var liveParams: Stroke? = null
+
+    /**
+     * Resolves a [Stroke.targetRevision] for the renderer (ADR 0003).
+     *
+     * A function rather than a map so the renderer never holds document
+     * state: it asks at replay time and gets whatever the log says now.
+     * Null for an id this log has never seen, which the renderer turns
+     * into a no-op stamp rather than a crash.
+     */
+    val revisionResolver: (Long) -> List<Stroke>? =
+        { id -> log.revisionById(id)?.materialize() }
 
     /** Strokes the engine should replay when (re)building its field. */
     val strokesSnapshot: List<Stroke> get() = log.strokes
@@ -758,6 +776,15 @@ class EditorViewModel @Inject constructor(
         } else {
             echoDelta = null
         }
+        // Rewind reads from a keyframe, so it cannot paint without one.
+        // The target is the SELECTED keyframe — reusing the selection
+        // the strip already has rather than inventing a second picker,
+        // which is what makes the tool teach the strip (ADR 0003).
+        val rewindTarget = if (state.tool.needsTarget) {
+            state.keyframes.getOrNull(state.selectedKeyframe)?.revision ?: return false
+        } else {
+            null
+        }
         goLive()
         val aspect = bitmap.width.toFloat() / bitmap.height
         val radius = state.brushRadius
@@ -765,11 +792,13 @@ class EditorViewModel @Inject constructor(
         mirrorLive = state.mirrored
         sectorsLive = state.sectors
         aspectLive = aspect
+        rewindTargetLive = rewindTarget
         liveParams = Stroke(
             tool = tool,
             radius = radius,
             strength = state.brushStrength * tool.strengthScale,
             stamps = emptyList(),
+            targetRevision = rewindTarget?.id?.value,
         )
         liveStamps = mutableListOf()
         if (tool.pumped) {
@@ -904,10 +933,12 @@ class EditorViewModel @Inject constructor(
         // not an invariant of this class.
         echoDelta = null
         liveParams = null
+        val target = rewindTargetLive
+        rewindTargetLive = null
         if (liveStamps.isEmpty()) return null
         val stroke = params.copy(stamps = liveStamps.toList())
         liveStamps = mutableListOf()
-        log.push(stroke)
+        log.push(stroke, target)
         if (_uiState.value.showHint) {
             // A touch-down or sub-spacing directional drag is not a
             // successful edit. Retire onboarding only after real work lands.

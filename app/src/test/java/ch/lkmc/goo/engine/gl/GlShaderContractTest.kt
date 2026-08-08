@@ -45,6 +45,14 @@ class GlShaderContractTest {
         assertContains(shader, "u_mode == ${StampMode.FAULT.shaderId}")
         assertContains(shader, "u_profile == ${FalloffProfile.DRIP.shaderId}")
         assertContains(shader, "u_mode == ${StampMode.GUARD.shaderId}")
+        assertContains(shader, "u_mode == ${StampMode.RECALL.shaderId}")
+        // Rewind's second sampler. The uniform NAME is as much of the
+        // contract as the branch is: GlWarpRenderer looks it up by this
+        // exact string, and a rename that compiled on both sides would
+        // leave the lookup returning -1 and every Rewind stamp blending
+        // toward whatever texture unit 1 last held.
+        assertContains(shader, "uniform highp sampler2D u_target;")
+        assertContains(shader, "texture(u_target, v_uv)")
 
         // The anisotropic profile must reshape the WEIGHT's distance only;
         // the radial direction stays on the true offset.
@@ -130,6 +138,12 @@ class GlShaderContractTest {
         // the other three. What actually has to hold is that no two types
         // share a wire value, or the shader's branches would collapse two
         // kinds of glass into one.
+        val modeIds = StampMode.entries.map { it.shaderId }
+        assertEquals(
+            modeIds.size,
+            modeIds.toSet().size,
+            "StampMode shaderIds must be distinct: $modeIds",
+        )
         val ids = LensType.entries.map { it.shaderId }
         assertEquals(ids.size, ids.toSet().size, "LensType shaderIds must be distinct: $ids")
     }

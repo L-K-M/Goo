@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Details
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Movie
@@ -294,6 +295,9 @@ private fun WarpEditor(
     DisposableEffect(surface) {
         val s = surface
         viewModel.engineBridge = s?.let { sv -> { command -> sv.engine(command) } }
+        // The renderer resolves Rewind targets through the log rather
+        // than holding any document state of its own (ADR 0003).
+        viewModel.engineBridge?.invoke { revisionResolver = viewModel.revisionResolver }
         onDispose {
             viewModel.engineBridge = null
             // A dead surface drops queued events, so a bridged export
@@ -1076,6 +1080,7 @@ private fun WarpEditor(
                     },
                     onToolChange = viewModel::setTool,
                     sectors = state.sectors,
+                    rewindReady = state.keyframes.getOrNull(state.selectedKeyframe) != null,
                     onMirrorToggle = viewModel::toggleMirror,
                     onCycleSectors = viewModel::cycleSectors,
                     onRadiusChange = viewModel::setBrushRadius,
@@ -1338,6 +1343,8 @@ private fun BrushRail(
     tool: BrushTool,
     mirrored: Boolean,
     sectors: Int,
+    /** A keyframe is selected, so Rewind has something to read from. */
+    rewindReady: Boolean,
     radius: Float,
     strength: Float,
     showFusionPick: Boolean,
@@ -1382,7 +1389,18 @@ private fun BrushRail(
                     label = stringResource(entry.labelRes()),
                     color = entry.neonColor(),
                     selected = tool == entry,
-                    enabled = entry != BrushTool.FUSE || !fusionLoading,
+                    // Rewind reads FROM a keyframe, so without one
+                    // selected there is nothing for it to paint. Greying
+                    // the chip is the whole of the "arming Chrono has to
+                    // open the strip" problem the proposal left open: it
+                    // reuses the selection the strip already has instead
+                    // of adding a second picker, which is what makes the
+                    // tool teach the strip.
+                    enabled = when (entry) {
+                        BrushTool.FUSE -> !fusionLoading
+                        BrushTool.REWIND -> rewindReady
+                        else -> true
+                    },
                     onClick = { onToolChange(entry) },
                 )
             }
@@ -1596,6 +1614,7 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.ECHO -> R.string.tool_echo
     BrushTool.FREEZE -> R.string.tool_freeze
     BrushTool.WHIP -> R.string.tool_whip
+    BrushTool.REWIND -> R.string.tool_rewind
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -1617,6 +1636,7 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.ECHO -> Icons.Filled.ContentCopy
     BrushTool.FREEZE -> Icons.Filled.AcUnit
     BrushTool.WHIP -> Icons.Filled.Bolt
+    BrushTool.REWIND -> Icons.Filled.History
 }
 
 /** Each tool wears its own tube of neon — families share a color. */
@@ -1642,6 +1662,9 @@ private fun BrushTool.neonColor(): Color = when (this) {
     // for.
     BrushTool.FREEZE -> NeonViolet
     BrushTool.WHIP -> NeonTangerine
+    // Lime, with Smooth and UnGoo: Rewind is the third dissolver, and
+    // the only difference between them is WHAT they dissolve toward.
+    BrushTool.REWIND -> NeonLime
 }
 
 @Composable

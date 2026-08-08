@@ -62,6 +62,7 @@
     <string name="tool_pond">涟漪</string>
     <string name="tool_fault">断层</string>
     <string name="tool_echo">回声</string>
+    <string name="tool_rewind">倒带</string>
 
     <string name="home_about">关于</string>
     <string name="about_body">像揉湿颜料一样挤压、涂抹、拉伸你的照片——向 Kai\'s Power Goo（1996）致敬，穿上它一直该有的复古未来外壳。完全离线：没有权限、没有网络，任何东西都不会离开你的设备。\n\n几乎全部由大语言模型智能体构建。公共领域（Unlicense）。与 Kai\'s Power Goo 或 KPT 的权利人无关。</string>

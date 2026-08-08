@@ -1,6 +1,6 @@
 # 0008 — Chrono brush (paint back to a keyframe)
 
-- **Status:** proposed
+- **Status:** accepted — built as Rewind (roadmap #29, ADR 0003)
 - **Date:** 2026-08-07
 
 Given what this one does to the shape of the stroke log, an accepted

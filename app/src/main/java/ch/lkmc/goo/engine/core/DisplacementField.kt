@@ -99,7 +99,19 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
      * ERASE) operate on the stored displacement itself — blurring it or
      * fading it toward identity — with no resampling.
      */
-    fun applyStamp(stroke: Stroke, stamp: Stamp) {
+    fun applyStamp(stroke: Stroke, stamp: Stamp, target: DisplacementField? = null) {
+        // A Rewind stamp blends toward another field (proposal 0008).
+        // Required rather than optional: a RECALL with no target would
+        // silently blend toward nothing and read as "the brush is weak",
+        // which is worse than a stack trace in a reference implementation
+        // whose entire job is to be the thing the shader is checked
+        // against.
+        require(stroke.tool.mode != StampMode.RECALL || target != null) {
+            "RECALL needs a target field"
+        }
+        require(target == null || (target.width == width && target.height == height)) {
+            "target field must match this field's dimensions"
+        }
         val out = FloatArray(data.size)
         val mode = stroke.tool.mode
         val profile = stroke.tool.profile
@@ -291,6 +303,19 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         out[i + 3] = at(ix, iy, 3)
                     }
 
+                    StampMode.RECALL -> {
+                        // RELAX's blend with the blur replaced by a read
+                        // from the target — and the whole vector mixed,
+                        // not just xyz, so a Rewind restores that frame's
+                        // Fusion mask and varnish as well.
+                        val k = w * BrushDynamics.BLEND_STEP
+                        val t = target!!
+                        for (c in 0 until CHANNELS) {
+                            val cur = at(ix, iy, c)
+                            out[i + c] = cur + (t.at(ix, iy, c) - cur) * k
+                        }
+                    }
+
                     StampMode.ERASE -> {
                         // UnGoo un-fuses AND thaws: every channel back to
                         // the bare photo. Exempt from `guard` for the same
@@ -336,7 +361,7 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
         return top + (bottom - top) * fy
     }
 
-    private fun at(ix: Int, iy: Int, channel: Int): Float =
+    internal fun at(ix: Int, iy: Int, channel: Int): Float =
         data[(iy * width + ix) * CHANNELS + channel]
 
     companion object {

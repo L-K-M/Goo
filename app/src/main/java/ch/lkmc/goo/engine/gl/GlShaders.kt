@@ -48,6 +48,12 @@ precision highp float;
 // highp explicitly: sampler2D defaults to lowp in GLSL ES, which would
 // quantize the float displacement field to 8-bit steps.
 uniform highp sampler2D u_field;
+// The state a RECALL stamp blends TOWARD (proposal 0008, ADR 0003): a
+// keyframe's field, materialized by replaying its revision. Bound for
+// every stamp, sampled only by mode 11 — a sampler that is declared and
+// never read is free, while branching on whether one is bound is not
+// expressible here.
+uniform highp sampler2D u_target;
 uniform vec2 u_center;      // stamp center, UV
 uniform vec2 u_delta;       // content displacement, UV delta
 uniform float u_radius;     // aspect-space radius
@@ -131,6 +137,19 @@ void main() {
             texture(u_field, v_uv - vec2(0.0, u_fieldTexel.y)).xyz);
         // Smoothing the goo must not erode the varnish: w passes through.
         next = vec4(mix(cur.xyz, blur, w * 0.22), cur.w);
+    } else if (u_mode == 11) {      // RECALL
+        // RELAX's branch with the blur replaced by one read from the
+        // target field. 0.22 = BrushDynamics.BLEND_STEP, the same rate
+        // UnGoo dissolves at, because this IS UnGoo aimed somewhere
+        // else.
+        //
+        // The whole vec4 is mixed, unlike RELAX: a Rewind restores the
+        // Fusion mask and the varnish as they were at that frame too.
+        // The varnish is deliberately included — Rewind is not exempt
+        // from the brake (it respects freeze), so a varnished region is
+        // protected FROM being rewound, while what does get rewound
+        // carries that frame's varnish with it.
+        next = mix(cur, texture(u_target, v_uv), w * 0.22);
     } else if (u_mode == 4) {       // ERASE (un-fuses AND thaws)
         next = cur * (1.0 - w * 0.22);
     } else {                        // warp modes: b(p) then warp-of-warp
