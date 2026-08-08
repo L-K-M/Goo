@@ -26,6 +26,7 @@ import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.EchoOffset
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.leverProgress
 import ch.lkmc.goo.engine.core.tweenProgress
@@ -129,6 +130,11 @@ class EditorViewModel @Inject constructor(
         val echoAnchor: Pair<Float, Float>? = null,
         /** Global-effect levers — live document state, not history. */
         val globals: GlobalParams = GlobalParams(),
+        /**
+         * The modulation rig (proposal 0009). Document state beside the
+         * levers it modulates, and still by default.
+         */
+        val wobble: GlobalWobble = GlobalWobble(),
         /** First-ever image: float the "drag to goo" hint until a stroke. */
         val showHint: Boolean = false,
         /** GOOvie mode: the strip is open. Gooing still works (see [goovieLive]). */
@@ -368,6 +374,9 @@ class EditorViewModel @Inject constructor(
 
     init {
         _uiState.update { it.copy(showHint = !onboardingPrefs.smearHintSeen) }
+        savedStateHandle.get<FloatArray>(KEY_WOBBLE)
+            ?.let(GlobalWobble::unpack)
+            ?.let { w -> _uiState.update { it.copy(wobble = w) } }
         savedStateHandle.get<FloatArray>(KEY_GLOBALS)?.let { a ->
             GlobalParams.fromArray(a)?.let { g ->
                 _uiState.update { it.copy(globals = g) }
@@ -492,12 +501,14 @@ class EditorViewModel @Inject constructor(
             }
             .take(MAX_KEYFRAMES)
         savedStateHandle[KEY_GLOBALS] = document.globals.toArray()
+        savedStateHandle[KEY_WOBBLE] = document.wobble.sanitized().pack()
         _uiState.update {
             it.copy(
                 loading = false,
                 bitmap = bitmap,
                 cropped = cropRect != null,
                 globals = document.globals,
+                wobble = document.wobble.sanitized(),
                 keyframes = keyframes,
                 selectedKeyframe = -1,
                 scrubPos = 0f,
@@ -658,6 +669,7 @@ class EditorViewModel @Inject constructor(
                         // the epoch tells a re-crop from the saved frame.
                         documentEpoch = it.documentEpoch + 1,
                         globals = GlobalParams(),
+                        wobble = GlobalWobble(),
                         keyframes = emptyList(),
                         scrubPos = 0f,
                         playing = false,
@@ -936,8 +948,10 @@ class EditorViewModel @Inject constructor(
     fun reset(): List<Stroke>? {
         goLive()
         val discarded = discardLiveStroke()
-        // Reset means "back to the photo": levers zero too.
+        // Reset means "back to the photo": levers zero and the rig
+        // stills, or the picture would keep breathing after a reset.
         setGlobals(GlobalParams())
+        setWobble(GlobalWobble())
         if (log.isEmpty) return log.strokes.takeIf { discarded }
         log.reset()
         refreshHistoryFlags()
@@ -948,6 +962,19 @@ class EditorViewModel @Inject constructor(
     // Levers are live document state, not history entries (PLAN.md §4.1):
     // pulling one back to center undoes it exactly, so undo/redo stay
     // stroke-only. The screen syncs the renderer whenever they change.
+
+    /**
+     * Set the modulation rig. Same rules as the levers it rides on:
+     * document state, not history, and Reset stills it.
+     */
+    fun setWobble(wobble: GlobalWobble) {
+        goLive()
+        val safe = wobble.sanitized()
+        _uiState.update { it.copy(wobble = safe) }
+        savedStateHandle[KEY_WOBBLE] = safe.pack()
+        engineBridge?.invoke { setWobble(safe) }
+        refreshHistoryFlags()
+    }
 
     fun setGlobals(globals: GlobalParams) {
         // Unreachable from the strip today (the levers bead leaves goovie
@@ -1431,6 +1458,7 @@ class EditorViewModel @Inject constructor(
         val document = ProjectDocument(
             crop = cropRect?.let(CropRecord::of),
             globals = state.globals,
+            wobble = state.wobble,
             // The pins ride along as extra roots: a keyframe can hold a
             // revision the history has truncated, and it has to reach disk.
             log = log.snapshot(pins = keyframes.map { it.revision }),
@@ -1678,7 +1706,7 @@ class EditorViewModel @Inject constructor(
                 revisionId = log.currentRevision.id,
                 // Levers count: an image warped only by levers must still
                 // offer "back to the photo".
-                canReset = !log.isEmpty || !it.globals.isIdentity,
+                canReset = !log.isEmpty || !it.globals.isIdentity || !it.wobble.isStill,
             )
         }
     }
@@ -1701,6 +1729,7 @@ class EditorViewModel @Inject constructor(
         private const val KEY_SESSION_FILE = "sessionFile"
         private const val KEY_SESSION_B = "sessionFileB"
         private const val KEY_GLOBALS = "globals"
+        private const val KEY_WOBBLE = "wobble"
         private const val KEY_CROP = "crop"
         private const val KEY_PROJECT_ID = "projectId"
 

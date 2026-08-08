@@ -112,6 +112,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -121,6 +122,10 @@ import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.FitTransform
+import ch.lkmc.goo.engine.core.GlobalWobble
+import ch.lkmc.goo.engine.core.LeverWobble
+import ch.lkmc.goo.engine.core.MovieSpec
+import ch.lkmc.goo.engine.core.leversAt
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import kotlinx.coroutines.Job
@@ -283,9 +288,44 @@ private fun WarpEditor(
 
     // Levers are live uniforms: sync the renderer on every change and on
     // surface (re)creation — a fresh GL context starts at identity.
-    LaunchedEffect(surface, state.globals) {
+    //
+    // A wobbling rig takes this over: the clock below pushes modulated
+    // lever values every frame, and this effect would fight it by
+    // pushing the unmodulated ones back on every recomposition.
+    LaunchedEffect(surface, state.globals, state.wobble.isStill) {
+        if (!state.wobble.isStill) return@LaunchedEffect
         val globals = state.globals
         surface?.engine { setGlobalParams(globals) }
+    }
+
+    // The Wobbulator's preview clock (proposal 0009). The editor renders
+    // WHEN_DIRTY to save battery, so a breathing photo means driving it
+    // by hand — and only while something is actually wobbling. The
+    // coroutine ends when the rig goes still or the composition leaves,
+    // which covers ON_PAUSE with it.
+    //
+    // Phase comes from a FRAME COUNT over the document's own loop, not
+    // from a wall clock, so what the preview shows is the same walk the
+    // export performs.
+    LaunchedEffect(surface, state.globals, state.wobble, state.keyframes.size) {
+        if (state.wobble.isStill) return@LaunchedEffect
+        val loop = GlobalWobble.previewLoopSeconds(state.keyframes.size)
+        val rig = state.wobble.cappedFor(loop)
+        val frames = (loop * MovieSpec.FPS).roundToInt().coerceAtLeast(2)
+        var frame = 0
+        while (true) {
+            withFrameNanos { }
+            val phase = frame.toFloat() / (frames - 1)
+            val modulated = leversAt(state.globals, rig, phase)
+            surface?.engine { setGlobalParams(modulated) }
+            frame = (frame + 1) % frames
+        }
+    }
+
+    // The export path evaluates its own phase, so it needs the rig too.
+    LaunchedEffect(surface, state.wobble) {
+        val rig = state.wobble
+        surface?.engine { setWobble(rig) }
     }
 
     // View transform: same uniform-sync pattern as the levers.
@@ -840,6 +880,11 @@ private fun WarpEditor(
                 EditorPanel.LEVERS -> LeversPanel(
                     globals = state.globals,
                     onChange = viewModel::setGlobals,
+                    wobble = state.wobble,
+                    rates = GlobalWobble.ratesFor(
+                        GlobalWobble.previewLoopSeconds(state.keyframes.size),
+                    ),
+                    onWobble = { i, w -> viewModel.setWobble(state.wobble.with(i, w)) },
                 )
                 EditorPanel.GOOVIE -> GooviePanel(
                     keyframes = state.keyframes,

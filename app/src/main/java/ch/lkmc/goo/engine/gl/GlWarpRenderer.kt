@@ -12,6 +12,7 @@ import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.FitTransform
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.MovieSpec
@@ -23,6 +24,7 @@ import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
 import ch.lkmc.goo.engine.core.ViewTransform
 import ch.lkmc.goo.engine.core.lerp
+import ch.lkmc.goo.engine.core.leversAt
 import ch.lkmc.goo.engine.core.leverProgress
 import ch.lkmc.goo.engine.core.tweenProgress
 import ch.lkmc.goo.engine.media.GifEncoder
@@ -121,6 +123,9 @@ class GlWarpRenderer(
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
 
+    /** The modulation rig (proposal 0009); still by default. */
+    private var wobble = GlobalWobble()
+
     /** The editor's pan/zoom/rotate; preview-only (export/movie identity). */
     private var viewTransform = ViewTransform()
 
@@ -166,6 +171,16 @@ class GlWarpRenderer(
      */
     fun setGlobalParams(params: GlobalParams) {
         globalParams = params
+    }
+
+    /**
+     * Install the modulation rig used by the movie walk. The preview
+     * evaluates its own phase and arrives here as ordinary lever values
+     * through [setGlobalParams]; this is the export path's copy, so a
+     * rendered movie wobbles even though nothing is driving a clock.
+     */
+    fun setWobble(rig: GlobalWobble) {
+        wobble = rig
     }
 
     /** Update the preview's view transform. GL-thread command; uniforms only. */
@@ -416,7 +431,7 @@ class GlWarpRenderer(
             // never depends on a non-local "nothing changed the surface"
             // invariant — endpoint materialization inside the walk is FBO
             // work, surface-agnostic but not surface-preserving in spirit.
-            eachTweenFrame(keyframes, total) { frame ->
+            eachTweenFrame(keyframes, total, MovieSpec.FPS) { frame ->
                 if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
                     error("eglMakeCurrent(encoder) failed")
                 }
@@ -515,7 +530,7 @@ class GlWarpRenderer(
             val pixels = IntArray(gw * gh)
             BufferedOutputStream(FileOutputStream(outputFile)).use { stream ->
                 val gif = GifEncoder(stream, gw, gh, loop)
-                eachTweenFrame(keyframes, total) { frame ->
+                eachTweenFrame(keyframes, total, fps) { frame ->
                     // tweenTo materializes endpoints through its own FBO
                     // binds, so the target is re-asserted every frame.
                     drawTweenQuad(program, gw, gh, framebuffer = framebuffer[0], flipY = true)
@@ -556,8 +571,18 @@ class GlWarpRenderer(
     private inline fun eachTweenFrame(
         keyframes: List<Keyframe>,
         totalFrames: Int,
+        /** Frame rate of THIS encode — the GIF ladder is not [MovieSpec.FPS]. */
+        fps: Int,
         body: (Int) -> Unit,
     ) {
+        // Cap against the loop this export will actually produce. The
+        // speed control can shorten it by 4x after the rig was dialled,
+        // and the GIF ladder can drop the frame rate on top of that, so
+        // the seconds have to be derived from what is about to be
+        // encoded rather than from the document.
+        val safe = wobble.cappedFor(
+            if (totalFrames > 1 && fps > 0) (totalFrames - 1).toFloat() / fps else 0f,
+        )
         for (frame in 0 until totalFrames) {
             val p = MovieSpec.positionAt(frame, totalFrames, keyframes.size)
             val k = GoovieTimeline.segment(p, keyframes.size)
@@ -567,11 +592,18 @@ class GlWarpRenderer(
             // Same curve the strip previews with, so the export cannot
             // disagree with what the scrub showed.
             val curve = a.easing
+            // The wobble rides ON TOP of the interpolated levers, so a
+            // strip and a wobble give authored motion with a shimmer on
+            // it rather than one overriding the other. Phase comes from
+            // the frame index, never a clock, so this walk is what the
+            // preview shows and two renders agree exactly.
+            val lerped = a.globals.lerp(b.globals, leverProgress(t, curve))
+            val phase = if (totalFrames > 1) frame.toFloat() / (totalFrames - 1) else 0f
             tweenTo(
                 a.revision,
                 b.revision,
                 tweenProgress(t, curve),
-                a.globals.lerp(b.globals, leverProgress(t, curve)),
+                leversAt(lerped, safe, phase),
             )
             body(frame)
         }

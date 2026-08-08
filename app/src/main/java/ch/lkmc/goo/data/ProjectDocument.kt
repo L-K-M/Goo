@@ -3,6 +3,7 @@ package ch.lkmc.goo.data
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.StrokeLogSnapshot
 import kotlinx.serialization.Serializable
 
@@ -39,6 +40,11 @@ data class ProjectDocument(
     val fusion: String? = null,
     val crop: CropRecord? = null,
     val globals: GlobalParams = GlobalParams(),
+    /**
+     * The modulation rig (proposal 0009). Defaulted, so a project written
+     * before the Wobbulator existed loads perfectly still.
+     */
+    val wobble: GlobalWobble = GlobalWobble(),
     val log: StrokeLogSnapshot = StrokeLogSnapshot(),
     /** GOOvie strip in playback order; ids point into [log]'s table. */
     val keyframes: List<KeyframeRecord> = emptyList(),
