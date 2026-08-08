@@ -778,13 +778,19 @@ class EditorViewModel @Inject constructor(
      * rather than computed here because it depends on the live zoom and
      * the screen's density, neither of which a ViewModel should know —
      * and frozen at begin, like every other live parameter.
+     *
+     * Deliberately NOT defaulted. Review suggested a test that this
+     * value reaches the resampler, so a refactor cannot silently drop
+     * the wiring; a required parameter is the same protection enforced
+     * by the compiler instead, and the ViewModel is not JVM-testable in
+     * this project anyway (it needs a Bitmap, Hilt and a repository, and
+     * there is no Robolectric here by design). A default would let the
+     * one call site quietly fall back to the fixed fraction and put the
+     * zoom-dependent dead zone back.
+     *
      * @return true when a stroke actually started; false = canvas locked.
      */
-    fun beginStroke(
-        u: Float,
-        v: Float,
-        firstTravel: Float = StrokeResampler.FALLBACK_FIRST_TRAVEL,
-    ): Boolean {
+    fun beginStroke(u: Float, v: Float, firstTravel: Float): Boolean {
         val bitmap = _uiState.value.bitmap ?: return false
         val state = _uiState.value
         // A movie render owns the GL thread for seconds; stamps queued
