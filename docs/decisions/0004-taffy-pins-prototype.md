@@ -62,25 +62,41 @@ future rewrite should keep the ×2 test.
 
 **3. `pow()` in the inner loop is the only transcendental, and the
 default does not need it.** The weight is `1 / d^2α`; α = 1 is a plain
-divide. Branching on it made the CPU sweep **2.8× faster at 1080p**, and
+divide. Branching on it is worth **≈2.7×** on the CPU reference, and
 the default reach is exactly 1, so the common case now pays nothing for
 a knob most people will never move.
 
 ## Measurements
 
-Single-threaded JVM, 10 controls (4 corner anchors, 5 holds, 1 puck),
-full-field sweep of `sourceAt`, best of five after warm-up:
+**How, before what.** The first attempt was a stopwatch around a
+full-field sweep at three sizes, before and after the change. It produced
+a tidy table and the table was not real: re-running it moved 512×288
+between 39 ms and 190 ms, and 1920×1080 between 393 ms and 613 ms. This
+is a shared container, and a between-runs comparison on one measures the
+container.
 
-| Field | Before the α=1 path | After |
+Replaced with an interleaved A/B in a single process — α = 1 against
+α = 1.0001, which is numerically the same deformation and forces the
+`pow` path — nine pairs, medians reported. Noise now hits both arms
+equally.
+
+At 1024×576 with 10 controls (4 corner anchors, 5 holds, 1 puck),
+single-threaded JVM, two independent runs:
+
+| | Run 1 | Run 2 |
 | --- | --- | --- |
-| 512×288 | 95.7 ms | 39.3 ms |
-| 1024×576 | 321.4 ms | 116.3 ms |
-| 1920×1080 | 1099.9 ms | 398.4 ms |
+| α = 1 (divide) | 120.1 ms | 120.6 ms |
+| α ≠ 1 (`pow`) | 321.4 ms | 320.7 ms |
+| ratio | **2.68×** | **2.66×** |
+
+So the fast path is worth **≈2.7×**, and the CPU reference runs at
+**≈4.9 Mtexel/s**.
 
 **What this does and does not establish.** It bounds the *CPU reference*,
 which is what the test suite and any golden comparison run against, and
-at ~5 Mtexel/s that reference is fast enough to sweep a preview-sized
-field in a test without slowing the suite.
+at ~5 Mtexel/s that reference sweeps a preview-sized field fast enough
+not to slow the suite. It also settles, with a controlled experiment
+rather than an assertion, that the `pow` branch earns its keep.
 
 It says **nothing directly about 60 fps in GLES**, and I cannot measure
 that here: this environment has no GPU, and the project has no
@@ -89,11 +105,13 @@ at most 10 iterations per texel, each a handful of multiply-adds — which
 is the kind of thing fragment shaders are good at — but "should be fine"
 is an argument, not a number, and the proposal's 60 fps gate is a number.
 **That gate remains unmet.** Its remaining unknowns are the per-texel
-`pow` when reach ≠ 1, and whether a full-field pass per preview frame
-competes with the warp pass for bandwidth on low-end GLES 3 hardware.
-The proposal's own suggestion — a coarser control grid with
-interpolation, as the paper recommends — is the thing to try next, and it
-is unblocked by this work rather than replaced by it.
+`pow` when reach ≠ 1 (now known to cost 2.7× on a CPU, and worth
+re-measuring on a GPU where transcendentals are cheaper relative to
+memory), and whether a full-field pass per preview frame competes with
+the warp pass for bandwidth on low-end GLES 3 hardware. The proposal's
+own suggestion — a coarser control grid with interpolation, as the paper
+recommends — is the thing to try next, and it is unblocked by this work
+rather than replaced by it.
 
 ## Consequences
 

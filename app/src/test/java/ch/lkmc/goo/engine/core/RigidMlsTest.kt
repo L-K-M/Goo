@@ -226,6 +226,21 @@ class RigidMlsTest {
     }
 
     @Test
+    fun `a bad aspect is refused, not silently absorbed`() {
+        // Zero collapses every x-distance and makes the deformation
+        // one-dimensional; negative mirrors it; NaN falls through to the
+        // identity return and reads as "nothing happened". All three are
+        // a caller bug that would otherwise surface as a subtly wrong
+        // warp — the hardest thing to spot in a deformation field.
+        val controls = listOf(hold(0.2f, 0.2f), pull(0.5f, 0.5f, 0.6f, 0.7f))
+        for (bad in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertFailsWith<IllegalArgumentException>("aspect $bad") {
+                RigidMls.deform(0.4f, 0.4f, controls, bad)
+            }
+        }
+    }
+
+    @Test
     fun `the control cap is enforced rather than documented`() {
         val many = List(RigidMls.MAX_CONTROLS + 1) { hold(0.1f * it, 0.5f) }
         assertFailsWith<IllegalArgumentException> { RigidMls.deform(0.5f, 0.5f, many, wide) }

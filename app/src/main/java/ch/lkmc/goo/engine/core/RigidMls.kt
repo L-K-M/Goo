@@ -91,6 +91,20 @@ object RigidMls {
      */
     const val EPSILON_SQ = 1e-12f
 
+    /**
+     * The same floor for quantities that are a LENGTH rather than a
+     * squared distance — `sqrt(EPSILON_SQ)`.
+     *
+     * Separate because comparing an unsquared length against a squared
+     * threshold is a unit error even when it happens to be harmless:
+     * `fLen <= 1e-12` does fire for a true zero, so the guard works
+     * today, and it would silently stop meaning what it says the moment
+     * someone retuned EPSILON_SQ. It also catches slightly more: a
+     * direction normalized out of a 1e-8 vector is finite and numerically
+     * meaningless, and falling back to ṽ is the better answer.
+     */
+    const val EPSILON = 1e-6f
+
     /** Implicit corner anchors, weaker than anything the user placed. */
     const val CORNER_WEIGHT = 0.15f
 
@@ -141,6 +155,15 @@ object RigidMls {
         inverse: Boolean,
     ): Pair<Float, Float> {
         require(controls.size <= MAX_CONTROLS) { "too many controls: ${controls.size}" }
+        // Aspect is load-bearing for correctness, not a hint: the whole
+        // "round in pixels" property is this one multiply. A zero
+        // collapses every x-distance and quietly makes the deformation
+        // one-dimensional; a negative mirrors it; a NaN falls through to
+        // the identity return below and reads as "nothing happened".
+        // All three are a caller bug that would otherwise show up as a
+        // subtly wrong warp, which is the hardest thing to diagnose in a
+        // deformation field.
+        require(aspect > 0f && aspect.isFinite()) { "aspect must be positive: $aspect" }
         if (controls.isEmpty()) return Pair(u, v)
         val alpha = reach.coerceIn(MIN_REACH, MAX_REACH)
         val mix = rubber.coerceIn(0f, 1f)
@@ -170,7 +193,8 @@ object RigidMls {
             // only transcendental in the inner loop, it runs once per
             // control per texel, and the default reach is exactly 1 —
             // so the common case pays nothing for a knob most people
-            // will never move. Measured at 2.3× on the JVM sweep.
+            // will never move. Worth 2.7× on the CPU reference, by
+            // interleaved A/B against a forced pow path (ADR 0004).
             val w = if (alpha == 1f) c.weight / d2 else c.weight / d2.pow(alpha)
             weights[i] = w
             sumW += w
@@ -225,7 +249,7 @@ object RigidMls {
         // exactly the refusal to scale.
         val rigidX: Float
         val rigidY: Float
-        if (fLen <= EPSILON_SQ) {
+        if (fLen <= EPSILON) {
             // Degenerate (every control collinear and cancelling). The
             // honest answer is "no rotation available here", not a
             // normalized zero vector, which is a NaN wearing a hat.
@@ -237,7 +261,7 @@ object RigidMls {
         }
         val simX: Float
         val simY: Float
-        if (muS <= EPSILON_SQ) {
+        if (muS <= EPSILON) {
             simX = vx
             simY = vy
         } else {
