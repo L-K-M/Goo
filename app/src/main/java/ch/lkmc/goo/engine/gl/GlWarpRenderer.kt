@@ -288,7 +288,7 @@ class GlWarpRenderer(
         // inner stroke's parameters, which is not a subtle error but is
         // an invisible one: GL cannot run in this environment, and every
         // test here passes on a shader that never executed.
-        val recallTexture = recallTarget(stroke, like = target)
+        val recallTexture = recallTarget(stroke, imageAspect, like = target)
         program.use()
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
         GLES30.glEnableVertexAttribArray(0)
@@ -356,14 +356,24 @@ class GlWarpRenderer(
      * `stampBatch` stamps into the live field, and the target for THAT
      * is materialized once when the stroke begins.
      */
-    private fun recallTarget(stroke: Stroke, like: PingPongField): Int? {
+    private fun recallTarget(
+        stroke: Stroke,
+        imageAspect: Float,
+        like: PingPongField,
+    ): Int? {
         val id = stroke.targetRevision ?: return null
         val strokes = revisionResolver?.invoke(id) ?: return null
         val field = ensureRecallField(recallDepth, like)
         recallDepth++
         try {
             field.clear()
-            for (s in strokes) stampInto(field, aspect, s, s.stamps)
+            // The CALLER's aspect, not this renderer's field. They agree
+            // today — the export source is a scaled copy of the preview
+            // bitmap — but a target chain replayed in a different space
+            // from the stroke reading it would be wrong in a way no test
+            // here can see, and "they agree today" is not a thing to
+            // build on.
+            for (s in strokes) stampInto(field, imageAspect, s, s.stamps)
         } finally {
             recallDepth--
         }
