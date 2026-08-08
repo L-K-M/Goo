@@ -25,6 +25,7 @@ import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
 import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.GlobalParams
+import ch.lkmc.goo.engine.core.GooMe
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.leverProgress
 import ch.lkmc.goo.engine.core.tweenProgress
@@ -862,9 +863,34 @@ class EditorViewModel @Inject constructor(
     // screen. Hence: null only when nothing was discarded AND the log
     // didn't move.
 
-    fun undo(): List<Stroke>? = withDiscardGuard { log.undo() }
+    fun undo(): List<Stroke>? = withDealLevers { withDiscardGuard { log.undo() } }
 
-    fun redo(): List<Stroke>? = withDiscardGuard { log.redo() }
+    fun redo(): List<Stroke>? = withDealLevers { withDiscardGuard { log.redo() } }
+
+    /**
+     * Restore the levers a Goo Me deal moved, when history walks past it.
+     *
+     * Levers are document state and not history (PLAN.md §4.1), which is
+     * right for a slider — pulling it back is the undo. It is wrong for a
+     * deal: the user taps Undo expecting the joke gone, and a deal that
+     * left a twirl pulled would leave the photo visibly warped by an
+     * "undone" edit. So a deal pins the lever table to the revisions on
+     * either side of it, and any history move that lands on a pinned
+     * revision restores that table. Ordinary lever moves pin nothing and
+     * are untouched.
+     *
+     * Not persisted: a reloaded project's undo walks the strokes back but
+     * leaves the levers where they were saved. Same as before this
+     * existed, and a saved lever position is a deliberate document state
+     * by then rather than an accident of a deal.
+     */
+    private inline fun withDealLevers(op: () -> List<Stroke>?): List<Stroke>? {
+        val result = op()
+        dealLevers[log.currentRevision.id]?.let { pinned ->
+            if (pinned != _uiState.value.globals) setGlobals(pinned)
+        }
+        return result
+    }
 
     /**
      * Shared spine of undo/redo: discard any live stroke (its stamps are
@@ -908,6 +934,51 @@ class EditorViewModel @Inject constructor(
         _uiState.update { it.copy(globals = globals) }
         savedStateHandle[KEY_GLOBALS] = globals.toArray()
         refreshHistoryFlags()
+    }
+
+    // ---- Goo Me ----------------------------------------------------------
+
+    /**
+     * Deal a recipe onto the photo (proposal 0007): a couple of curated
+     * strokes and maybe a lever, applied for real.
+     *
+     * @return the dealt strokes to stamp into the field, or null when
+     * there is nothing to deal onto.
+     */
+    fun dealGoo(): List<Stroke>? {
+        val bitmap = _uiState.value.bitmap ?: return null
+        if (_uiState.value.exportingMovie) return null
+        goLive()
+        discardLiveStroke()
+        val deal = GooMe.deal(
+            seed = nextDealSeed(),
+            aspect = bitmap.width.toFloat() / bitmap.height,
+            from = _uiState.value.globals,
+        )
+        if (deal.strokes.isEmpty()) return null
+        // Pin the table on both sides before the batch lands, so undo
+        // finds the levers as they were and redo finds them as dealt.
+        dealLevers[log.currentRevision.id] = _uiState.value.globals
+        log.pushBatch(deal.strokes)
+        dealLevers[log.currentRevision.id] = deal.globals
+        setGlobals(deal.globals)
+        if (_uiState.value.showHint) {
+            onboardingPrefs.smearHintSeen = true
+            _uiState.update { it.copy(showHint = false) }
+        }
+        refreshHistoryFlags()
+        return log.strokes
+    }
+
+    /** See [withDealLevers]. Bounded by the number of deals in a session. */
+    private val dealLevers = HashMap<StrokeRevisionId, GlobalParams>()
+
+    private var dealSeed: Long = System.nanoTime()
+
+    /** A fresh seed per tap — tap again, different accident. */
+    private fun nextDealSeed(): Long {
+        dealSeed = dealSeed * 6364136223846793005L + 1442695040888963407L
+        return dealSeed
     }
 
     // ---- GOOvies -------------------------------------------------------

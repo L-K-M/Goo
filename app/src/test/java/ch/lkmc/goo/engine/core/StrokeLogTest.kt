@@ -189,4 +189,75 @@ class StrokeLogTest {
         assertEquals(1, log.strokes.size)
         assertTrue(log.canUndo)
     }
+
+    // ---- Batches (the Goo Me deal) --------------------------------------
+
+    @Test
+    fun `a batch is three strokes but one undo step`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        log.pushBatch(listOf(stroke(2), stroke(3), stroke(4)))
+
+        assertEquals(4, log.strokes.size)
+        // One tap takes the whole deal back — and lands on the document
+        // as it was before it, not part-way through the recipe.
+        assertEquals(listOf(stroke(1)), log.undo())
+        assertEquals(4, log.redo()!!.size)
+        // And the step before it is still the ordinary single stroke:
+        // batching does not swallow its neighbours into one entry.
+        log.undo()
+        assertTrue(log.undo()!!.isEmpty())
+        assertFalse(log.canUndo)
+    }
+
+    @Test
+    fun `a batch replays in the order it was dealt`() {
+        val log = StrokeLog()
+        log.pushBatch(listOf(stroke(1), stroke(2), stroke(3)))
+        assertEquals(listOf(stroke(1), stroke(2), stroke(3)), log.strokes)
+    }
+
+    @Test
+    fun `a batch drops the redoable future like any other commit`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        log.push(stroke(2))
+        log.undo()
+
+        log.pushBatch(listOf(stroke(3), stroke(4)))
+
+        assertFalse(log.canRedo)
+        assertEquals(listOf(stroke(1), stroke(3), stroke(4)), log.strokes)
+    }
+
+    @Test
+    fun `a batch of nothing is not an undo step`() {
+        val log = StrokeLog()
+        log.push(stroke(1))
+        val before = log.currentRevision
+
+        log.pushBatch(emptyList())
+        log.pushBatch(listOf(stroke(2).copy(stamps = emptyList())))
+
+        assertSame(before, log.currentRevision)
+        assertEquals(1, log.strokes.size)
+    }
+
+    @Test
+    fun `a batch survives a snapshot round trip as one step`() {
+        // The strokes of a batch become revisions that are NOT in the
+        // history list — only ancestors of the one that is. If snapshot
+        // walked history alone they would vanish on save, and a reloaded
+        // deal would be missing two of its three strokes.
+        val log = StrokeLog()
+        log.push(stroke(1))
+        log.pushBatch(listOf(stroke(2), stroke(3)))
+
+        val restored = StrokeLog()
+        assertTrue(restored.restore(log.snapshot()) != null)
+
+        assertEquals(log.strokes, restored.strokes)
+        assertEquals(listOf(stroke(1)), restored.undo())
+        assertEquals(3, restored.redo()!!.size)
+    }
 }
