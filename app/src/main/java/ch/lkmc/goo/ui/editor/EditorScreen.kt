@@ -323,12 +323,21 @@ private fun WarpEditor(
         // MovieSpec.FPS would run the preview three or four times too
         // fast on exactly the devices this app is for, and the dial
         // would be set against a lie.
-        var startNanos = 0L
+        // Accumulated from per-frame DELTAS rather than measured from a
+        // start stamp, and each delta capped at one loop. The frame clock
+        // stops while the app is backgrounded, so a resume delivers a gap
+        // spanning minutes: measured absolutely, the wobble would snap to
+        // an arbitrary point in its cycle every time you came back to the
+        // app. Same hazard GoovieTimeline.advance documents for playback.
+        var previousNanos = 0L
+        var elapsed = 0f
         while (true) {
             val nanos = withFrameNanos { it }
-            if (startNanos == 0L) startNanos = nanos
-            val seconds = (nanos - startNanos) / 1_000_000_000f
-            val phase = (seconds / loop).mod(1f)
+            if (previousNanos > 0L) {
+                elapsed += ((nanos - previousNanos) / 1_000_000_000f).coerceIn(0f, loop)
+            }
+            previousNanos = nanos
+            val phase = (elapsed / loop).mod(1f)
             val modulated = leversAt(wobbleGlobals, rig, phase)
             surface?.engine { setGlobalParams(modulated) }
         }
