@@ -1,6 +1,6 @@
 # 0012 — Goo Portals
 
-- **Status:** proposed
+- **Status:** accepted — built (roadmap #28)
 - **Date:** 2026-08-07
 
 ## The pitch
