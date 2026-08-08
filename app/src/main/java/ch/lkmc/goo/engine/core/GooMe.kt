@@ -173,7 +173,9 @@ object GooMe {
         return out
     }
 
-    private fun Float.toRadians(): Float = this * (kotlin.math.PI.toFloat() / 180f)
+    private fun Float.toRadians(): Float = this * DEG_TO_RAD
+
+    private const val DEG_TO_RAD = (kotlin.math.PI / 180.0).toFloat()
 
     /** How far a dealt drag stays from the frame edge, in UV. */
     private const val EDGE = 0.03f

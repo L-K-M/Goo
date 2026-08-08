@@ -950,14 +950,18 @@ class EditorViewModel @Inject constructor(
     fun dealGoo(): List<Stroke>? {
         val bitmap = _uiState.value.bitmap ?: return null
         if (_uiState.value.exportingMovie) return null
-        goLive()
-        discardLiveStroke()
+        // Deal first, then commit to it. GooMe.deal reads only the
+        // levers, which neither call below touches — and a deal that
+        // came back empty must not have cost the user an in-flight
+        // stroke on its way to doing nothing.
         val deal = GooMe.deal(
             seed = nextDealSeed(),
             aspect = bitmap.width.toFloat() / bitmap.height,
             from = _uiState.value.globals,
         )
         if (deal.strokes.isEmpty()) return null
+        goLive()
+        discardLiveStroke()
         // Pin the transition, so undo across it finds the levers as they
         // were and redo across it finds them as dealt.
         val before = log.currentRevision.id
