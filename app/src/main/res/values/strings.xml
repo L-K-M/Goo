@@ -69,6 +69,7 @@
     <string name="tool_comb">Comb</string>
     <string name="tool_pond">Pond</string>
     <string name="tool_fault">Fault</string>
+    <string name="tool_echo">Echo</string>
 
     <string name="home_about">About</string>
     <string name="about_title" translatable="false">Meltorama 2000 %1$s</string>

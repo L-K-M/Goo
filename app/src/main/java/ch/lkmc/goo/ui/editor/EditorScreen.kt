@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Dehaze
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -681,6 +682,12 @@ private fun WarpEditor(
                     radius = state.brushRadius,
                     strength = state.brushStrength,
                     profile = state.tool.profile,
+                    view = view,
+                )
+                EchoAnchorOverlay(
+                    anchor = state.echoAnchor.takeIf { state.tool == BrushTool.ECHO },
+                    imageWidth = bmp.width,
+                    imageHeight = bmp.height,
                     view = view,
                 )
             }
@@ -1339,6 +1346,7 @@ private fun BrushTool.labelRes(): Int = when (this) {
     BrushTool.COMB -> R.string.tool_comb
     BrushTool.POND -> R.string.tool_pond
     BrushTool.FAULT -> R.string.tool_fault
+    BrushTool.ECHO -> R.string.tool_echo
 }
 
 private fun BrushTool.icon(): ImageVector = when (this) {
@@ -1357,6 +1365,7 @@ private fun BrushTool.icon(): ImageVector = when (this) {
     BrushTool.COMB -> Icons.Filled.Dehaze
     BrushTool.POND -> Icons.Filled.RadioButtonChecked
     BrushTool.FAULT -> Icons.Filled.CompareArrows
+    BrushTool.ECHO -> Icons.Filled.ContentCopy
 }
 
 /** Each tool wears its own tube of neon — families share a color. */
@@ -1376,6 +1385,7 @@ private fun BrushTool.neonColor(): Color = when (this) {
     BrushTool.COMB -> NeonLime
     BrushTool.POND -> NeonCyan
     BrushTool.FAULT -> NeonViolet
+    BrushTool.ECHO -> NeonCyan
 }
 
 @Composable
