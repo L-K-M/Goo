@@ -280,6 +280,15 @@ class GlWarpRenderer(
      */
     private fun stampInto(target: PingPongField, imageAspect: Float, stroke: Stroke, stamps: List<Stamp>) {
         val program = stampProgram ?: return
+        // FIRST, before a single uniform is set. recallTarget replays a
+        // whole revision through this same function, and the recursive
+        // call sets every uniform for ITS strokes — radius, strength,
+        // mode, profile, guard, texel. Materializing after the uniform
+        // block would therefore leave this stroke drawing with the last
+        // inner stroke's parameters, which is not a subtle error but is
+        // an invisible one: GL cannot run in this environment, and every
+        // test here passes on a shader that never executed.
+        val recallTexture = recallTarget(stroke, like = target)
         program.use()
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
         GLES30.glEnableVertexAttribArray(0)
@@ -300,10 +309,7 @@ class GlWarpRenderer(
         // this binds the field to itself, which the shader never reads.
         GLES30.glUniform1i(uTarget, 1)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-        GLES30.glBindTexture(
-            GLES30.GL_TEXTURE_2D,
-            recallTarget(stroke, like = target) ?: target.readTexture,
-        )
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, recallTexture ?: target.readTexture)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         for (stamp in stamps) {
             // Only the brush disc can change; everything else the pass
