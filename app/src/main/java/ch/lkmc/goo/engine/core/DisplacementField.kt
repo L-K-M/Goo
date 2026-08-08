@@ -303,6 +303,10 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
                         out[i + 3] = at(ix, iy, 3)
                     }
 
+                    StampMode.PINWARP -> error(
+                        "PINWARP is a full-field pass, not a stamp — see applyPinWarp",
+                    )
+
                     StampMode.RECALL -> {
                         // RELAX's blend with the blur replaced by a read
                         // from the target — and the whole vector mixed,
@@ -359,6 +363,60 @@ class DisplacementField(val width: Int, val height: Int, val aspect: Float) {
         val top = a + (b - a) * fx
         val bottom = c + (d - c) * fx
         return top + (bottom - top) * fy
+    }
+
+    /**
+     * Compose a pin pull into this field (proposal 0016).
+     *
+     * One analytic pass over every texel, not a stamp: there is no brush
+     * disc to scissor to, because a constraint deformation is a
+     * statement about the whole picture.
+     *
+     * The composition is the engine's existing warp-of-warp rule:
+     *
+     * ```text
+     * w(x) = rigidMls(x)  −  x        the new deformation
+     * D'(x) = w(x) + D(x + w(x))      applied FIRST, then the old field
+     * ```
+     *
+     * Reading the old field at the PREWARPED position is what makes the
+     * pull act on the picture as it currently looks rather than on the
+     * original photo — and it carries the Fusion mask and the varnish
+     * along with it for free, because they ride the same lookup.
+     *
+     * The varnish is deliberately NOT a brake here. Every other mode
+     * scales its weight by the mask; a pin pull has no weight to scale,
+     * and a half-frozen texel cannot be half-constrained by a solver
+     * that only knows about points. Freezing a region and then pulling
+     * through it moves it. That is a real limitation and it is better
+     * stated than silently approximated.
+     */
+    fun applyPinWarp(warp: PinWarp) {
+        require(warp.isValid) { "pin warp is not fit for the document" }
+        val out = FloatArray(data.size)
+        var i = 0
+        for (iy in 0 until height) {
+            val v = (iy + 0.5f) / height
+            for (ix in 0 until width) {
+                val u = (ix + 0.5f) / width
+                // BACKWARD map: for this output texel, where does it read
+                // from? sourceAt reverses the controls internally, so the
+                // call site cannot get the direction wrong.
+                val (sx, sy) = RigidMls.sourceAt(
+                    u, v, warp.controls, aspect, warp.reach, warp.rubber,
+                )
+                val wx = sx - u
+                val wy = sy - v
+                // D at the prewarped position, bilinear like every other
+                // lookup in this class.
+                out[i] = wx + sampleX(sx, sy)
+                out[i + 1] = wy + sampleY(sx, sy)
+                out[i + 2] = sampleMask(sx, sy)
+                out[i + 3] = sampleFreeze(sx, sy)
+                i += CHANNELS
+            }
+        }
+        out.copyInto(data)
     }
 
     internal fun at(ix: Int, iy: Int, channel: Int): Float =

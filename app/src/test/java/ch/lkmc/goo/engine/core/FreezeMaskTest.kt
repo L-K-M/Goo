@@ -92,6 +92,11 @@ class FreezeMaskTest {
         // rest of the face without ruining it.
         for (tool in BrushTool.entries) {
             if (!tool.mode.respectsFreeze || tool.mode == StampMode.FUSE) continue
+            // Pins is not a stamp and has no weight for the varnish to
+            // scale. It is deliberately NOT braked by the mask — see
+            // DisplacementField.applyPinWarp — so it is excluded here
+            // rather than silently expected to pass.
+            if (tool.isPinWarp) continue
             val f = field()
             f.freezeCenter()
             f.stampAny(tool)

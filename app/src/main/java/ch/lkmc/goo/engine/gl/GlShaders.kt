@@ -63,6 +63,15 @@ uniform int u_mode;         // StampMode.shaderId
 uniform int u_profile;      // FalloffProfile.shaderId
 uniform int u_guarded;      // StampMode.respectsFreeze
 uniform vec2 u_fieldTexel;  // 1 / field dimensions
+// Taffy Pins (proposal 0016). xy = source control, zw = target control;
+// u_pinWeight is the per-control multiplier that lets the implicit frame
+// corners argue more quietly than a pin the user placed. Sized to
+// RigidMls.MAX_CONTROLS, so the loop cost never depends on the document.
+uniform vec4 u_pin[10];
+uniform float u_pinWeight[10];
+uniform int u_pinCount;
+uniform float u_pinReach;
+uniform float u_pinRubber;
 in vec2 v_uv;
 out vec4 o_field;
 
@@ -97,7 +106,68 @@ float smoothOdd(float x) {
 // sign() that is +1 at zero, matching the Kotlin helper.
 float signPos(float x) { return x < 0.0 ? -1.0 : 1.0; }
 
+// RigidMls.sourceAt, transliterated. Backward map: given an output point
+// it returns where to sample, so the controls are read target-as-source
+// (p = zw, q = xy) exactly as `inverse = true` does on the Kotlin side.
+//
+// 1e-12 = RigidMls.EPSILON_SQ, 1e-6 = RigidMls.EPSILON. Two guards, not
+// one: the exact-hit branch returns instead of dividing, and the length
+// comparisons use the unsquared floor.
+vec2 pinSourceAt(vec2 x) {
+    float sumW = 0.0;
+    vec2 pStar = vec2(0.0);
+    vec2 qStar = vec2(0.0);
+    float w[10];
+    for (int i = 0; i < 10; i++) {
+        if (i >= u_pinCount) break;
+        vec2 p = u_pin[i].zw;
+        vec2 d = vec2((x.x - p.x) * u_aspect, x.y - p.y);
+        float d2 = dot(d, d);
+        if (d2 <= 1e-12) return u_pin[i].xy;
+        float wi = u_pinWeight[i] / pow(d2, u_pinReach);
+        w[i] = wi;
+        sumW += wi;
+        pStar += wi * p;
+        qStar += wi * u_pin[i].xy;
+    }
+    if (sumW <= 0.0) return x;
+    pStar /= sumW;
+    qStar /= sumW;
+    vec2 vv = vec2((x.x - pStar.x) * u_aspect, x.y - pStar.y);
+    vec2 f = vec2(0.0);
+    float muS = 0.0;
+    for (int i = 0; i < 10; i++) {
+        if (i >= u_pinCount) break;
+        vec2 ph = vec2((u_pin[i].z - pStar.x) * u_aspect, u_pin[i].w - pStar.y);
+        vec2 qh = vec2((u_pin[i].x - qStar.x) * u_aspect, u_pin[i].y - qStar.y);
+        muS += w[i] * dot(ph, ph);
+        float a = dot(ph, vv);
+        float b = ph.x * vv.y - ph.y * vv.x;
+        f += w[i] * vec2(qh.x * a - qh.y * b, qh.x * b + qh.y * a);
+    }
+    float vLen = length(vv);
+    float fLen = length(f);
+    vec2 rigid = fLen <= 1e-6 ? vv : f / fLen * vLen;
+    vec2 sim = muS <= 1e-6 ? vv : f / muS;
+    vec2 outv = mix(rigid, sim, u_pinRubber);
+    return vec2(qStar.x + outv.x / u_aspect, qStar.y + outv.y);
+}
+
 void main() {
+    // A pin pull is not a stamp: no disc, no falloff, no delta. It is
+    // one analytic pass over the whole field, so it returns before any
+    // of the brush machinery below runs.
+    if (u_mode == 12) {         // PINWARP
+        vec2 src = pinSourceAt(v_uv);
+        vec2 wv = src - v_uv;
+        // D'(x) = w(x) + D(x + w(x)) — the engine's warp-of-warp rule.
+        // Reading the old field at the PREWARPED position is what makes
+        // the pull act on the picture as it currently looks, and it
+        // carries the Fusion mask and the varnish along for free.
+        vec4 prev = texture(u_field, src);
+        o_field = vec4(wv + prev.xy, prev.z, prev.w);
+        return;
+    }
     vec2 fromCenter = v_uv - u_center;
     fromCenter.x *= u_aspect;
     // FalloffProfile.DRIP (3) compresses the distance BELOW the center

@@ -1,7 +1,8 @@
 # 0016 — Taffy Pins
 
-- **Status:** prototyped — solver built and measured (ADR 0004); the
-  document-model expansion and the 60 fps gate remain open
+- **Status:** accepted — built (roadmap #30, ADR 0004 + ADR 0005). The
+  60 fps gate remains unmet: no GPU in the build environment, so it
+  wants profiling on real low-end GLES 3 hardware.
 - **Date:** 2026-08-07
 
 ## The pitch

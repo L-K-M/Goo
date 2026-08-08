@@ -139,3 +139,7 @@ rather than replaced by it.
   hardware. At that point the decision to expand `Stroke` is still
   outstanding and still separate — this document deliberately does not
   make it.
+
+  **Superseded on that last point by ADR 0005**, which makes the
+  expansion. It was made with the 60 fps gate still unmet, which that
+  ADR records as a consequence rather than as an answer.

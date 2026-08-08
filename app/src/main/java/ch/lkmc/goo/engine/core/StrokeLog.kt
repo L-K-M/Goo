@@ -110,7 +110,21 @@ class StrokeLog {
 
     /** Commit a finished stroke. Drops any redoable future. */
     fun push(stroke: Stroke, target: StrokeRevision? = null) {
-        if (stroke.stamps.isEmpty()) return
+        // Nothing to draw: dropped in silence, as an empty stamp list
+        // always has been. This used to read `stamps.isEmpty()`, which
+        // also dropped an edit that draws plenty and has no stamps —
+        // a pin pull (proposal 0016).
+        if (!stroke.hasContent) return
+        // Both payloads at once is a different thing entirely: a caller
+        // bug with no defined replay order, and dropping it quietly
+        // would hide it.
+        require(stroke.isCoherent) { "a stroke carries stamps or a pin warp, not both" }
+        require(stroke.pinWarp == null || stroke.pinWarp.isValid) {
+            "a pin warp must be valid before it enters the document"
+        }
+        require((stroke.pinWarp != null) == stroke.tool.isPinWarp) {
+            "only ${BrushTool.PINS} carries a pin warp, and it must carry one"
+        }
         // A Rewind stroke names its target by id, and an id keeps nothing
         // alive (ADR 0003). The log therefore holds the revision itself
         // for as long as the stroke exists — a keyframe pin and a stroke
@@ -151,7 +165,12 @@ class StrokeLog {
      * all [snapshot] and [materialize] ever needed of them.
      */
     fun pushBatch(strokes: List<Stroke>) {
-        val batch = strokes.filter { it.stamps.isNotEmpty() }
+        // Same content rule as push. A deal is stamps-only today — Goo
+        // Me deals brush strokes — but filtering on `stamps` here while
+        // push filters on `hasContent` would be two answers to one
+        // question, and the second one to be written is the one that
+        // gets forgotten.
+        val batch = strokes.filter { it.hasContent && it.isCoherent && it.pinWarp == null }
         if (batch.isEmpty()) return
         truncateFuture()
         var head = currentRevision
@@ -322,10 +341,26 @@ class StrokeLog {
         for (record in snapshot.revisions) {
             if (table.containsKey(record.id)) return null
             val parent = record.parent?.let { table[it] ?: return null }
-            // A stroke with no stamps cannot be produced by push (it is
-            // dropped there), and it would make strokeCount lie about
-            // what a replay draws. Treat it as corruption.
-            if (record.stroke != null && record.stroke.stamps.isEmpty()) return null
+            // An edit that draws nothing cannot be produced by push (it
+            // is dropped there), and it would make strokeCount lie about
+            // what a replay draws. Treat it as corruption — in BOTH
+            // directions: no payload at all, or both payloads at once.
+            if (record.stroke != null &&
+                !(record.stroke.hasContent && record.stroke.isCoherent)
+            ) {
+                return null
+            }
+            // A pin warp arrives from a file as readily as from a
+            // finger, and the loader's contract is to refuse rather than
+            // half-restore. An out-of-range control count or a NaN
+            // coordinate would otherwise reach the solver and put a
+            // permanent NaN in the field.
+            record.stroke?.pinWarp?.let { if (!it.isValid) return null }
+            if (record.stroke != null &&
+                (record.stroke.pinWarp != null) != record.stroke.tool.isPinWarp
+            ) {
+                return null
+            }
             // A target must already be in the table, exactly as a parent
             // must: it is the same guarantee for the same reason. Ids
             // only ever point backwards, so a forward or dangling

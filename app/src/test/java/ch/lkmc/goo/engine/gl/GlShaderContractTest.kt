@@ -6,6 +6,7 @@ import ch.lkmc.goo.engine.core.FalloffProfile
 import ch.lkmc.goo.engine.core.GlobalField
 import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.LensType
+import ch.lkmc.goo.engine.core.RigidMls
 import ch.lkmc.goo.engine.core.StampMode
 import ch.lkmc.goo.engine.core.TAU
 import kotlin.test.Test
@@ -52,6 +53,19 @@ class GlShaderContractTest {
         // leave the lookup returning -1 and every Rewind stamp blending
         // toward whatever texture unit 1 last held.
         assertContains(shader, "uniform highp sampler2D u_target;")
+        // Taffy Pins (proposal 0016). The array SIZES are derived, not
+        // typed: a shader array shorter than MAX_CONTROLS would read
+        // out of bounds on a full rack, and one longer would silently
+        // accept more controls than the document validates.
+        assertContains(shader, "uniform vec4 u_pin[${RigidMls.MAX_CONTROLS}];")
+        assertContains(shader, "uniform float u_pinWeight[${RigidMls.MAX_CONTROLS}];")
+        assertContains(shader, "for (int i = 0; i < ${RigidMls.MAX_CONTROLS}; i++)")
+        assertContains(shader, "u_mode == ${StampMode.PINWARP.shaderId}")
+        // Both singularity floors, mirrored from the Kotlin constants.
+        // Getting these two the same value is the unit error ADR 0004
+        // records, and it is invisible in a shader nothing can execute.
+        assertContains(shader, formatFloat(RigidMls.EPSILON_SQ))
+        assertContains(shader, formatFloat(RigidMls.EPSILON))
         assertContains(shader, "texture(u_target, v_uv)")
 
         // The anisotropic profile must reshape the WEIGHT's distance only;
@@ -162,4 +176,11 @@ class GlShaderContractTest {
         assertContains(shader, "uv.x * 24.0")
         assertContains(shader, "u_g[5] * 0.05")
     }
+}
+
+/** `1.0E-12` in Kotlin is `1e-12` in the GLSL literal. */
+private fun formatFloat(v: Float): String = when (v) {
+    1e-12f -> "1e-12"
+    1e-6f -> "1e-6"
+    else -> error("no GLSL spelling pinned for $v — add one rather than loosening this test")
 }

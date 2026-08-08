@@ -17,9 +17,13 @@ import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
 import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.MovieSpec
+import ch.lkmc.goo.engine.core.PinWarp
 import ch.lkmc.goo.engine.core.ReplayCheckpoints
+import ch.lkmc.goo.engine.core.RigidMls
+import ch.lkmc.goo.engine.core.StampMode
 import ch.lkmc.goo.engine.core.Stamp
 import ch.lkmc.goo.engine.core.StampBounds
+import ch.lkmc.goo.engine.core.TexelRect
 import ch.lkmc.goo.engine.core.Stroke
 import ch.lkmc.goo.engine.core.StrokeRevision
 import ch.lkmc.goo.engine.core.StrokeRevisionId
@@ -102,6 +106,11 @@ class GlWarpRenderer(
     // Uniform locations (stamp pass), resolved once per context.
     private var uField = 0
     private var uTarget = 0
+    private var uPin = 0
+    private var uPinWeight = 0
+    private var uPinCount = 0
+    private var uPinReach = 0
+    private var uPinRubber = 0
     private var uCenter = 0
     private var uDelta = 0
     private var uRadius = 0
@@ -129,6 +138,8 @@ class GlWarpRenderer(
 
     // Reused across frames: the warp pass runs every draw, and rebuilding
     // these per frame would allocate on the render thread (PLAN.md §4.1).
+    private val pinPack = FloatArray(RigidMls.MAX_CONTROLS * 4)
+    private val pinWeights = FloatArray(RigidMls.MAX_CONTROLS)
     private val lensPack = FloatArray(Lens.CAPACITY * 4)
     private val lensTypes = IntArray(Lens.CAPACITY)
 
@@ -161,6 +172,51 @@ class GlWarpRenderer(
     // `rebuild` used to have to invalidate here).
     private var endpointA: PingPongField? = null
     private var endpointB: PingPongField? = null
+
+    // ---- Pins preview (proposal 0016) ----------------------------------
+
+    /**
+     * The field as it was when Pins mode opened.
+     *
+     * The preview is recomputed from THIS on every drag event, never
+     * accumulated onto the last one — which is the acceptance sketch's
+     * "identical final controls produce identical output regardless of
+     * pointer event count". Accumulating would make a slow drag deform
+     * harder than a fast one across the same path, and no amount of
+     * tuning fixes that because it is a property of the event stream
+     * rather than of the gesture.
+     */
+    private var pinBase: FieldSnapshot? = null
+
+    /** Open Pins mode: freeze the current goo as the preview's base. */
+    fun beginPins() {
+        val f = field ?: return
+        val snap = pinBase?.takeIf { it.width == f.width && it.height == f.height }
+            ?: FieldSnapshot(f.width, f.height, PingPongField.hasHalfFloat(extensions))
+                .also { pinBase?.delete(); pinBase = it }
+        f.copyInto(snap)
+    }
+
+    /**
+     * Show [warp] as a candidate, from the base rather than from
+     * whatever the last preview left behind.
+     *
+     * A null [warp] restores the base untouched, which is how the puck
+     * being released without a pull, or the mode being cancelled, puts
+     * the picture back exactly as it was.
+     */
+    fun previewPins(warp: PinWarp?) {
+        val f = field ?: return
+        val snap = pinBase ?: return
+        if (!f.restoreFrom(snap)) return
+        if (warp != null && warp.isValid) pinWarpInto(f, aspect, warp)
+    }
+
+    /** Leave Pins mode; the base is a cache and dies with the mode. */
+    fun endPins() {
+        pinBase?.delete()
+        pinBase = null
+    }
 
     // ---- Rewind targets (proposal 0008, ADR 0003) ----------------------
 
@@ -278,6 +334,67 @@ class GlWarpRenderer(
      * preview path and the export replay (the whole point: both fields are
      * built by literally the same code).
      */
+    /**
+     * Compose a pin pull into [target] (proposal 0016) — one analytic
+     * full-field pass, not a stamp.
+     *
+     * Full-field via `TexelRect.full` rather than a second unscissored
+     * path, because [PingPongField.renderPassIn] is deliberately the
+     * only pass primitive and a parallel one would drift out of step
+     * with its ping-pong invariant.
+     */
+    private fun pinWarpInto(target: PingPongField, imageAspect: Float, warp: PinWarp) {
+        val program = stampProgram ?: return
+        val safe = warp.sanitized()
+        if (!safe.isValid) return
+        program.use()
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glUniform1i(uMode, StampMode.PINWARP.shaderId)
+        GLES30.glUniform1f(uAspect, imageAspect)
+        GLES30.glUniform1i(uField, 0)
+        val controls = safe.controls
+        for ((i, c) in controls.withIndex()) {
+            val base = i * 4
+            // xy = source, zw = target — the order pinSourceAt reads.
+            pinPack[base] = c.su
+            pinPack[base + 1] = c.sv
+            pinPack[base + 2] = c.tu
+            pinPack[base + 3] = c.tv
+            pinWeights[i] = c.weight
+        }
+        GLES30.glUniform4fv(uPin, controls.size, pinPack, 0)
+        GLES30.glUniform1fv(uPinWeight, controls.size, pinWeights, 0)
+        GLES30.glUniform1i(uPinCount, controls.size)
+        GLES30.glUniform1f(uPinReach, safe.reach)
+        GLES30.glUniform1f(uPinRubber, safe.rubber)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        target.renderPassIn(TexelRect.full(target.width, target.height)) { readTexture ->
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, readTexture)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        }
+        GLES30.glDisableVertexAttribArray(0)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+    }
+
+    /**
+     * Replay one committed edit, whichever kind it is (proposal 0016).
+     *
+     * The single place the document's two edit shapes are told apart.
+     * Every replay path — live commit, rebuild, endpoint materialization,
+     * export — goes through here, so none of them can grow a branch that
+     * forgets one.
+     */
+    private fun replayInto(target: PingPongField, imageAspect: Float, stroke: Stroke) {
+        val warp = stroke.pinWarp
+        if (warp != null) {
+            pinWarpInto(target, imageAspect, warp)
+        } else {
+            stampInto(target, imageAspect, stroke, stroke.stamps)
+        }
+    }
+
     private fun stampInto(target: PingPongField, imageAspect: Float, stroke: Stroke, stamps: List<Stamp>) {
         val program = stampProgram ?: return
         // FIRST, before a single uniform is set. recallTarget replays a
@@ -373,7 +490,7 @@ class GlWarpRenderer(
             // from the stroke reading it would be wrong in a way no test
             // here can see, and "they agree today" is not a thing to
             // build on.
-            for (s in strokes) stampInto(field, imageAspect, s, s.stamps)
+            for (s in strokes) replayInto(field, imageAspect, s)
         } finally {
             recallDepth--
         }
@@ -873,7 +990,7 @@ class GlWarpRenderer(
     private fun materializeInto(target: PingPongField, revision: StrokeRevision) {
         target.clear()
         for (stroke in revision.materialize()) {
-            stampInto(target, aspect, stroke, stroke.stamps)
+            replayInto(target, aspect, stroke)
         }
     }
 
@@ -894,6 +1011,11 @@ class GlWarpRenderer(
         stampProgram = GlProgram(GlShaders.QUAD_VERT, GlShaders.STAMP_FRAG).also {
             uField = it.uniform("u_field")
             uTarget = it.uniform("u_target")
+            uPin = it.uniform("u_pin")
+            uPinWeight = it.uniform("u_pinWeight")
+            uPinCount = it.uniform("u_pinCount")
+            uPinReach = it.uniform("u_pinReach")
+            uPinRubber = it.uniform("u_pinRubber")
             uCenter = it.uniform("u_center")
             uDelta = it.uniform("u_delta")
             uRadius = it.uniform("u_radius")
@@ -1242,7 +1364,7 @@ class GlWarpRenderer(
             halfFloatRenderable = PingPongField.hasHalfFloat(extensions),
         )
         allocField(exportField)
-        for (stroke in strokes) stampInto(exportField, exportAspect, stroke, stroke.stamps)
+        for (stroke in strokes) replayInto(exportField, exportAspect, stroke)
 
         // Offscreen color buffer at export size.
         val outTex = IntArray(1)
