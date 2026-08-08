@@ -241,6 +241,24 @@ enum class BrushTool(
     ),
 
     /**
+     * Flick and lift, and the goo keeps going (proposal 0015). An
+     * ordinary directional smear whose stroke gains a ballistic tail at
+     * release — feathered, because a tail wants to thin into a point
+     * rather than stop at an edge.
+     */
+    WHIP(
+        StampMode.DIRECTIONAL,
+        FalloffProfile.FEATHER,
+        1f,
+        pumped = false,
+        // Explicit for the same reason ECHO's is: a test depends on it,
+        // and a tap that whipped would throw a tail from a finger that
+        // never moved. It already follows from `pumped = false`, but a
+        // default is a poor place to keep a promise a test relies on.
+        stampsOnDown = false,
+    ),
+
+    /**
      * Paint clear varnish over what should survive (proposal 0002).
      * FEATHER because a half-set edge IS the feathering mechanism:
      * content that is partly pinned drags a little, so a mask edge
