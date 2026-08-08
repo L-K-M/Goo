@@ -58,13 +58,24 @@ data class Lens(
     /** A lens pulled to zero does nothing and should not cost a slot. */
     val isIdentity: Boolean get() = strength == 0f
 
-    /** Clamped into the ranges the shader and the UI both assume. */
+    /**
+     * Clamped into the ranges the shader and the UI both assume.
+     *
+     * Non-finite values are replaced rather than clamped, because
+     * `NaN.coerceIn(a, b)` is NaN: a clamp looks like a guard and is not
+     * one. A NaN would reach the uniform upload and then the shader,
+     * where it produces a broken frame with nothing to diagnose it by.
+     */
     fun sanitized(): Lens = copy(
-        u = u.coerceIn(0f, 1f),
-        v = v.coerceIn(0f, 1f),
-        radius = radius.coerceIn(MIN_RADIUS, MAX_RADIUS),
-        strength = strength.coerceIn(-1f, 1f),
+        u = u.finiteOr(0.5f).coerceIn(0f, 1f),
+        v = v.finiteOr(0.5f).coerceIn(0f, 1f),
+        radius = radius.finiteOr(DEFAULT_RADIUS).coerceIn(MIN_RADIUS, MAX_RADIUS),
+        // Zero, so a corrupted lens is inert rather than merely legal:
+        // an identity lens is dropped before the shader ever sees it.
+        strength = strength.finiteOr(0f).coerceIn(-1f, 1f),
     )
+
+    private fun Float.finiteOr(fallback: Float): Float = if (isFinite()) this else fallback
 
     companion object {
         /**

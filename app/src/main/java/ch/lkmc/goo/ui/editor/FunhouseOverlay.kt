@@ -141,9 +141,13 @@ fun FunhouseOverlay(
                                     return@withTimeoutOrNull Settle.MOVED
                                 }
                             }
-                            // Unreachable: the loop above only leaves by
-                            // returning. Present so the lambda has a
-                            // declared result type to infer from.
+                            // Unreachable: the loop only leaves by
+                            // returning. Kept because Kotlin infers a
+                            // lambda's type from its final EXPRESSION and
+                            // does not treat `while (true)` as Nothing —
+                            // an explicit type argument on
+                            // withTimeoutOrNull does not help either, it
+                            // just moves the same mismatch to the call.
                             @Suppress("UNREACHABLE_CODE")
                             Settle.LIFTED
                         }

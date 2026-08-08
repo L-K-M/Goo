@@ -306,6 +306,29 @@ class LensTest {
     }
 
     @Test
+    fun `a non-finite lens is replaced, not clamped`() {
+        // coerceIn passes NaN through unchanged, so a clamp reads as a
+        // guard without being one. A NaN here would reach the uniform
+        // upload and the shader, where it paints a broken frame with
+        // nothing to diagnose it by.
+        val broken = Lens(
+            u = Float.NaN,
+            v = Float.POSITIVE_INFINITY,
+            radius = Float.NaN,
+            strength = Float.NEGATIVE_INFINITY,
+        ).sanitized()
+        assertTrue(broken.u.isFinite() && broken.v.isFinite())
+        assertTrue(broken.radius.isFinite() && broken.strength.isFinite())
+        assertEquals(Lens.DEFAULT_RADIUS, broken.radius)
+        // Inert, not merely legal: an identity lens never reaches the GPU.
+        assertEquals(0f, broken.strength)
+        assertTrue(broken.isIdentity)
+        // And a pack carrying one comes back sane rather than poisoned.
+        val fromDisk = Lens.unpack(Lens.pack(listOf(Lens(u = Float.NaN, v = 0.5f))))
+        assertTrue(fromDisk!!.single().u.isFinite())
+    }
+
+    @Test
     fun `lenses count toward whether there is anything to reset`() {
         // Reset is the only way to clear the rack, so a photo warped by a
         // lens alone must still offer "back to the photo".
