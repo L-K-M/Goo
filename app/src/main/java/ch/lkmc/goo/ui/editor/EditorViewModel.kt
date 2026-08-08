@@ -28,6 +28,7 @@ import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.EchoOffset
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GooMe
+import ch.lkmc.goo.engine.core.GooWhip
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.leverProgress
 import ch.lkmc.goo.engine.core.tweenProgress
@@ -836,6 +837,40 @@ class EditorViewModel @Inject constructor(
         pumpJob?.cancel()
         pumpJob = null
         pumpPoint = null
+    }
+
+    /**
+     * Finish a Whip with a flick (proposal 0015): extend the live stroke
+     * along the ballistic tail that ([velU], [velV]) throws, in UV units
+     * per second, then end it as usual.
+     *
+     * The tail is generated HERE, once, and appended as ordinary stamps.
+     * Replay never sees a velocity — a tail recomputed at export time
+     * would depend on input timing that no longer exists, and would be a
+     * different mark every render.
+     *
+     * @return the newly produced stamps, for the caller to stamp into
+     * the live field before it commits the stroke.
+     */
+    fun whipTail(velU: Float, velV: Float): List<Stamp> {
+        val params = liveParams ?: return emptyList()
+        if (params.tool != BrushTool.WHIP) return emptyList()
+        val resampler = resampler ?: return emptyList()
+        val last = liveStamps.lastOrNull() ?: return emptyList()
+        val points = GooWhip.tail(
+            u = last.cx,
+            v = last.cy,
+            velU = velU,
+            velV = velV,
+            aspect = aspectLive,
+        )
+        if (points.isEmpty()) return emptyList()
+        val fresh = mutableListOf<Stamp>()
+        // The same resampler instance the drag was using, so the tail
+        // continues the stroke's spacing rather than restarting it —
+        // there is no seam at the release point.
+        for ((u, v) in points) resampler.extend(u, v, fresh)
+        return emit(fresh)
     }
 
     /** Commit the live stroke. @return it, if it produced any stamps. */
