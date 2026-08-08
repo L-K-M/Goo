@@ -115,6 +115,14 @@ fun FunhouseOverlay(
                     fun travelled(u: Float, v: Float): Float =
                         hypot((u - u0) * aspect, v - v0)
 
+                    // Where inside the ring the finger landed. Without
+                    // this the lens centre snaps to the touch point on the
+                    // first move past slop — imperceptible on a small
+                    // lens, a jump of most of a radius on a large one.
+                    val grabbed = hit?.let { currentLenses.getOrNull(it) }
+                    val grabU = grabbed?.let { u0 - it.u } ?: 0f
+                    val grabV = grabbed?.let { v0 - it.v } ?: 0f
+
                     var moved = false
                     var lifted = false
                     var removed = false
@@ -137,7 +145,7 @@ fun FunhouseOverlay(
                                 val (u, v) = toUv(change.position.x, change.position.y)
                                 change.consume()
                                 if (travelled(u, v) > DRAG_SLOP) {
-                                    onMove(hit, u, v)
+                                    onMove(hit, u - grabU, v - grabV)
                                     return@withTimeoutOrNull Settle.MOVED
                                 }
                             }
@@ -178,7 +186,7 @@ fun FunhouseOverlay(
                         if (removed) continue
                         val (u, v) = toUv(change.position.x, change.position.y)
                         if (travelled(u, v) > DRAG_SLOP) moved = true
-                        if (moved && hit != null) onMove(hit, u, v)
+                        if (moved && hit != null) onMove(hit, u - grabU, v - grabV)
                     }
 
                     if (!moved && !removed) {

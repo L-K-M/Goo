@@ -166,7 +166,7 @@ private fun Labelled(labelRes: Int, content: @Composable RowScope.() -> Unit) {
 }
 
 /** The name the bench prints for each kind of glass. */
-fun LensType.labelRes(): Int = when (this) {
+private fun LensType.labelRes(): Int = when (this) {
     LensType.BULGE -> R.string.funhouse_bulge
     LensType.PINCH -> R.string.funhouse_pinch
     LensType.FISHEYE -> R.string.funhouse_fisheye

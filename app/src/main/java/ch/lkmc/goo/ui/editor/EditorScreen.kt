@@ -601,6 +601,12 @@ private fun WarpEditor(
             leversActive = !state.goovieMode && (showLevers || !state.globals.isIdentity),
             onGoovie = {
                 showCrop = false
+                // The strip's panel outranks Funhouse's, but the OVERLAY
+                // is gated only on showFunhouse — so leaving it open put
+                // the GOOvie panel on screen with lens rings still drawn
+                // over the photo and still swallowing every touch.
+                showFunhouse = false
+                selectedLens = -1
                 viewModel.toggleGoovie()
             },
             goovieActive = state.goovieMode,
