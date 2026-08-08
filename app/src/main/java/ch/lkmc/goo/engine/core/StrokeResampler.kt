@@ -130,6 +130,23 @@ class StrokeResampler(
          * plus an undo entry for it; too large and the brush feels like
          * it is ignoring the start of every stroke, which is the
          * complaint this constant exists to answer.
+         *
+         * **Known imperfection: this is image space, and jitter is
+         * screen space.** The physical distance it represents therefore
+         * moves with how large the photo is drawn — a taller fitted
+         * image, or a zoomed-in view, means more screen pixels for the
+         * same fraction. Zoom is the awkward direction: at 4x the gate
+         * is about four times its unzoomed size in pixels, exactly when
+         * the user is working precisely.
+         *
+         * Left as is on purpose. This is strictly better than what it
+         * replaced at every zoom and every screen size (the old gate
+         * scaled the same way AND was up to twenty times larger), and
+         * fixing it properly means plumbing the view transform and the
+         * fitted size into a class that is currently pure geometry with
+         * no idea a screen exists. Worth doing if precise work while
+         * zoomed still feels laggy; not worth the coupling on
+         * speculation.
          */
         const val FIRST_TRAVEL = 0.004f
     }

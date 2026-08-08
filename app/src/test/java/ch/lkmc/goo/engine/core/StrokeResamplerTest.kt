@@ -70,8 +70,9 @@ class StrokeResamplerTest {
         // Everything after it is back to the steady-state spacing, which
         // is what keeps the kernels overlapping into a crease-free
         // trough.
-        out.drop(1).zipWithNext { a, b -> assertEquals(spacing, b.cy - a.cy, 1e-5f) }
-        assertEquals(spacing, out[2].cy - out[1].cy, 1e-5f)
+        out.drop(1).zipWithNext().forEach { (a, b) ->
+            assertEquals(spacing, b.cy - a.cy, 1e-5f)
+        }
     }
 
     @Test
