@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.Lens
@@ -157,9 +158,15 @@ private fun Labelled(labelRes: Int, content: @Composable RowScope.() -> Unit) {
     ) {
         Text(
             text = stringResource(labelRes),
-            modifier = Modifier.width(64.dp),
+            // Same column width and same one-line rule as the lever
+            // rack next door: these two benches sit in the same place on
+            // screen, so a label that wrapped in one and not the other
+            // would make the panels look like different furniture.
+            modifier = Modifier.width(84.dp),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         content()
     }

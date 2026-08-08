@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.goo.R
 import ch.lkmc.goo.engine.core.GlobalParams
@@ -131,9 +132,23 @@ private fun Lever(
     ) {
         Text(
             text = label,
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier.width(LABEL_WIDTH),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // One line, always. At 64.dp "Squeeze" wrapped to "Squeez /
+            // e" — wider than "Stretch" despite the same letter count,
+            // so it sat right on the boundary and only one of the six
+            // rows broke. A wrapped label also makes its row taller than
+            // the others, which is what actually catches the eye: the
+            // rack stops being a rack.
+            //
+            // maxLines is the belt to the width's braces. A big system
+            // font scale or a longer translation will eventually
+            // overflow any fixed column, and clipping one glyph is a
+            // far better failure than splitting a word across two lines
+            // and shoving the row out of alignment.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         ChromeLever(
             modifier = Modifier.weight(1f),
@@ -228,3 +243,12 @@ private fun WobbleKnob(
         )
     }
 }
+
+/**
+ * The label column every lever row shares, so the tracks line up.
+ *
+ * Wide enough for the longest label at the default font scale with room
+ * to spare; see the note at the call site for why it is not just wide
+ * enough.
+ */
+private val LABEL_WIDTH = 84.dp
