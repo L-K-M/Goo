@@ -247,7 +247,7 @@ fun GooviePanel(
                     // leaves; lit whenever the curve is not the linear
                     // default, so an eased segment is visible without
                     // scrubbing it.
-                    val easing = keyframes.getOrNull(selected)?.easing ?: Easing.LINEAR
+                    val easing = keyframes.getOrNull(selected)?.easing ?: Easing.DEFAULT
                     // One condition, used twice: a non-linear easing
                     // stranded on the last pin (by a delete or a
                     // reorder) is inert, and a bead that lit while
