@@ -506,6 +506,8 @@ private fun WarpEditor(
                     viewModel.endStroke()?.let { s -> surface?.engine { commit(s) } }
                     strokePos = null
                     showLevers = false
+                    showFunhouse = false
+                    selectedLens = -1
                     if (state.goovieMode) viewModel.toggleGoovie()
                     // The overlay works in the fitted pose: snap the view
                     // home (no spring — the crop UI needs it NOW).
@@ -532,6 +534,11 @@ private fun WarpEditor(
                 // From the strip, the levers bead OPENS levers (not a blind
                 // toggle — showLevers may already be true underneath).
                 showCrop = false
+                // Funhouse outranks levers in the panel switch, so leaving
+                // it open would show the Funhouse bench — and its overlay
+                // would still own the canvas — after a tap on Levers.
+                showFunhouse = false
+                selectedLens = -1
                 showLevers = if (state.goovieMode) true else !showLevers
                 if (state.goovieMode) viewModel.toggleGoovie()
             },

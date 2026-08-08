@@ -114,7 +114,10 @@ class LensTest {
         // barely moves anything near its center, a fisheye is already at
         // full displacement there.
         val lens = Lens(0.5f, 0.5f, radius = 0.3f, type = LensType.FISHEYE, strength = 1f)
-        val nearCore = 0.5f + 0.3f * Lens.DEFAULT_STRENGTH * 0.2f
+        // A fraction of the RADIUS, not of the default strength: the
+        // probe is a position, and tying it to a strength constant would
+        // move it the day that constant is retuned.
+        val nearCore = 0.5f + lens.radius * 0.2f
 
         val fisheye = magnitude(0.5f, nearCore, square, lens)
         val bulge = magnitude(0.5f, nearCore, square, lens.copy(type = LensType.BULGE))

@@ -283,8 +283,9 @@ private fun DrawScope.drawLens(
     val width = 2.dp.toPx()
     when (type) {
         LensType.VORTEX -> {
-            // Two opposed arcs: a turning mark, mirrored by the sign so
-            // a counter-wound lens reads counter-wound.
+            // Two opposed strokes — straight, not arcs: at ring sizes
+            // this reads as a turning mark, and the sign mirrors it so a
+            // counter-wound lens reads counter-wound.
             val turn = if (strength >= 0f) 1f else -1f
             for (side in listOf(1f, -1f)) {
                 drawLine(

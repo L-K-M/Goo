@@ -944,6 +944,13 @@ class GlWarpRenderer(
      */
     private fun uploadLenses(globals: GlobalParams) {
         val lenses = globals.activeLenses()
+        if (lenses.isEmpty()) {
+            // The count alone is enough — the shader's loop breaks on it
+            // immediately. A zero-count glUniform*v is a legal no-op, but
+            // some ES drivers log it, and there is nothing to say here.
+            GLES30.glUniform1i(uLensCount, 0)
+            return
+        }
         lenses.forEachIndexed { i, lens ->
             val base = i * 4
             lensPack[base] = lens.u
