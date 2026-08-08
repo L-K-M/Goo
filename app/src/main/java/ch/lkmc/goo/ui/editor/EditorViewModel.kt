@@ -23,6 +23,7 @@ import ch.lkmc.goo.data.ProjectStore
 import ch.lkmc.goo.engine.core.BrushDynamics
 import ch.lkmc.goo.engine.core.BrushTool
 import ch.lkmc.goo.engine.core.CropRect
+import ch.lkmc.goo.engine.core.DealLevers
 import ch.lkmc.goo.engine.core.Easing
 import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GooMe
@@ -885,8 +886,9 @@ class EditorViewModel @Inject constructor(
      * by then rather than an accident of a deal.
      */
     private inline fun withDealLevers(op: () -> List<Stroke>?): List<Stroke>? {
+        val from = log.currentRevision.id
         val result = op()
-        dealLevers[log.currentRevision.id]?.let { pinned ->
+        dealLevers.crossing(from, log.currentRevision.id)?.let { pinned ->
             if (pinned != _uiState.value.globals) setGlobals(pinned)
         }
         return result
@@ -956,11 +958,12 @@ class EditorViewModel @Inject constructor(
             from = _uiState.value.globals,
         )
         if (deal.strokes.isEmpty()) return null
-        // Pin the table on both sides before the batch lands, so undo
-        // finds the levers as they were and redo finds them as dealt.
-        dealLevers[log.currentRevision.id] = _uiState.value.globals
+        // Pin the transition, so undo across it finds the levers as they
+        // were and redo across it finds them as dealt.
+        val before = log.currentRevision.id
+        val was = _uiState.value.globals
         log.pushBatch(deal.strokes)
-        dealLevers[log.currentRevision.id] = deal.globals
+        dealLevers.pin(before, log.currentRevision.id, was = was, dealt = deal.globals)
         setGlobals(deal.globals)
         if (_uiState.value.showHint) {
             onboardingPrefs.smearHintSeen = true
@@ -970,8 +973,8 @@ class EditorViewModel @Inject constructor(
         return log.strokes
     }
 
-    /** See [withDealLevers]. Bounded by the number of deals in a session. */
-    private val dealLevers = HashMap<StrokeRevisionId, GlobalParams>()
+    /** See [withDealLevers]. */
+    private val dealLevers = DealLevers()
 
     private var dealSeed: Long = System.nanoTime()
 
