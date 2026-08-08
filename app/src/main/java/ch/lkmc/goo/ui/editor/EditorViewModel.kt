@@ -1019,13 +1019,7 @@ class EditorViewModel @Inject constructor(
      * whose answer a user would have to remember.
      */
     fun togglePortals() {
-        _uiState.update {
-            if (it.portalsOn) {
-                it.copy(portalsOn = false, portalA = null, portalB = null)
-            } else {
-                it.copy(portalsOn = true, portalA = null, portalB = null)
-            }
-        }
+        _uiState.update { it.copy(portalsOn = !it.portalsOn, portalA = null, portalB = null) }
     }
 
     /** The live pair, or null while fewer than two rings are planted. */
@@ -1048,6 +1042,15 @@ class EditorViewModel @Inject constructor(
      * spot they just touched.
      */
     private fun plantPortal(u: Float, v: Float, aspect: Float, state: UiState) {
+        // Not clamped to [0, 1], and deliberately so. The canvas already
+        // refuses a touch more than one brush radius outside the frame,
+        // which is exactly the right bound here for the same reason it is
+        // the right bound for painting: a disc that still overlaps the
+        // image can still be started in, and one that cannot is a ring
+        // no stroke could ever begin inside. Clamping on top of that
+        // would move a ring the user placed on the edge inward, which
+        // is a worse answer than the one the letterbox guard already
+        // gives.
         val a = state.portalA
         val radius = state.brushRadius
         if (a == null) {
