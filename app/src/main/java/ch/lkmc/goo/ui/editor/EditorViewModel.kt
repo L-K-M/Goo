@@ -46,7 +46,6 @@ import ch.lkmc.goo.engine.gl.GlWarpRenderer
 import ch.lkmc.goo.ui.navigation.EditorRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
-import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel

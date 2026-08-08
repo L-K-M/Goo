@@ -115,13 +115,16 @@ fun ChromeLever(
                         }
                     },
                     onDragCancel = {
-                        if (!currentEnabled) return@detectHorizontalDragGestures
+                        // Before the guard: a lever disabled mid-drag
+                        // would otherwise keep its ball swollen and
+                        // grabbed until the next touch.
                         dragging = false
+                        if (!currentEnabled) return@detectHorizontalDragGestures
                         settle(gestureValue, currentOnChange, scope, ball)
                     },
                     onDragEnd = {
-                        if (!currentEnabled) return@detectHorizontalDragGestures
                         dragging = false
+                        if (!currentEnabled) return@detectHorizontalDragGestures
                         if (LeverDetent.settle(gestureValue) == 0f && gestureValue != 0f) {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }

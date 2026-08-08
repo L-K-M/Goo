@@ -5,6 +5,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -54,10 +56,26 @@ fun FunhouseOverlay(
 ) {
     val aspect = imageWidth.toFloat() / imageHeight
 
+    // Everything the gesture reads that can change WHILE a finger is
+    // down has to arrive through rememberUpdatedState rather than
+    // through a pointerInput key.
+    //
+    // As a key it would be a bug: the first touch of an unselected lens
+    // calls onSelect, `selected` changes, Compose cancels and relaunches
+    // the handler — and the gesture dies under a finger that is still
+    // down. Every onMove would do the same to `lenses` mid-drag.
+    //
+    // As a plain capture it would be a different bug: pointerInput's
+    // block runs once and freezes whatever it closed over, which is the
+    // trap ChromeLever documents a few files away. Hence both halves.
+    val currentLenses by rememberUpdatedState(lenses)
+    val currentSelected by rememberUpdatedState(selected)
+    val currentView by rememberUpdatedState(view)
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(lenses, selected, imageWidth, imageHeight, view) {
+            .pointerInput(imageWidth, imageHeight) {
                 awaitEachGesture {
                     val fit = FitTransform(
                         viewWidth = size.width.toFloat(),
@@ -66,18 +84,18 @@ fun FunhouseOverlay(
                         imageHeight = imageHeight.toFloat(),
                     )
                     fun toUv(x: Float, y: Float): Pair<Float, Float> {
-                        val (vx, vy) = view.invert(x, y)
+                        val (vx, vy) = currentView.invert(x, y)
                         return fit.viewToUv(vx, vy)
                     }
 
                     val down = awaitFirstDown()
                     down.consume()
                     val (u0, v0) = toUv(down.position.x, down.position.y)
-                    val hit = hitTest(lenses, u0, v0, aspect)
+                    val hit = hitTest(currentLenses, u0, v0, aspect)
                     // Grabbing an unselected lens selects it, so the first
                     // drag of a lens you were not holding still moves the
                     // one you touched rather than the one you last used.
-                    if (hit != null && hit != selected) onSelect(hit)
+                    if (hit != null && hit != currentSelected) onSelect(hit)
 
                     fun travelled(u: Float, v: Float): Float = sqrt(
                         ((u - u0) * aspect) * ((u - u0) * aspect) + (v - v0) * (v - v0),
@@ -124,15 +142,16 @@ fun FunhouseOverlay(
                         }
                     }
 
-                    // Past the long-press window: an ordinary drag.
-                    while (!lifted && !removed) {
+                    // Past the long-press window: an ordinary drag. Keep
+                    // draining events even after a removal — the finger is
+                    // still down, and anything left unconsumed reaches the
+                    // pan/zoom handler underneath as a stray gesture.
+                    while (!lifted) {
                         val change = awaitPointerEvent().changes.first()
-                        if (!change.pressed) {
-                            change.consume()
-                            break
-                        }
-                        val (u, v) = toUv(change.position.x, change.position.y)
                         change.consume()
+                        if (!change.pressed) break
+                        if (removed) continue
+                        val (u, v) = toUv(change.position.x, change.position.y)
                         if (travelled(u, v) > DRAG_SLOP) moved = true
                         if (moved && hit != null) onMove(hit, u, v)
                     }
@@ -141,7 +160,7 @@ fun FunhouseOverlay(
                         when (hit) {
                             // A tap on the lens you are already holding is
                             // the "what else can you be" verb.
-                            selected -> if (hit != null) onCycle(hit)
+                            currentSelected -> if (hit != null) onCycle(hit)
                             null -> onPlace(u0, v0)
                             else -> Unit // selection already happened
                         }
