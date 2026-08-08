@@ -35,6 +35,8 @@ import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.leverProgress
 import ch.lkmc.goo.engine.core.tweenProgress
 import ch.lkmc.goo.engine.core.Keyframe
+import ch.lkmc.goo.engine.core.Lens
+import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.MovieSpeed
@@ -383,7 +385,12 @@ class EditorViewModel @Inject constructor(
             ?.let { w -> _uiState.update { it.copy(wobble = w) } }
         savedStateHandle.get<FloatArray>(KEY_GLOBALS)?.let { a ->
             GlobalParams.fromArray(a)?.let { g ->
-                _uiState.update { it.copy(globals = g) }
+                // Lenses travel in their own pack: the lever array is the
+                // GLSL u_g[6] contract and must stay six floats wide.
+                val lenses = savedStateHandle.get<FloatArray>(KEY_LENSES)
+                    ?.let(Lens::unpack)
+                    .orEmpty()
+                _uiState.update { it.copy(globals = g.copy(lenses = lenses)) }
                 refreshHistoryFlags()
             }
         }
@@ -1063,7 +1070,94 @@ class EditorViewModel @Inject constructor(
         goLive()
         _uiState.update { it.copy(globals = globals) }
         savedStateHandle[KEY_GLOBALS] = globals.toArray()
+        savedStateHandle[KEY_LENSES] = Lens.pack(globals.lenses)
         refreshHistoryFlags()
+    }
+
+    // ---- Funhouse lenses -------------------------------------------------
+    // Placed warps (proposal 0006). They are levers with a position, so
+    // they follow the lever rules exactly: document state, not history;
+    // Reset clears them; a keyframe pin carries them, which is where the
+    // traveling-bulge animation comes from without any new machinery.
+
+    private fun withLenses(edit: (MutableList<Lens>) -> Unit) {
+        // One read: the list edited and the pack it is written back into
+        // must come from the same state, or an interleaved update would
+        // be silently reverted by the copy.
+        val globals = _uiState.value.globals
+        val lenses = globals.lenses.toMutableList()
+        edit(lenses)
+        val updated = lenses.toList()
+        // An edit that changed nothing must not write. placeLens returns
+        // early when the rack is full, and setGlobals is not free: it
+        // calls goLive(), which would drop a GOOvie scrub back to the
+        // live document on a tap that was refused.
+        if (updated == globals.lenses) return
+        setGlobals(globals.copy(lenses = updated))
+    }
+
+    /**
+     * Drop a lens at ([u], [v]).
+     *
+     * @return its index, or null when the rack is full — the caller says
+     * so rather than silently evicting one, because "my bulge vanished"
+     * is a worse surprise than "no room".
+     */
+    fun placeLens(u: Float, v: Float): Int? {
+        var index = -1
+        // Decided INSIDE withLenses, against the same list the edit
+        // lands on. Reading the rack out here to pick a slot and then
+        // writing into a list materialized from a second read is the
+        // exact split withLenses' own comment warns about — safe today
+        // only because both reads happen on the main thread.
+        withLenses { list ->
+            // A lens pulled to zero is invisible — activeLenses drops it
+            // — so counting it toward the cap would mean "no room" beside
+            // an apparently empty ring. Reuse its slot instead.
+            // Deliberately not solved by deleting lenses at zero
+            // strength: strength is bipolar so a lens tweens THROUGH zero
+            // into its opposite, and a slider sweep from bulge to pinch
+            // would delete the thing being dragged.
+            val spare = list.indexOfFirst { it.isIdentity }
+            if (spare < 0 && list.size >= Lens.CAPACITY) return@withLenses
+            val fresh = Lens(u = u, v = v).sanitized()
+            if (spare >= 0) {
+                list[spare] = fresh
+                index = spare
+            } else {
+                list += fresh
+                index = list.lastIndex
+            }
+        }
+        return index.takeIf { it >= 0 }
+    }
+
+    fun moveLens(index: Int, u: Float, v: Float) = editLens(index) {
+        it.copy(u = u, v = v).sanitized()
+    }
+
+    fun resizeLens(index: Int, radius: Float) = editLens(index) {
+        it.copy(radius = radius).sanitized()
+    }
+
+    fun setLensStrength(index: Int, strength: Float) = editLens(index) {
+        it.copy(strength = strength).sanitized()
+    }
+
+    /** Step a lens to the next type, wrapping — the tap-to-change verb. */
+    fun cycleLensType(index: Int) = editLens(index) {
+        val next = LensType.entries[(it.type.ordinal + 1) % LensType.entries.size]
+        it.copy(type = next)
+    }
+
+    fun removeLens(index: Int) {
+        if (index !in _uiState.value.globals.lenses.indices) return
+        withLenses { it.removeAt(index) }
+    }
+
+    private inline fun editLens(index: Int, crossinline change: (Lens) -> Lens) {
+        if (index !in _uiState.value.globals.lenses.indices) return
+        withLenses { it[index] = change(it[index]) }
     }
 
     // ---- Goo Me ----------------------------------------------------------
@@ -1857,6 +1951,7 @@ class EditorViewModel @Inject constructor(
         private const val KEY_SESSION_FILE = "sessionFile"
         private const val KEY_SESSION_B = "sessionFileB"
         private const val KEY_GLOBALS = "globals"
+        private const val KEY_LENSES = "lenses"
         private const val KEY_WOBBLE = "wobble"
         private const val KEY_CROP = "crop"
         private const val KEY_PROJECT_ID = "projectId"

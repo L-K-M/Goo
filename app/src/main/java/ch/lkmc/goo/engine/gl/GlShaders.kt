@@ -230,6 +230,8 @@ void main() {
      *   2.5  = TWIRL_MAX_RAD    0.35 = BULGE_SCALE   0.3  = AXIS_SCALE
      *   0.08 = SPIKE_SCALE      8    = SPIKE_COUNT
      *   0.05 = STATIC_SCALE     24   = STATIC_CELLS
+     *   0.5  = LENS_SCALE       2.0  = LENS_TWIRL_RAD  0.35 = LENS_CORE
+     * and the lens `type ==` literals are LensType.shaderId values.
      * The integer hash is bit-identical to GlobalField.hash — value
      * noise stays CPU/GPU consistent (no sin-hash driver drift).
      */
@@ -255,6 +257,12 @@ uniform sampler2D u_imageB;
 uniform float u_hasB;
 uniform float u_gAspect;   // image width / height
 uniform float u_g[6];
+// Placed warps (proposal 0006). Fixed-size pack, so the pass cost never
+// depends on the document: xy = center UV, z = radius (aspect space),
+// w = strength. u_lensType carries LensType.shaderId.
+uniform vec4 u_lens[4];
+uniform int u_lensType[4];
+uniform int u_lensCount;
 // Frost sheen over the freeze mask (proposal 0002); preview-only, and
 // never set for an export, so the varnish can never be rendered into a
 // saved picture.
@@ -335,6 +343,34 @@ vec2 globalDisp(vec2 uv) {
         dx += (nx * 2.0 - 1.0) * u_g[5] * 0.05;
         dy += (ny * 2.0 - 1.0) * u_g[5] * 0.05;
     }
+    // Placed warps, on top of the frame-centered ones — same aspect
+    // space, so they sum in before the one conversion back to UV.
+    for (int i = 0; i < 4; i++) {
+        if (i >= u_lensCount) break;
+        vec4 lens = u_lens[i];
+        float lx = (uv.x - lens.x) * u_gAspect;
+        float ly = uv.y - lens.y;
+        float d = sqrt(lx * lx + ly * ly);
+        if (d >= lens.z) continue;
+        float window = smoothShape(1.0 - d / lens.z);
+        int type = u_lensType[i];
+        if (type == 3) {
+            float theta = lens.w * 2.0 * window;
+            float c = cos(theta);
+            float s = sin(theta);
+            dx += lx * c - ly * s - lx;
+            dy += lx * s + ly * c - ly;
+        } else if (d > 1e-6) {
+            float ramp = type == 2
+                ? min(d / (lens.z * 0.35), 1.0)
+                : d / lens.z;
+            float dir = type == 1 ? 1.0 : -1.0;
+            float m = dir * lens.w * 0.5 * lens.z * window * ramp;
+            dx += (lx / d) * m;
+            dy += (ly / d) * m;
+        }
+    }
+
     return vec2(dx / u_gAspect, dy);
 }
 

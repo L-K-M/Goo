@@ -151,4 +151,43 @@ fun GlobalParams.lerp(other: GlobalParams, t: Float): GlobalParams = GlobalParam
     stretch = stretch + (other.stretch - stretch) * t,
     spike = spike + (other.spike - spike) * t,
     static = static + (other.static - static) * t,
+    lenses = lerpLenses(lenses, other.lenses, t),
 )
+
+/**
+ * Interpolate two lens racks by slot — where the traveling bulge comes
+ * from: a lens that sits on the nose in one pin and on the ear in the
+ * next crosses the face over the segment, an animation no brush can
+ * record because strokes are instant and lenses are positions.
+ *
+ * A slot present on only one side fades through its own strength rather
+ * than popping, so adding or removing a lens between pins is a dissolve.
+ * Type cannot be interpolated — there is no half-way between a pinch and
+ * a swirl — so it switches at the midpoint. That is invisible for a slot
+ * appearing or disappearing, which is passing through zero strength
+ * there anyway, and it is NOT invisible when both pins carry a lens in
+ * the same slot at similar strength: that case pops, once, at the middle
+ * of the segment. Hiding it would take rendering both types through a
+ * blend window, which costs a second lens slot for the duration; the pop
+ * is the cheaper honest answer until someone asks for the other one.
+ */
+private fun lerpLenses(a: List<Lens>, b: List<Lens>, t: Float): List<Lens> {
+    if (a.isEmpty() && b.isEmpty()) return emptyList()
+    return (0 until maxOf(a.size, b.size)).mapNotNull { i ->
+        val from = a.getOrNull(i)
+        val to = b.getOrNull(i)
+        when {
+            from != null && to != null -> Lens(
+                u = from.u + (to.u - from.u) * t,
+                v = from.v + (to.v - from.v) * t,
+                radius = from.radius + (to.radius - from.radius) * t,
+                type = if (t < 0.5f) from.type else to.type,
+                strength = from.strength + (to.strength - from.strength) * t,
+            )
+            // Fading out: hold the position, run the strength to zero.
+            from != null -> from.copy(strength = from.strength * (1f - t))
+            to != null -> to.copy(strength = to.strength * t)
+            else -> null
+        }
+    }
+}

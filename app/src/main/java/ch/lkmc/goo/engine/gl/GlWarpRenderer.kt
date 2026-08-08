@@ -15,6 +15,7 @@ import ch.lkmc.goo.engine.core.GlobalParams
 import ch.lkmc.goo.engine.core.GlobalWobble
 import ch.lkmc.goo.engine.core.GoovieTimeline
 import ch.lkmc.goo.engine.core.Keyframe
+import ch.lkmc.goo.engine.core.Lens
 import ch.lkmc.goo.engine.core.MovieSpec
 import ch.lkmc.goo.engine.core.ReplayCheckpoints
 import ch.lkmc.goo.engine.core.Stamp
@@ -116,11 +117,19 @@ class GlWarpRenderer(
     private var uView = 0
     private var uGAspect = 0
     private var uGlobals = 0
+    private var uLens = 0
+    private var uLensType = 0
+    private var uLensCount = 0
     private var uShowFreeze = 0
     private var uFieldB = 0
     private var uTween = 0
     private var uImageB = 0
     private var uHasB = 0
+
+    // Reused across frames: the warp pass runs every draw, and rebuilding
+    // these per frame would allocate on the render thread (PLAN.md §4.1).
+    private val lensPack = FloatArray(Lens.CAPACITY * 4)
+    private val lensTypes = IntArray(Lens.CAPACITY)
 
     /** Live lever values; uploaded to the warp pass every draw. */
     private var globalParams = GlobalParams()
@@ -799,6 +808,9 @@ class GlWarpRenderer(
             uView = it.uniform("u_view")
             uGAspect = it.uniform("u_gAspect")
             uGlobals = it.uniform("u_g")
+            uLens = it.uniform("u_lens")
+            uLensType = it.uniform("u_lensType")
+            uLensCount = it.uniform("u_lensCount")
             uShowFreeze = it.uniform("u_showFreeze")
             uFieldB = it.uniform("u_fieldB")
             uTween = it.uniform("u_tween")
@@ -935,6 +947,7 @@ class GlWarpRenderer(
         GLES30.glUniform1f(uHasB, if (hasB) 1f else 0f)
         GLES30.glUniform1f(uGAspect, imageAspect)
         GLES30.glUniform1fv(uGlobals, 6, globals.toArray(), 0)
+        uploadLenses(globals)
         GLES30.glUniform1f(uShowFreeze, if (showFreeze) 1f else 0f)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, imageTex)
@@ -951,6 +964,36 @@ class GlWarpRenderer(
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         if (blend) GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glDisableVertexAttribArray(0)
+    }
+
+    /**
+     * Fill the lens uniform pack from [globals] and upload it.
+     *
+     * Lenses pulled to zero are dropped rather than uploaded as no-ops,
+     * so a rack the user has emptied costs the shader nothing — and the
+     * count, not the array length, is what bounds the loop.
+     */
+    private fun uploadLenses(globals: GlobalParams) {
+        val lenses = globals.activeLenses()
+        if (lenses.isEmpty()) {
+            // The count alone is enough — the shader's loop breaks on it
+            // immediately. A zero-count glUniform*v is a legal no-op, but
+            // some ES drivers log it, and there is nothing to say here.
+            GLES30.glUniform1i(uLensCount, 0)
+            return
+        }
+        lenses.forEachIndexed { i, lens ->
+            val base = i * 4
+            lensPack[base] = lens.u
+            lensPack[base + 1] = lens.v
+            lensPack[base + 2] = lens.radius
+            lensPack[base + 3] = lens.strength
+            lensTypes[i] = lens.type.shaderId
+        }
+        // Only `count` entries are read, so the tail can stay stale.
+        GLES30.glUniform4fv(uLens, lenses.size, lensPack, 0)
+        GLES30.glUniform1iv(uLensType, lenses.size, lensTypes, 0)
+        GLES30.glUniform1i(uLensCount, lenses.size)
     }
 
     // ---- Internals -----------------------------------------------------
