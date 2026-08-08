@@ -500,11 +500,20 @@ data class Stroke(
     /**
      * Whether this stroke draws anything at all.
      *
-     * Exactly one of the two payloads, which is what keeps every
-     * existing reader honest: code that walks `stamps` still sees an
-     * empty list for a pin pull rather than a lie, and the replayer has
-     * to branch rather than silently draw nothing.
+     * Deliberately separate from [isCoherent], because the two failures
+     * deserve opposite handling. A stroke with NEITHER payload is
+     * ordinary — a drag too short to clear the resampler's spacing
+     * produces one every time — so it is dropped in silence. A stroke
+     * with BOTH is a caller bug or a corrupt file, and dropping that
+     * quietly would hide it.
      */
     val hasContent: Boolean
-        get() = stamps.isNotEmpty() != (pinWarp != null)
+        get() = stamps.isNotEmpty() || pinWarp != null
+
+    /**
+     * Stamps XOR a pin warp. Both at once has no defined replay order
+     * for its two halves, so there is no right way to draw it.
+     */
+    val isCoherent: Boolean
+        get() = !(stamps.isNotEmpty() && pinWarp != null)
 }

@@ -40,6 +40,8 @@ import ch.lkmc.goo.engine.core.LensType
 import ch.lkmc.goo.engine.core.lerp
 import ch.lkmc.goo.engine.core.ExportSize
 import ch.lkmc.goo.engine.core.MovieSpeed
+import ch.lkmc.goo.engine.core.MlsControl
+import ch.lkmc.goo.engine.core.PinPull
 import ch.lkmc.goo.engine.core.PortalPair
 import ch.lkmc.goo.engine.core.Portals
 import ch.lkmc.goo.engine.core.PumpStamps
@@ -143,6 +145,16 @@ class EditorViewModel @Inject constructor(
          * answer in this app to "what does a tap do when a tool wants a
          * point".
          */
+        /**
+         * Taffy Pins mode (proposal 0016). A temporary canvas mode like
+         * Crop: constraints have to be placed before the edit is made,
+         * so the canvas cannot also be painting.
+         */
+        val pinsOn: Boolean = false,
+        /** Hold pins, in image UV. Up to [PinPull.MAX_HOLDS]. */
+        val holdPins: List<Pair<Float, Float>> = emptyList(),
+        /** The puck mid-drag: where it started and where it is now. */
+        val puck: MlsControl? = null,
         val portalsOn: Boolean = false,
         /** First ring, in image UV; null until one is planted. */
         val portalA: Pair<Float, Float>? = null,
@@ -1029,8 +1041,32 @@ class EditorViewModel @Inject constructor(
         // Leaving Echo forgets its source. An anchor the user cannot see
         // and did not plant this session is a clone that grafts from
         // somewhere surprising; re-arming is one tap.
+        // Pins is a MODE, not a brush, and it rides the tool rail
+        // because that is where a user goes looking for it. Selecting it
+        // opens the mode; selecting anything else closes it and drops an
+        // unfinished setup — pins are setup, not persistent furniture
+        // (proposal 0016).
+        val wasPins = _uiState.value.pinsOn
+        val nowPins = tool.isPinWarp
         _uiState.update {
-            it.copy(tool = tool, echoAnchor = if (tool == BrushTool.ECHO) it.echoAnchor else null)
+            it.copy(
+                tool = tool,
+                echoAnchor = if (tool == BrushTool.ECHO) it.echoAnchor else null,
+                pinsOn = nowPins,
+                holdPins = if (nowPins) it.holdPins else emptyList(),
+                puck = if (nowPins) it.puck else null,
+            )
+        }
+        if (nowPins && !wasPins) {
+            engineBridge?.invoke { beginPins() }
+        } else if (wasPins && !nowPins) {
+            // Put the picture back before releasing the base: a
+            // candidate left on screen would survive as goo the document
+            // never recorded.
+            engineBridge?.invoke {
+                previewPins(null)
+                endPins()
+            }
         }
     }
 
@@ -1061,6 +1097,71 @@ class EditorViewModel @Inject constructor(
      * any moment instead of a hidden "already placed, now what" mode
      * whose answer a user would have to remember.
      */
+    // ---- Taffy Pins (proposal 0016) ------------------------------------
+
+    /** Plant a hold pin, or lift one by tapping it again. */
+    fun tapPin(u: Float, v: Float, aspect: Float) {
+        _uiState.update { s ->
+            if (!s.pinsOn) return@update s
+            val hit = PinPull.nearestHold(s.holdPins, u, v, aspect)
+            when {
+                // Tapping a pin takes it back — the only way to undo a
+                // misplaced constraint without leaving the mode, and the
+                // gesture people already try.
+                hit != null -> s.copy(holdPins = s.holdPins.filterIndexed { i, _ -> i != hit })
+                s.holdPins.size >= PinPull.MAX_HOLDS -> s
+                else -> s.copy(holdPins = s.holdPins + Pair(u, v))
+            }
+        }
+    }
+
+    /** Begin a pull at ([u], [v]). @return true if the drag is a pull. */
+    fun beginPull(u: Float, v: Float): Boolean {
+        val s = _uiState.value
+        if (!s.pinsOn) return false
+        _uiState.update { it.copy(puck = MlsControl(u, v, u, v)) }
+        return true
+    }
+
+    /** Drag the puck; recomputes the candidate from the mode-entry base. */
+    fun extendPull(u: Float, v: Float) {
+        val s = _uiState.value
+        val puck = s.puck ?: return
+        val moved = puck.copy(tu = u, tv = v)
+        _uiState.update { it.copy(puck = moved) }
+        val candidate = PinPull.warpFor(s.holdPins, moved)
+        engineBridge?.invoke { previewPins(candidate) }
+    }
+
+    /** Release: commit one atomic pin pull, or put the base back. */
+    fun endPull() {
+        val s = _uiState.value
+        val puck = s.puck ?: return
+        _uiState.update { it.copy(puck = null) }
+        val warp = PinPull.warpFor(s.holdPins, puck)
+        if (warp == null) {
+            // Too short to be a pull. Restore rather than commit an
+            // identity, which would light up Undo for nothing.
+            engineBridge?.invoke { previewPins(null) }
+            return
+        }
+        goLive()
+        val stroke = Stroke(
+            tool = BrushTool.PINS,
+            radius = 0f,
+            strength = 0f,
+            stamps = emptyList(),
+            pinWarp = warp,
+        )
+        log.push(stroke)
+        // The preview already shows exactly this, computed from the same
+        // base by the same pass — so there is nothing to redraw, and a
+        // rebuild here would be a visible hitch for no change. Re-arm
+        // the base so the next pull starts from what is now on screen.
+        engineBridge?.invoke { beginPins() }
+        refreshHistoryFlags()
+    }
+
     fun togglePortals() {
         _uiState.update { it.copy(portalsOn = !it.portalsOn, portalA = null, portalB = null) }
     }

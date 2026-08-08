@@ -853,6 +853,22 @@ private fun WarpEditor(
                 // arrive through the ordinary canvas gesture, so unlike
                 // Funhouse this overlay owns no input and cannot swallow
                 // a stroke.
+                // Pins owns the canvas while open, on the Crop
+                // precedent: constraints are placed before the edit, so
+                // there is nothing left for a brush touch to mean.
+                if (state.pinsOn) {
+                    PinsOverlay(
+                        holds = state.holdPins,
+                        puck = state.puck,
+                        imageWidth = bmp.width,
+                        imageHeight = bmp.height,
+                        view = view,
+                        onTap = viewModel::tapPin,
+                        onPullStart = viewModel::beginPull,
+                        onPullMove = viewModel::extendPull,
+                        onPullEnd = viewModel::endPull,
+                    )
+                }
                 PortalRingsOverlay(
                     a = state.portalA.takeIf { state.portalsOn },
                     b = state.portalB.takeIf { state.portalsOn },

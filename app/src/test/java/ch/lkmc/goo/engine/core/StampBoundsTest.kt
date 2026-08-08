@@ -57,7 +57,10 @@ class StampBoundsTest {
             val h = 64
             val w = (h * aspect).toInt().coerceAtLeast(2)
             for ((cx, cy, radius) in cases) {
-                for (tool in BrushTool.entries) {
+                // Stamp tools only. A pin warp has no brush disc to
+                // scissor to — it is one full-field pass, which is the
+                // whole reason it is not a stamp.
+                for (tool in BrushTool.entries.filterNot { it.isPinWarp }) {
                     assertRectCoversChanges(tool, cx, cy, radius, aspect, w, h)
                 }
             }
@@ -128,7 +131,7 @@ class StampBoundsTest {
         val h = 64
         val aspect = 16f / 9f
         var worst = 0f
-        for (tool in BrushTool.entries) {
+        for (tool in BrushTool.entries.filterNot { it.isPinWarp }) {
             val before = DisplacementField(w, h, aspect).also { seed(it) }
             val after = DisplacementField(w, h, aspect).also { copyInto(before, it) }
             val stroke = Stroke(
